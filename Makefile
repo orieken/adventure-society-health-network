@@ -1,14 +1,17 @@
-.PHONY: dev test migrate build
+.PHONY: dev db migrate test build
 
 dev:
 	docker compose -f infra/docker-compose.yml up -d
+
+db:
+	docker compose -f infra/docker-compose.yml up -d postgres
 
 test:
 	mkdir -p .gocache
 	GOCACHE=$(PWD)/.gocache go test ./...
 
 migrate:
-	@echo "Run golang-migrate against infra/migrations with DATABASE_URL"
+	docker compose -f infra/docker-compose.yml exec -T postgres psql -U ashn_user -d ashn -f /migrations/000001_init.up.sql
 
 build:
 	mkdir -p .gocache

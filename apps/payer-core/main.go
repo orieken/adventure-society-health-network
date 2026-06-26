@@ -28,12 +28,13 @@ type store struct {
 }
 
 func main() {
+	db := openDB()
 	app := &store{
-		adventurers:  map[string]domain.Adventurer{},
-		providers:    seedProviders(),
-		claims:       map[string]domain.Claim{},
-		transactions: map[string]domain.Transaction{},
-		db:           openDB(),
+		adventurers:  loadAdventurers(db),
+		providers:    loadProviders(db),
+		claims:       loadClaims(db),
+		transactions: loadTransactions(db),
+		db:           db,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
@@ -62,6 +63,7 @@ func (s *store) enroll(w http.ResponseWriter, r *http.Request) {
 	tx := edimock.Generate834(adventurer, societyID)
 	s.saveAdventurer(adventurer)
 	s.saveTransaction(tx)
+	s.saveEnrollment(adventurer.ID, tx.ID, string(domain.TxStatusAccepted))
 	respond(w, http.StatusCreated, domain.Envelope{Data: adventurer, Lore: lore.ThemeTransaction(domain.Tx834, adventurer.Name, "Adventure Society"), Transaction: &tx})
 }
 
@@ -110,6 +112,7 @@ func (s *store) authRequest(w http.ResponseWriter, r *http.Request) {
 		decision = domain.TxStatusApproved
 	}
 	s.saveTransaction(tx)
+	s.saveAuthRequest(adventurer.ID, provider.ID, tx.ID, req.ServiceType, req.IncidentSeverity, string(decision))
 	data := map[string]any{"authorizationStatus": decision, "serviceType": req.ServiceType, "incidentSeverity": req.IncidentSeverity}
 	respond(w, http.StatusAccepted, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx278, adventurer.Name, provider.Name), Transaction: &tx})
 }
@@ -129,8 +132,8 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	tx := edimock.Generate837(claim)
 	claim.TransactionID = tx.ID
-	s.saveClaim(claim)
 	s.saveTransaction(tx)
+	s.saveClaim(claim)
 	respond(w, http.StatusCreated, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx837, adventurer.Name, provider.Name), Transaction: &tx})
 }
 
@@ -241,6 +244,28 @@ func (s *store) saveTransaction(tx domain.Transaction) {
 	log.Printf("[ASHN] transaction=%s type=%s status=%s lore=%s", tx.ID, tx.Type, tx.Status, lore.ThemeTransaction(tx.Type, tx.SenderID, tx.ReceiverID))
 }
 
+func (s *store) saveEnrollment(adventurerID, transactionID, status string) {
+	if s.db == nil {
+		return
+	}
+	_, err := s.db.Exec(`INSERT INTO enrollments (id, adventurer_id, transaction_id, status) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+		domain.NewID(), adventurerID, transactionID, status)
+	if err != nil {
+		log.Printf("[ASHN] postgres enrollment persistence failed: %v", err)
+	}
+}
+
+func (s *store) saveAuthRequest(adventurerID, providerID, transactionID, serviceType string, severity domain.IncidentSeverity, status string) {
+	if s.db == nil {
+		return
+	}
+	_, err := s.db.Exec(`INSERT INTO auth_requests (id, adventurer_id, provider_id, transaction_id, service_type, incident_severity, status) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+		domain.NewID(), adventurerID, providerID, transactionID, serviceType, severity, status)
+	if err != nil {
+		log.Printf("[ASHN] postgres auth request persistence failed: %v", err)
+	}
+}
+
 func seedProviders() map[string]domain.Provider {
 	providers := map[string]domain.Provider{}
 	for _, provider := range []domain.Provider{
@@ -254,6 +279,115 @@ func seedProviders() map[string]domain.Provider {
 		providers[provider.ID] = provider
 	}
 	return providers
+}
+
+func loadProviders(db *sql.DB) map[string]domain.Provider {
+	if db == nil {
+		return seedProviders()
+	}
+	rows, err := db.Query(`SELECT id, name, provider_type, tier_rank, region FROM providers ORDER BY name`)
+	if err != nil {
+		log.Printf("[ASHN] postgres provider load failed; using seed providers: %v", err)
+		return seedProviders()
+	}
+	defer rows.Close()
+	providers := map[string]domain.Provider{}
+	for rows.Next() {
+		var provider domain.Provider
+		if err := rows.Scan(&provider.ID, &provider.Name, &provider.ProviderType, &provider.TierRank, &provider.Region); err != nil {
+			log.Printf("[ASHN] postgres provider row skipped: %v", err)
+			continue
+		}
+		providers[provider.ID] = provider
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ASHN] postgres provider rows failed; using seed providers: %v", err)
+		return seedProviders()
+	}
+	if len(providers) == 0 {
+		log.Printf("[ASHN] postgres provider table empty; using seed providers")
+		return seedProviders()
+	}
+	log.Printf("[ASHN] loaded %d providers from Postgres", len(providers))
+	return providers
+}
+
+func loadAdventurers(db *sql.DB) map[string]domain.Adventurer {
+	adventurers := map[string]domain.Adventurer{}
+	if db == nil {
+		return adventurers
+	}
+	rows, err := db.Query(`SELECT id, name, rank, guild, region, coverage_status FROM adventurers`)
+	if err != nil {
+		log.Printf("[ASHN] postgres adventurer load failed: %v", err)
+		return adventurers
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var adventurer domain.Adventurer
+		if err := rows.Scan(&adventurer.ID, &adventurer.Name, &adventurer.Rank, &adventurer.Guild, &adventurer.Region, &adventurer.CoverageStatus); err != nil {
+			log.Printf("[ASHN] postgres adventurer row skipped: %v", err)
+			continue
+		}
+		adventurers[adventurer.ID] = adventurer
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ASHN] postgres adventurer rows failed: %v", err)
+	}
+	log.Printf("[ASHN] loaded %d adventurers from Postgres", len(adventurers))
+	return adventurers
+}
+
+func loadClaims(db *sql.DB) map[string]domain.Claim {
+	claims := map[string]domain.Claim{}
+	if db == nil {
+		return claims
+	}
+	rows, err := db.Query(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status FROM claims`)
+	if err != nil {
+		log.Printf("[ASHN] postgres claim load failed: %v", err)
+		return claims
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var claim domain.Claim
+		if err := rows.Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AmountCents, &claim.Status); err != nil {
+			log.Printf("[ASHN] postgres claim row skipped: %v", err)
+			continue
+		}
+		claims[claim.ID] = claim
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ASHN] postgres claim rows failed: %v", err)
+	}
+	log.Printf("[ASHN] loaded %d claims from Postgres", len(claims))
+	return claims
+}
+
+func loadTransactions(db *sql.DB) map[string]domain.Transaction {
+	transactions := map[string]domain.Transaction{}
+	if db == nil {
+		return transactions
+	}
+	rows, err := db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, created_at FROM transactions`)
+	if err != nil {
+		log.Printf("[ASHN] postgres transaction load failed: %v", err)
+		return transactions
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tx domain.Transaction
+		if err := rows.Scan(&tx.ID, &tx.Type, &tx.Status, &tx.SenderID, &tx.ReceiverID, &tx.Payload, &tx.CreatedAt); err != nil {
+			log.Printf("[ASHN] postgres transaction row skipped: %v", err)
+			continue
+		}
+		transactions[tx.ID] = tx
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ASHN] postgres transaction rows failed: %v", err)
+	}
+	log.Printf("[ASHN] loaded %d transactions from Postgres", len(transactions))
+	return transactions
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {

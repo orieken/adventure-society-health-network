@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ashn_password
     volumes:
       - ashn-postgres:/var/lib/postgresql/data
+      - ./migrations:/migrations:ro
 
 volumes:
   ashn-postgres:
-
