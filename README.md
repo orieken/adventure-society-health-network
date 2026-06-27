@@ -50,6 +50,25 @@ make db
 make migrate
 ```
 
+Inspect row counts:
+
+```sh
+make db-status
+```
+
+Reset the local database volume and reapply migrations:
+
+```sh
+make db-reset
+make migrate
+```
+
+For a clean demo database:
+
+```sh
+make demo-reset
+```
+
 Run services with persistence:
 
 ```sh

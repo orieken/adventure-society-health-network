@@ -55,7 +55,7 @@ echo "[ASHN] Starting Postgres..."
 (
   cd "$ROOT_DIR"
   make db
-  docker compose -f infra/docker-compose.yml exec -T postgres pg_isready -U ashn_user -d ashn >/dev/null
+  make db-wait
   make migrate
 )
 
