@@ -17,11 +17,12 @@ import (
 type providerApp struct {
 	providers map[string]domain.Provider
 	payerURL  string
+	client    *http.Client
 }
 
 func main() {
 	db := openDB()
-	app := providerApp{providers: loadProviders(db), payerURL: env("PAYER_CORE_URL", "http://localhost:8081")}
+	app := providerApp{providers: loadProviders(db), payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), client: http.DefaultClient}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("GET /providers", app.listProviders)
@@ -88,7 +89,7 @@ func (a providerApp) forward(w http.ResponseWriter, method, path string, body an
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.httpClient().Do(req)
 	if err != nil {
 		fail(w, http.StatusBadGateway, "payer-core unavailable", "The provider courier could not reach the Adventure Society.")
 		return
@@ -97,6 +98,13 @@ func (a providerApp) forward(w http.ResponseWriter, method, path string, body an
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func (a providerApp) httpClient() *http.Client {
+	if a.client != nil {
+		return a.client
+	}
+	return http.DefaultClient
 }
 
 func seedProviders() map[string]domain.Provider {

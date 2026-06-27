@@ -14,10 +14,11 @@ import (
 type gateway struct {
 	payerURL    string
 	providerURL string
+	client      *http.Client
 }
 
 func main() {
-	g := gateway{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), providerURL: env("PROVIDER_SERVICE_URL", "http://localhost:8082")}
+	g := gateway{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), providerURL: env("PROVIDER_SERVICE_URL", "http://localhost:8082"), client: http.DefaultClient}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/", g.route)
 	addr := env("API_GATEWAY_ADDR", ":8080")
@@ -62,7 +63,7 @@ func (g gateway) proxy(w http.ResponseWriter, r *http.Request, baseURL, path str
 		return
 	}
 	req.Header = r.Header.Clone()
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := g.httpClient().Do(req)
 	if err != nil {
 		fail(w, http.StatusBadGateway, "downstream unavailable", "The gateway courier vanished somewhere between towers.")
 		return
@@ -80,7 +81,7 @@ func (g gateway) proxy(w http.ResponseWriter, r *http.Request, baseURL, path str
 func (g gateway) health(w http.ResponseWriter) {
 	status := map[string]string{"api-gateway": "ok", "payer-core": "unknown", "provider-service": "unknown"}
 	for service, url := range map[string]string{"payer-core": g.payerURL, "provider-service": g.providerURL} {
-		resp, err := http.Get(url + "/health")
+		resp, err := g.httpClient().Get(url + "/health")
 		if err == nil && resp.StatusCode < 500 {
 			status[service] = "ok"
 		} else {
@@ -91,6 +92,13 @@ func (g gateway) health(w http.ResponseWriter) {
 		}
 	}
 	respond(w, http.StatusOK, domain.Envelope{Data: status, Lore: "The gateway crystal checked every downstream beacon."})
+}
+
+func (g gateway) httpClient() *http.Client {
+	if g.client != nil {
+		return g.client
+	}
+	return http.DefaultClient
 }
 
 func cors(next http.Handler) http.Handler {
