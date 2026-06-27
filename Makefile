@@ -1,7 +1,13 @@
-.PHONY: dev db migrate test build
+.PHONY: dev dev-stack demo db migrate test build
 
 dev:
 	docker compose -f infra/docker-compose.yml up -d
+
+dev-stack:
+	./scripts/dev-stack.sh
+
+demo:
+	./scripts/demo-flow.sh
 
 db:
 	docker compose -f infra/docker-compose.yml up -d postgres

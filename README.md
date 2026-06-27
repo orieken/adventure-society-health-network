@@ -10,6 +10,37 @@ make build
 make test
 ```
 
+## Run The Whole Stack
+
+Start Postgres, apply migrations, run all services, and launch the dashboard:
+
+```sh
+make dev-stack
+```
+
+Open the dashboard:
+
+```text
+http://localhost:9300
+```
+
+In a second terminal, run the full ASHN workflow:
+
+```sh
+make demo
+```
+
+The demo performs:
+
+1. `834` adventurer enrollment
+2. `270 → 271` eligibility verification
+3. `278` prior authorization
+4. `837` claim submission
+5. `276 → 277` claim status
+6. `835` payment/remittance
+
+Service logs are written under `.dev/logs/` while `make dev-stack` is running.
+
 ## Database
 
 Start Postgres and apply the schema/seed data:
