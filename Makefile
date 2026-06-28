@@ -1,4 +1,4 @@
-.PHONY: dev dev-stack demo demo-reset db db-wait db-reset db-status migrate test build
+.PHONY: dev dev-stack demo demo-reset db db-wait db-reset db-status migrate test test-integration build
 
 dev:
 	docker compose -f infra/docker-compose.yml up -d
@@ -21,6 +21,10 @@ db-wait:
 test:
 	mkdir -p .gocache
 	GOCACHE=$(PWD)/.gocache go test ./...
+
+test-integration: db migrate
+	mkdir -p .gocache
+	ASHN_INTEGRATION=1 DATABASE_URL="postgres://ashn_user:ashn_password@localhost:5432/ashn?sslmode=disable" GOCACHE=$(PWD)/.gocache go test ./apps/payer-core -run Integration -count=1 -v
 
 migrate:
 	./scripts/wait-for-postgres.sh

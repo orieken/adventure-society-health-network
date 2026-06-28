@@ -12,6 +12,14 @@ make build
 make test
 ```
 
+Run DB-backed integration tests:
+
+```sh
+make test-integration
+```
+
+This target requires Docker to be running because it starts Postgres before executing the integration suite.
+
 ## Run The Whole Stack
 
 Start Postgres, apply migrations, run all services, and launch the dashboard:
