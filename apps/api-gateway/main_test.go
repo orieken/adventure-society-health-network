@@ -65,6 +65,24 @@ func TestGatewayRoutesProvidersToProviderService(t *testing.T) {
 	assert.Equal(t, "Provider registry opened.", envelope.Lore)
 }
 
+func TestGatewayRoutesPersistedListsToPayerCore(t *testing.T) {
+	paths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.URL.RequestURI())
+		return jsonResponse(http.StatusOK, domain.Envelope{Data: []string{}, Lore: "List returned."})
+	})}
+
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", client: client})
+	for _, path := range []string{"/v1/adventurers?limit=10", "/v1/claims?limit=10", "/v1/transactions?limit=25"} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		handler.ServeHTTP(response, request)
+		assert.Equal(t, http.StatusOK, response.Code)
+	}
+
+	assert.Equal(t, []string{"/adventurers?limit=10", "/claims?limit=10", "/transactions?limit=25"}, paths)
+}
+
 func TestGatewayHealthAggregatesDownstreamServices(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		assert.Equal(t, "/health", r.URL.Path)

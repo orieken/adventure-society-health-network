@@ -2,6 +2,8 @@
 
 ASHN is a lore-themed EDI healthcare transaction simulator. Phase 1 uses structured JSON payloads that mirror X12 transaction flow.
 
+For a presentation-ready summary, see `docs/elevator-pitch.md`.
+
 ## Quick Start
 
 ```sh

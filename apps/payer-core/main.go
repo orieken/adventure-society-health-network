@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -39,16 +41,41 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /enrollments", app.enroll)
+	mux.HandleFunc("GET /adventurers", app.listAdventurers)
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
+	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
+	mux.HandleFunc("GET /transactions", app.listTransactions)
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	addr := env("PAYER_CORE_ADDR", ":8081")
 	log.Printf("[ASHN] payer-core listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
+}
+
+func (s *store) listAdventurers(w http.ResponseWriter, r *http.Request) {
+	limit := parseLimit(r, 25)
+	if s.db != nil {
+		adventurers, err := s.queryAdventurers(limit)
+		if err == nil {
+			respond(w, http.StatusOK, domain.Envelope{Data: adventurers, Lore: "The Society opened its recent adventurer registry."})
+			return
+		}
+		log.Printf("[ASHN] postgres adventurer list failed; using memory: %v", err)
+	}
+	s.mu.RLock()
+	adventurers := make([]domain.Adventurer, 0, len(s.adventurers))
+	for _, adventurer := range s.adventurers {
+		adventurers = append(adventurers, adventurer)
+	}
+	s.mu.RUnlock()
+	sort.Slice(adventurers, func(i, j int) bool {
+		return adventurers[i].Name < adventurers[j].Name
+	})
+	respond(w, http.StatusOK, domain.Envelope{Data: clamp(adventurers, limit), Lore: "The Society opened its adventurer registry from active memory."})
 }
 
 func (s *store) enroll(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +164,28 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusCreated, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx837, adventurer.Name, provider.Name), Transaction: &tx})
 }
 
+func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
+	limit := parseLimit(r, 25)
+	if s.db != nil {
+		claims, err := s.queryClaims(limit)
+		if err == nil {
+			respond(w, http.StatusOK, domain.Envelope{Data: claims, Lore: "Recent claim scrolls were pulled from the Society ledger."})
+			return
+		}
+		log.Printf("[ASHN] postgres claim list failed; using memory: %v", err)
+	}
+	s.mu.RLock()
+	claims := make([]domain.Claim, 0, len(s.claims))
+	for _, claim := range s.claims {
+		claims = append(claims, claim)
+	}
+	s.mu.RUnlock()
+	sort.Slice(claims, func(i, j int) bool {
+		return claims[i].ID > claims[j].ID
+	})
+	respond(w, http.StatusOK, domain.Envelope{Data: clamp(claims, limit), Lore: "Recent claim scrolls were pulled from active memory."})
+}
+
 func (s *store) claimStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	s.mu.RLock()
@@ -186,6 +235,28 @@ func (s *store) getTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, domain.Envelope{Data: tx, Transaction: &tx})
+}
+
+func (s *store) listTransactions(w http.ResponseWriter, r *http.Request) {
+	limit := parseLimit(r, 25)
+	if s.db != nil {
+		transactions, err := s.queryTransactions(limit)
+		if err == nil {
+			respond(w, http.StatusOK, domain.Envelope{Data: transactions, Lore: "Recent EDI runes were pulled from the transaction ledger."})
+			return
+		}
+		log.Printf("[ASHN] postgres transaction list failed; using memory: %v", err)
+	}
+	s.mu.RLock()
+	transactions := make([]domain.Transaction, 0, len(s.transactions))
+	for _, transaction := range s.transactions {
+		transactions = append(transactions, transaction)
+	}
+	s.mu.RUnlock()
+	sort.Slice(transactions, func(i, j int) bool {
+		return transactions[i].CreatedAt.After(transactions[j].CreatedAt)
+	})
+	respond(w, http.StatusOK, domain.Envelope{Data: clamp(transactions, limit), Lore: "Recent EDI runes were pulled from active memory."})
 }
 
 func (s *store) findAdventurerProvider(w http.ResponseWriter, adventurerID, providerID string) (domain.Adventurer, domain.Provider, bool) {
@@ -388,6 +459,79 @@ func loadTransactions(db *sql.DB) map[string]domain.Transaction {
 	}
 	log.Printf("[ASHN] loaded %d transactions from Postgres", len(transactions))
 	return transactions
+}
+
+func (s *store) queryAdventurers(limit int) ([]domain.Adventurer, error) {
+	rows, err := s.db.Query(`SELECT id, name, rank, guild, region, coverage_status FROM adventurers ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	adventurers := []domain.Adventurer{}
+	for rows.Next() {
+		var adventurer domain.Adventurer
+		if err := rows.Scan(&adventurer.ID, &adventurer.Name, &adventurer.Rank, &adventurer.Guild, &adventurer.Region, &adventurer.CoverageStatus); err != nil {
+			return nil, err
+		}
+		adventurers = append(adventurers, adventurer)
+	}
+	return adventurers, rows.Err()
+}
+
+func (s *store) queryClaims(limit int) ([]domain.Claim, error) {
+	rows, err := s.db.Query(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status FROM claims ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	claims := []domain.Claim{}
+	for rows.Next() {
+		var claim domain.Claim
+		if err := rows.Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AmountCents, &claim.Status); err != nil {
+			return nil, err
+		}
+		claims = append(claims, claim)
+	}
+	return claims, rows.Err()
+}
+
+func (s *store) queryTransactions(limit int) ([]domain.Transaction, error) {
+	rows, err := s.db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, created_at FROM transactions ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	transactions := []domain.Transaction{}
+	for rows.Next() {
+		var transaction domain.Transaction
+		if err := rows.Scan(&transaction.ID, &transaction.Type, &transaction.Status, &transaction.SenderID, &transaction.ReceiverID, &transaction.Payload, &transaction.CreatedAt); err != nil {
+			return nil, err
+		}
+		transactions = append(transactions, transaction)
+	}
+	return transactions, rows.Err()
+}
+
+func parseLimit(r *http.Request, fallback int) int {
+	value := r.URL.Query().Get("limit")
+	if value == "" {
+		return fallback
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 {
+		return fallback
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func clamp[T any](items []T, limit int) []T {
+	if len(items) <= limit {
+		return items
+	}
+	return items[:limit]
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {

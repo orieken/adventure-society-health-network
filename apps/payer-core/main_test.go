@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"ashn/packages/domain"
 
@@ -107,6 +108,37 @@ func TestMissingClaimReturnsErrorEnvelope(t *testing.T) {
 	assert.NotEmpty(t, envelope.Lore)
 }
 
+func TestListEndpointsReturnPersistedMemory(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankIron, Guild: "Grim Foundations", Region: domain.RegionGreenstone, CoverageStatus: domain.CoverageActive}
+	app.claims["claim-1"] = domain.Claim{ID: "claim-1", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", IncidentSeverity: domain.SeverityAwakened, AmountCents: 125000, Status: domain.ClaimSubmitted}
+	app.transactions["tx-old"] = domain.Transaction{ID: "tx-old", Type: domain.Tx834, Status: domain.TxStatusAccepted, CreatedAt: time.Now().Add(-time.Hour)}
+	app.transactions["tx-new"] = domain.Transaction{ID: "tx-new", Type: domain.Tx837, Status: domain.TxStatusAccepted, CreatedAt: time.Now()}
+	mux := newPayerTestMux(app)
+
+	adventurersResponse := httptest.NewRecorder()
+	mux.ServeHTTP(adventurersResponse, httptest.NewRequest(http.MethodGet, "/adventurers?limit=10", nil))
+	assert.Equal(t, http.StatusOK, adventurersResponse.Code)
+	var adventurers []domain.Adventurer
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, adventurersResponse).Data, &adventurers))
+	assert.Len(t, adventurers, 1)
+
+	claimsResponse := httptest.NewRecorder()
+	mux.ServeHTTP(claimsResponse, httptest.NewRequest(http.MethodGet, "/claims?limit=10", nil))
+	assert.Equal(t, http.StatusOK, claimsResponse.Code)
+	var claims []domain.Claim
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, claimsResponse).Data, &claims))
+	assert.Len(t, claims, 1)
+
+	transactionsResponse := httptest.NewRecorder()
+	mux.ServeHTTP(transactionsResponse, httptest.NewRequest(http.MethodGet, "/transactions?limit=1", nil))
+	assert.Equal(t, http.StatusOK, transactionsResponse.Code)
+	var transactions []domain.Transaction
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, transactionsResponse).Data, &transactions))
+	require.Len(t, transactions, 1)
+	assert.Equal(t, "tx-new", transactions[0].ID)
+}
+
 func newTestStore() *store {
 	return &store{
 		adventurers:  map[string]domain.Adventurer{},
@@ -119,10 +151,13 @@ func newTestStore() *store {
 func newPayerTestMux(app *store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /enrollments", app.enroll)
+	mux.HandleFunc("GET /adventurers", app.listAdventurers)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
+	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
+	mux.HandleFunc("GET /transactions", app.listTransactions)
 	return mux
 }
 

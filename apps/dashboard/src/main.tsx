@@ -55,6 +55,9 @@ function App() {
   const [selectedProviderId, setSelectedProviderId] = useState("provider-vitesse-temple");
   const [adventurer, setAdventurer] = useState<Adventurer | null>(null);
   const [claim, setClaim] = useState<Claim | null>(null);
+  const [recentAdventurers, setRecentAdventurers] = useState<Adventurer[]>([]);
+  const [recentClaims, setRecentClaims] = useState<Claim[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [events, setEvents] = useState<Envelope[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -68,12 +71,18 @@ function App() {
   }, []);
 
   async function refresh() {
-    const [healthResult, providersResult] = await Promise.all([
+    const [healthResult, providersResult, adventurersResult, claimsResult, transactionsResult] = await Promise.all([
       request<Record<string, string>>("/v1/health"),
-      request<Provider[]>("/v1/providers")
+      request<Provider[]>("/v1/providers"),
+      request<Adventurer[]>("/v1/adventurers?limit=10"),
+      request<Claim[]>("/v1/claims?limit=10"),
+      request<Transaction[]>("/v1/transactions?limit=25")
     ]);
     setHealth(healthResult);
     setProviders(providersResult.data ?? []);
+    setRecentAdventurers(adventurersResult.data ?? []);
+    setRecentClaims(claimsResult.data ?? []);
+    setRecentTransactions(transactionsResult.data ?? []);
     if (providersResult.lore) {
       pushEvent(providersResult);
     }
@@ -109,6 +118,7 @@ function App() {
     });
     setAdventurer(result.data ?? null);
     pushEvent(result);
+    await refresh();
     setBusy(false);
   }
 
@@ -120,6 +130,7 @@ function App() {
       body: JSON.stringify({ adventurerId: adventurer.id, providerId: selectedProviderId })
     });
     pushEvent(result);
+    await refresh();
     setBusy(false);
   }
 
@@ -136,6 +147,7 @@ function App() {
       })
     });
     pushEvent(result);
+    await refresh();
     setBusy(false);
   }
 
@@ -153,6 +165,7 @@ function App() {
     });
     setClaim(result.data ?? null);
     pushEvent(result);
+    await refresh();
     setBusy(false);
   }
 
@@ -165,6 +178,7 @@ function App() {
     });
     setClaim(result.data ?? null);
     pushEvent(result);
+    await refresh();
     setBusy(false);
   }
 
@@ -191,6 +205,12 @@ function App() {
             ))}
           </div>
         </div>
+      </section>
+
+      <section className="stats-grid">
+        <MetricCard label="Adventurers" value={recentAdventurers.length} detail="recent registrations" />
+        <MetricCard label="Claims" value={recentClaims.length} detail={`${recentClaims.filter((item) => item.status === "Paid").length} paid`} />
+        <MetricCard label="Transactions" value={recentTransactions.length} detail="ledger entries loaded" />
       </section>
 
       <section className="grid">
@@ -266,7 +286,7 @@ function App() {
 
       <section className="panel ledger">
         <div className="ledger-title">
-          <h2>Transaction Ledger</h2>
+          <h2>Live Session Events</h2>
           <button onClick={refresh} disabled={busy}>Refresh</button>
         </div>
         {events.length === 0 ? (
@@ -275,7 +295,55 @@ function App() {
           events.map((event, index) => <LedgerEvent key={index} event={event} />)
         )}
       </section>
+
+      <section className="history-grid">
+        <div className="panel ledger">
+          <div className="ledger-title">
+            <h2>Persisted Transactions</h2>
+            <span className="muted">from Postgres</span>
+          </div>
+          {recentTransactions.length === 0 ? (
+            <p className="muted">No persisted transactions yet.</p>
+          ) : (
+            recentTransactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} />)
+          )}
+        </div>
+
+        <div className="panel ledger">
+          <div className="ledger-title">
+            <h2>Recent Claims</h2>
+            <span className="muted">from Postgres</span>
+          </div>
+          {recentClaims.length === 0 ? (
+            <p className="muted">No claims yet.</p>
+          ) : (
+            recentClaims.map((item) => <ClaimRow key={item.id} claim={item} />)
+          )}
+        </div>
+
+        <div className="panel ledger">
+          <div className="ledger-title">
+            <h2>Recent Adventurers</h2>
+            <span className="muted">from Postgres</span>
+          </div>
+          {recentAdventurers.length === 0 ? (
+            <p className="muted">No adventurers yet.</p>
+          ) : (
+            recentAdventurers.map((item) => <AdventurerRow key={item.id} adventurer={item} />)
+          )}
+        </div>
+      </section>
     </main>
+  );
+}
+
+function MetricCard({ label, value, detail }: { label: string; value: number; detail: string }) {
+  return (
+    <div className="metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <p>{detail}</p>
+    </div>
   );
 }
 
@@ -299,9 +367,44 @@ function LedgerEvent({ event }: { event: Envelope }) {
   );
 }
 
+function TransactionRow({ transaction }: { transaction: Transaction }) {
+  return (
+    <article className="compact-row">
+      <div>
+        <strong>{transaction.type} · {transaction.status}</strong>
+        <span>{new Date(transaction.createdAt).toLocaleString()}</span>
+      </div>
+      <code>{transaction.id}</code>
+    </article>
+  );
+}
+
+function ClaimRow({ claim }: { claim: Claim }) {
+  return (
+    <article className="compact-row">
+      <div>
+        <strong>{claim.status} · {claim.incidentSeverity}</strong>
+        <span>${(claim.amountCents / 100).toLocaleString()} · provider {claim.providerId}</span>
+      </div>
+      <code>{claim.id}</code>
+    </article>
+  );
+}
+
+function AdventurerRow({ adventurer }: { adventurer: Adventurer }) {
+  return (
+    <article className="compact-row">
+      <div>
+        <strong>{adventurer.name}</strong>
+        <span>{adventurer.rank} · {adventurer.region} · {adventurer.coverageStatus}</span>
+      </div>
+      <code>{adventurer.id}</code>
+    </article>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
-

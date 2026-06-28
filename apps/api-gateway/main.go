@@ -37,15 +37,21 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.health(w)
 	case path == "/adventurers" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, "/enrollments")
+	case path == "/adventurers" && r.Method == http.MethodGet:
+		g.proxy(w, r, g.payerURL, path)
 	case strings.HasPrefix(path, "/adventurers/") && r.Method == http.MethodGet:
 		g.proxy(w, r, g.payerURL, path)
 	case path == "/eligibility" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, "/eligibility/query")
 	case path == "/auth-requests" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, path)
+	case path == "/claims" && r.Method == http.MethodGet:
+		g.proxy(w, r, g.payerURL, path)
 	case path == "/claims" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, path)
 	case strings.HasPrefix(path, "/claims/"):
+		g.proxy(w, r, g.payerURL, path)
+	case path == "/transactions" && r.Method == http.MethodGet:
 		g.proxy(w, r, g.payerURL, path)
 	case strings.HasPrefix(path, "/transactions/") && r.Method == http.MethodGet:
 		g.proxy(w, r, g.payerURL, path)
@@ -57,7 +63,11 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g gateway) proxy(w http.ResponseWriter, r *http.Request, baseURL, path string) {
-	req, err := http.NewRequest(r.Method, baseURL+path, r.Body)
+	targetURL := baseURL + path
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+	req, err := http.NewRequest(r.Method, targetURL, r.Body)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "request creation failed", "The gateway scribe could not bind the courier spell.")
 		return

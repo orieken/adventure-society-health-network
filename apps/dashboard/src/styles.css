@@ -71,14 +71,52 @@ h2 {
   gap: 24px;
 }
 
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+
 .panel,
-.status-card {
+.status-card,
+.metric-card {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 28px;
   background: rgba(22, 17, 32, 0.78);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
   padding: 24px;
   backdrop-filter: blur(18px);
+}
+
+.metric-card {
+  display: grid;
+  gap: 8px;
+}
+
+.metric-card span {
+  color: #f6b95a;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.metric-card strong {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.metric-card p {
+  margin: 0;
+  color: #d8c8b8;
 }
 
 .status-card {
@@ -176,7 +214,8 @@ button:disabled {
 
 .provider-card,
 .result,
-.event {
+.event,
+.compact-row {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.06);
@@ -210,6 +249,21 @@ code {
   gap: 12px;
 }
 
+.compact-row {
+  display: grid;
+  gap: 8px;
+}
+
+.compact-row div {
+  display: grid;
+  gap: 4px;
+}
+
+.compact-row span {
+  color: #d8c8b8;
+  font-size: 13px;
+}
+
 .event p {
   margin: 0;
   color: #fff7eb;
@@ -238,7 +292,9 @@ pre {
 
 @media (max-width: 820px) {
   .hero,
-  .grid {
+  .grid,
+  .stats-grid,
+  .history-grid {
     grid-template-columns: 1fr;
   }
 }
