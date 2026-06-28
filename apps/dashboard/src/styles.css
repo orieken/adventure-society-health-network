@@ -212,6 +212,11 @@ button:disabled {
   opacity: 0.45;
 }
 
+button.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff7eb;
+}
+
 .provider-card,
 .result,
 .event,
@@ -254,6 +259,17 @@ code {
   gap: 8px;
 }
 
+.clickable {
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.clickable:hover {
+  border-color: rgba(246, 185, 90, 0.55);
+  background: rgba(246, 185, 90, 0.08);
+  transform: translateY(-1px);
+}
+
 .compact-row div {
   display: grid;
   gap: 4px;
@@ -290,11 +306,49 @@ pre {
   color: #a9988c;
 }
 
+.detail-panel {
+  margin-top: 24px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.detail-grid pre {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.detail-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 14px;
+  min-width: 0;
+}
+
+.detail-item span {
+  color: #f6b95a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.detail-item strong {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 820px) {
   .hero,
   .grid,
   .stats-grid,
-  .history-grid {
+  .history-grid,
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -58,6 +58,8 @@ function App() {
   const [recentAdventurers, setRecentAdventurers] = useState<Adventurer[]>([]);
   const [recentClaims, setRecentClaims] = useState<Claim[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
+  const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [events, setEvents] = useState<Envelope[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -179,6 +181,27 @@ function App() {
     setClaim(result.data ?? null);
     pushEvent(result);
     await refresh();
+    setBusy(false);
+  }
+
+  async function openClaimDetail(claimId: string) {
+    setBusy(true);
+    const result = await request<Claim>(`/v1/claims/${claimId}`);
+    if (result.data) {
+      setSelectedClaim(result.data);
+      setSelectedTransaction(null);
+    }
+    setBusy(false);
+  }
+
+  async function openTransactionDetail(transactionId: string) {
+    setBusy(true);
+    const result = await request<Transaction>(`/v1/transactions/${transactionId}`);
+    const transaction = result.transaction ?? result.data;
+    if (transaction) {
+      setSelectedTransaction(transaction);
+      setSelectedClaim(null);
+    }
     setBusy(false);
   }
 
@@ -305,7 +328,9 @@ function App() {
           {recentTransactions.length === 0 ? (
             <p className="muted">No persisted transactions yet.</p>
           ) : (
-            recentTransactions.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} />)
+            recentTransactions.map((transaction) => (
+              <TransactionRow key={transaction.id} transaction={transaction} onSelect={openTransactionDetail} />
+            ))
           )}
         </div>
 
@@ -317,7 +342,7 @@ function App() {
           {recentClaims.length === 0 ? (
             <p className="muted">No claims yet.</p>
           ) : (
-            recentClaims.map((item) => <ClaimRow key={item.id} claim={item} />)
+            recentClaims.map((item) => <ClaimRow key={item.id} claim={item} onSelect={openClaimDetail} />)
           )}
         </div>
 
@@ -333,6 +358,42 @@ function App() {
           )}
         </div>
       </section>
+
+      {(selectedClaim || selectedTransaction) && (
+        <section className="panel detail-panel">
+          <div className="ledger-title">
+            <h2>{selectedTransaction ? "Transaction Detail" : "Claim Detail"}</h2>
+            <button className="secondary" onClick={() => {
+              setSelectedClaim(null);
+              setSelectedTransaction(null);
+            }}>
+              Close
+            </button>
+          </div>
+          {selectedTransaction && (
+            <div className="detail-grid">
+              <DetailItem label="Type" value={selectedTransaction.type} />
+              <DetailItem label="Status" value={selectedTransaction.status} />
+              <DetailItem label="Sender" value={selectedTransaction.senderId} />
+              <DetailItem label="Receiver" value={selectedTransaction.receiverId} />
+              <DetailItem label="Created" value={new Date(selectedTransaction.createdAt).toLocaleString()} />
+              <DetailItem label="ID" value={selectedTransaction.id} />
+              <pre>{JSON.stringify(selectedTransaction.payload, null, 2)}</pre>
+            </div>
+          )}
+          {selectedClaim && (
+            <div className="detail-grid">
+              <DetailItem label="Status" value={selectedClaim.status} />
+              <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
+              <DetailItem label="Amount" value={`$${(selectedClaim.amountCents / 100).toLocaleString()}`} />
+              <DetailItem label="Adventurer" value={selectedClaim.adventurerId} />
+              <DetailItem label="Provider" value={selectedClaim.providerId} />
+              <DetailItem label="Transaction" value={selectedClaim.transactionId} />
+              <DetailItem label="Claim ID" value={selectedClaim.id} />
+            </div>
+          )}
+        </section>
+      )}
     </main>
   );
 }
@@ -367,9 +428,18 @@ function LedgerEvent({ event }: { event: Envelope }) {
   );
 }
 
-function TransactionRow({ transaction }: { transaction: Transaction }) {
+function DetailItem({ label, value }: { label: string; value: string }) {
   return (
-    <article className="compact-row">
+    <div className="detail-item">
+      <span>{label}</span>
+      <strong>{value || "—"}</strong>
+    </div>
+  );
+}
+
+function TransactionRow({ transaction, onSelect }: { transaction: Transaction; onSelect: (transactionId: string) => void }) {
+  return (
+    <article className="compact-row clickable" onClick={() => onSelect(transaction.id)}>
       <div>
         <strong>{transaction.type} · {transaction.status}</strong>
         <span>{new Date(transaction.createdAt).toLocaleString()}</span>
@@ -379,9 +449,9 @@ function TransactionRow({ transaction }: { transaction: Transaction }) {
   );
 }
 
-function ClaimRow({ claim }: { claim: Claim }) {
+function ClaimRow({ claim, onSelect }: { claim: Claim; onSelect: (claimId: string) => void }) {
   return (
-    <article className="compact-row">
+    <article className="compact-row clickable" onClick={() => onSelect(claim.id)}>
       <div>
         <strong>{claim.status} · {claim.incidentSeverity}</strong>
         <span>${(claim.amountCents / 100).toLocaleString()} · provider {claim.providerId}</span>

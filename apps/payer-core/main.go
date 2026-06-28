@@ -47,6 +47,7 @@ func main() {
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
+	mux.HandleFunc("GET /claims/{id}", app.getClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)
@@ -184,6 +185,18 @@ func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
 		return claims[i].ID > claims[j].ID
 	})
 	respond(w, http.StatusOK, domain.Envelope{Data: clamp(claims, limit), Lore: "Recent claim scrolls were pulled from active memory."})
+}
+
+func (s *store) getClaim(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.mu.RLock()
+	claim, ok := s.claims[id]
+	s.mu.RUnlock()
+	if !ok {
+		fail(w, http.StatusNotFound, "claim not found", "No claim scroll with that seal exists in the Society ledger.")
+		return
+	}
+	respond(w, http.StatusOK, domain.Envelope{Data: claim, Lore: "The Society retrieved a claim scroll from the ledger."})
 }
 
 func (s *store) claimStatus(w http.ResponseWriter, r *http.Request) {

@@ -94,6 +94,40 @@ func TestClaimPaymentUpdatesClaimAndEmits835(t *testing.T) {
 	assert.Equal(t, domain.ClaimPaid, app.claims[claim.ID].Status)
 }
 
+func TestGetClaimReturnsClaimDetail(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{ID: "claim-1", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", IncidentSeverity: domain.SeverityAwakened, AmountCents: 125000, Status: domain.ClaimSubmitted}
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/claims/claim-1", nil)
+	mux.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	var claim domain.Claim
+	require.NoError(t, json.Unmarshal(envelope.Data, &claim))
+	assert.Equal(t, "claim-1", claim.ID)
+	assert.Equal(t, domain.ClaimSubmitted, claim.Status)
+	assert.NotEmpty(t, envelope.Lore)
+}
+
+func TestGetTransactionReturnsTransactionDetail(t *testing.T) {
+	app := newTestStore()
+	app.transactions["tx-1"] = domain.Transaction{ID: "tx-1", Type: domain.Tx837, Status: domain.TxStatusAccepted, CreatedAt: time.Now()}
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/transactions/tx-1", nil)
+	mux.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, "tx-1", envelope.Transaction.ID)
+	assert.Equal(t, domain.Tx837, envelope.Transaction.Type)
+}
+
 func TestMissingClaimReturnsErrorEnvelope(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)
@@ -155,9 +189,11 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
+	mux.HandleFunc("GET /claims/{id}", app.getClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)
+	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	return mux
 }
 
