@@ -49,6 +49,17 @@ type Transaction = {
 
 const apiUrl = import.meta.env.VITE_ASHN_API_URL ?? "http://localhost:8080";
 
+function matchesSearch(value: unknown, searchTerm: string) {
+  const query = searchTerm.trim().toLowerCase();
+  if (!query) return true;
+  return JSON.stringify(value).toLowerCase().includes(query);
+}
+
+function providerLabel(providerId: string, providers: Provider[]) {
+  if (providerId === "All") return "All";
+  return providers.find((provider) => provider.id === providerId)?.name ?? providerId;
+}
+
 function App() {
   const [health, setHealth] = useState<Envelope<Record<string, string>> | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -62,10 +73,58 @@ function App() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [events, setEvents] = useState<Envelope[]>([]);
   const [busy, setBusy] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState("All");
+  const [transactionStatusFilter, setTransactionStatusFilter] = useState("All");
+  const [claimStatusFilter, setClaimStatusFilter] = useState("All");
+  const [providerFilter, setProviderFilter] = useState("All");
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
     [providers, selectedProviderId]
+  );
+
+  const transactionTypes = useMemo(
+    () => ["All", ...Array.from(new Set(recentTransactions.map((transaction) => transaction.type))).sort()],
+    [recentTransactions]
+  );
+
+  const transactionStatuses = useMemo(
+    () => ["All", ...Array.from(new Set(recentTransactions.map((transaction) => transaction.status))).sort()],
+    [recentTransactions]
+  );
+
+  const claimStatuses = useMemo(
+    () => ["All", ...Array.from(new Set(recentClaims.map((item) => item.status))).sort()],
+    [recentClaims]
+  );
+
+  const providerFilters = useMemo(
+    () => ["All", ...providers.map((provider) => provider.id)],
+    [providers]
+  );
+
+  const filteredTransactions = useMemo(
+    () => recentTransactions.filter((transaction) => {
+      const matchesType = transactionTypeFilter === "All" || transaction.type === transactionTypeFilter;
+      const matchesStatus = transactionStatusFilter === "All" || transaction.status === transactionStatusFilter;
+      return matchesType && matchesStatus && matchesSearch(transaction, searchTerm);
+    }),
+    [recentTransactions, searchTerm, transactionStatusFilter, transactionTypeFilter]
+  );
+
+  const filteredClaims = useMemo(
+    () => recentClaims.filter((item) => {
+      const matchesStatus = claimStatusFilter === "All" || item.status === claimStatusFilter;
+      const matchesProvider = providerFilter === "All" || item.providerId === providerFilter;
+      return matchesStatus && matchesProvider && matchesSearch(item, searchTerm);
+    }),
+    [claimStatusFilter, providerFilter, recentClaims, searchTerm]
+  );
+
+  const filteredAdventurers = useMemo(
+    () => recentAdventurers.filter((item) => matchesSearch(item, searchTerm)),
+    [recentAdventurers, searchTerm]
   );
 
   useEffect(() => {
@@ -231,9 +290,9 @@ function App() {
       </section>
 
       <section className="stats-grid">
-        <MetricCard label="Adventurers" value={recentAdventurers.length} detail="recent registrations" />
-        <MetricCard label="Claims" value={recentClaims.length} detail={`${recentClaims.filter((item) => item.status === "Paid").length} paid`} />
-        <MetricCard label="Transactions" value={recentTransactions.length} detail="ledger entries loaded" />
+        <MetricCard label="Adventurers" value={filteredAdventurers.length} detail={`${recentAdventurers.length} recent registrations`} />
+        <MetricCard label="Claims" value={filteredClaims.length} detail={`${recentClaims.filter((item) => item.status === "Paid").length} paid`} />
+        <MetricCard label="Transactions" value={filteredTransactions.length} detail={`${recentTransactions.length} ledger entries loaded`} />
       </section>
 
       <section className="grid">
@@ -319,16 +378,70 @@ function App() {
         )}
       </section>
 
+      <section className="panel filters-panel">
+        <div className="ledger-title">
+          <h2>Search & Filters</h2>
+          <button
+            className="secondary"
+            onClick={() => {
+              setSearchTerm("");
+              setTransactionTypeFilter("All");
+              setTransactionStatusFilter("All");
+              setClaimStatusFilter("All");
+              setProviderFilter("All");
+            }}
+          >
+            Clear
+          </button>
+        </div>
+        <div className="filters-grid">
+          <label className="wide-filter">
+            Search ledger
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search IDs, names, statuses, providers..."
+            />
+          </label>
+          <label>
+            Transaction type
+            <select value={transactionTypeFilter} onChange={(event) => setTransactionTypeFilter(event.target.value)}>
+              {transactionTypes.map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+          <label>
+            Transaction status
+            <select value={transactionStatusFilter} onChange={(event) => setTransactionStatusFilter(event.target.value)}>
+              {transactionStatuses.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+          <label>
+            Claim status
+            <select value={claimStatusFilter} onChange={(event) => setClaimStatusFilter(event.target.value)}>
+              {claimStatuses.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+          <label>
+            Provider
+            <select value={providerFilter} onChange={(event) => setProviderFilter(event.target.value)}>
+              {providerFilters.map((providerId) => (
+                <option value={providerId} key={providerId}>{providerLabel(providerId, providers)}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
       <section className="history-grid">
         <div className="panel ledger">
           <div className="ledger-title">
             <h2>Persisted Transactions</h2>
             <span className="muted">from Postgres</span>
           </div>
-          {recentTransactions.length === 0 ? (
-            <p className="muted">No persisted transactions yet.</p>
+          {filteredTransactions.length === 0 ? (
+            <p className="muted">No transactions match the current filters.</p>
           ) : (
-            recentTransactions.map((transaction) => (
+            filteredTransactions.map((transaction) => (
               <TransactionRow key={transaction.id} transaction={transaction} onSelect={openTransactionDetail} />
             ))
           )}
@@ -339,10 +452,10 @@ function App() {
             <h2>Recent Claims</h2>
             <span className="muted">from Postgres</span>
           </div>
-          {recentClaims.length === 0 ? (
-            <p className="muted">No claims yet.</p>
+          {filteredClaims.length === 0 ? (
+            <p className="muted">No claims match the current filters.</p>
           ) : (
-            recentClaims.map((item) => <ClaimRow key={item.id} claim={item} onSelect={openClaimDetail} />)
+            filteredClaims.map((item) => <ClaimRow key={item.id} claim={item} onSelect={openClaimDetail} />)
           )}
         </div>
 
@@ -351,10 +464,10 @@ function App() {
             <h2>Recent Adventurers</h2>
             <span className="muted">from Postgres</span>
           </div>
-          {recentAdventurers.length === 0 ? (
-            <p className="muted">No adventurers yet.</p>
+          {filteredAdventurers.length === 0 ? (
+            <p className="muted">No adventurers match the current search.</p>
           ) : (
-            recentAdventurers.map((item) => <AdventurerRow key={item.id} adventurer={item} />)
+            filteredAdventurers.map((item) => <AdventurerRow key={item.id} adventurer={item} />)
           )}
         </div>
       </section>
