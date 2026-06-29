@@ -17,6 +17,8 @@ An adventurer joins the Society, gets coverage, visits a healer after a dangerou
 
 The dashboard shows each step as both a lore-flavored event and a real EDI-inspired transaction record.
 
+For a deeper breakdown of how each X12 transaction fits into the project, see [ASHN X12 Workflow Breakdown](x12-workflow.md).
+
 ## Why It Matters
 
 Healthcare EDI is important but hard to learn because the flow is invisible and the language is dense. ASHN turns that flow into a working system with:
