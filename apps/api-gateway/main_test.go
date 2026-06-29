@@ -73,14 +73,22 @@ func TestGatewayRoutesPersistedListsToPayerCore(t *testing.T) {
 	})}
 
 	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", client: client})
-	for _, path := range []string{"/v1/adventurers?limit=10", "/v1/claims?limit=10", "/v1/transactions?limit=25"} {
+	for _, path := range []string{
+		"/v1/adventurers?limit=10&offset=10&q=farros",
+		"/v1/claims?limit=10&offset=20&status=Paid&providerId=provider-vitesse-temple",
+		"/v1/transactions?limit=25&offset=25&type=837&status=Accepted",
+	} {
 		response := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		handler.ServeHTTP(response, request)
 		assert.Equal(t, http.StatusOK, response.Code)
 	}
 
-	assert.Equal(t, []string{"/adventurers?limit=10", "/claims?limit=10", "/transactions?limit=25"}, paths)
+	assert.Equal(t, []string{
+		"/adventurers?limit=10&offset=10&q=farros",
+		"/claims?limit=10&offset=20&status=Paid&providerId=provider-vitesse-temple",
+		"/transactions?limit=25&offset=25&type=837&status=Accepted",
+	}, paths)
 }
 
 func TestGatewayHealthAggregatesDownstreamServices(t *testing.T) {

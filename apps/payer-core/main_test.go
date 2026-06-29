@@ -19,6 +19,7 @@ type testEnvelope struct {
 	Lore         string               `json:"lore"`
 	Transaction  *domain.Transaction  `json:"transaction"`
 	Transactions []domain.Transaction `json:"transactions"`
+	Page         *domain.PageInfo     `json:"page"`
 	Error        string               `json:"error"`
 }
 
@@ -171,6 +172,52 @@ func TestListEndpointsReturnPersistedMemory(t *testing.T) {
 	require.NoError(t, json.Unmarshal(decodeEnvelope(t, transactionsResponse).Data, &transactions))
 	require.Len(t, transactions, 1)
 	assert.Equal(t, "tx-new", transactions[0].ID)
+	assert.Equal(t, 1, decodeEnvelope(t, transactionsResponse).Page.Count)
+}
+
+func TestListEndpointsApplyFiltersAndPagination(t *testing.T) {
+	app := newTestStore()
+	now := time.Now()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankIron, Guild: "Grim Foundations", Region: domain.RegionGreenstone, CoverageStatus: domain.CoverageActive}
+	app.adventurers["adv-2"] = domain.Adventurer{ID: "adv-2", Name: "Aldrion", Rank: domain.RankGold, Guild: "Cloud Palace", Region: domain.RegionVitesse, CoverageStatus: domain.CoveragePending}
+	app.claims["claim-paid"] = domain.Claim{ID: "claim-paid", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", IncidentSeverity: domain.SeverityAwakened, AmountCents: 125000, Status: domain.ClaimPaid}
+	app.claims["claim-open"] = domain.Claim{ID: "claim-open", AdventurerID: "adv-2", ProviderID: "provider-greenstone-clinic", IncidentSeverity: domain.SeverityNormal, AmountCents: 50000, Status: domain.ClaimSubmitted}
+	app.transactions["tx-837-new"] = domain.Transaction{ID: "tx-837-new", Type: domain.Tx837, Status: domain.TxStatusAccepted, SenderID: "adv-1", ReceiverID: "provider-vitesse-temple", Payload: domain.Payload(map[string]string{"claim": "paid"}), CreatedAt: now}
+	app.transactions["tx-837-old"] = domain.Transaction{ID: "tx-837-old", Type: domain.Tx837, Status: domain.TxStatusAccepted, SenderID: "adv-1", ReceiverID: "provider-vitesse-temple", Payload: domain.Payload(map[string]string{"claim": "old"}), CreatedAt: now.Add(-time.Minute)}
+	app.transactions["tx-834"] = domain.Transaction{ID: "tx-834", Type: domain.Tx834, Status: domain.TxStatusAccepted, SenderID: "adv-2", ReceiverID: societyID, CreatedAt: now.Add(-2 * time.Minute)}
+	mux := newPayerTestMux(app)
+
+	adventurersResponse := httptest.NewRecorder()
+	mux.ServeHTTP(adventurersResponse, httptest.NewRequest(http.MethodGet, "/adventurers?limit=10&q=farros&rank=Iron&region=Greenstone&coverageStatus=Active", nil))
+	require.Equal(t, http.StatusOK, adventurersResponse.Code)
+	adventurersEnvelope := decodeEnvelope(t, adventurersResponse)
+	var adventurers []domain.Adventurer
+	require.NoError(t, json.Unmarshal(adventurersEnvelope.Data, &adventurers))
+	require.Len(t, adventurers, 1)
+	assert.Equal(t, "adv-1", adventurers[0].ID)
+	require.NotNil(t, adventurersEnvelope.Page)
+	assert.False(t, adventurersEnvelope.Page.HasMore)
+
+	claimsResponse := httptest.NewRecorder()
+	mux.ServeHTTP(claimsResponse, httptest.NewRequest(http.MethodGet, "/claims?limit=10&status=Paid&providerId=provider-vitesse-temple&adventurerId=adv-1&severity=Awakened&q=paid", nil))
+	require.Equal(t, http.StatusOK, claimsResponse.Code)
+	claimsEnvelope := decodeEnvelope(t, claimsResponse)
+	var claims []domain.Claim
+	require.NoError(t, json.Unmarshal(claimsEnvelope.Data, &claims))
+	require.Len(t, claims, 1)
+	assert.Equal(t, "claim-paid", claims[0].ID)
+
+	transactionsResponse := httptest.NewRecorder()
+	mux.ServeHTTP(transactionsResponse, httptest.NewRequest(http.MethodGet, "/transactions?limit=1&offset=1&type=837&status=Accepted&q=provider-vitesse", nil))
+	require.Equal(t, http.StatusOK, transactionsResponse.Code)
+	transactionsEnvelope := decodeEnvelope(t, transactionsResponse)
+	var transactions []domain.Transaction
+	require.NoError(t, json.Unmarshal(transactionsEnvelope.Data, &transactions))
+	require.Len(t, transactions, 1)
+	assert.Equal(t, "tx-837-old", transactions[0].ID)
+	require.NotNil(t, transactionsEnvelope.Page)
+	assert.Equal(t, 1, transactionsEnvelope.Page.Offset)
+	assert.False(t, transactionsEnvelope.Page.HasMore)
 }
 
 func newTestStore() *store {

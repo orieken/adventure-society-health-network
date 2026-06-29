@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -27,6 +28,32 @@ type store struct {
 	claims       map[string]domain.Claim
 	transactions map[string]domain.Transaction
 	db           *sql.DB
+}
+
+type pageRequest struct {
+	Limit  int
+	Offset int
+}
+
+type adventurerFilters struct {
+	Q              string
+	Rank           string
+	Region         string
+	CoverageStatus string
+}
+
+type claimFilters struct {
+	Q            string
+	Status       string
+	ProviderID   string
+	AdventurerID string
+	Severity     string
+}
+
+type transactionFilters struct {
+	Q      string
+	Type   string
+	Status string
 }
 
 func main() {
@@ -58,11 +85,12 @@ func main() {
 }
 
 func (s *store) listAdventurers(w http.ResponseWriter, r *http.Request) {
-	limit := parseLimit(r, 25)
+	page := parsePage(r, 25)
+	filters := parseAdventurerFilters(r)
 	if s.db != nil {
-		adventurers, err := s.queryAdventurers(limit)
+		adventurers, pageInfo, err := s.queryAdventurers(page, filters)
 		if err == nil {
-			respond(w, http.StatusOK, domain.Envelope{Data: adventurers, Lore: "The Society opened its recent adventurer registry."})
+			respond(w, http.StatusOK, domain.Envelope{Data: adventurers, Lore: "The Society opened its recent adventurer registry.", Page: &pageInfo})
 			return
 		}
 		log.Printf("[ASHN] postgres adventurer list failed; using memory: %v", err)
@@ -76,7 +104,9 @@ func (s *store) listAdventurers(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(adventurers, func(i, j int) bool {
 		return adventurers[i].Name < adventurers[j].Name
 	})
-	respond(w, http.StatusOK, domain.Envelope{Data: clamp(adventurers, limit), Lore: "The Society opened its adventurer registry from active memory."})
+	adventurers = filterAdventurers(adventurers, filters)
+	adventurers, pageInfo := paginate(adventurers, page)
+	respond(w, http.StatusOK, domain.Envelope{Data: adventurers, Lore: "The Society opened its adventurer registry from active memory.", Page: &pageInfo})
 }
 
 func (s *store) enroll(w http.ResponseWriter, r *http.Request) {
@@ -166,11 +196,12 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
-	limit := parseLimit(r, 25)
+	page := parsePage(r, 25)
+	filters := parseClaimFilters(r)
 	if s.db != nil {
-		claims, err := s.queryClaims(limit)
+		claims, pageInfo, err := s.queryClaims(page, filters)
 		if err == nil {
-			respond(w, http.StatusOK, domain.Envelope{Data: claims, Lore: "Recent claim scrolls were pulled from the Society ledger."})
+			respond(w, http.StatusOK, domain.Envelope{Data: claims, Lore: "Recent claim scrolls were pulled from the Society ledger.", Page: &pageInfo})
 			return
 		}
 		log.Printf("[ASHN] postgres claim list failed; using memory: %v", err)
@@ -184,7 +215,9 @@ func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(claims, func(i, j int) bool {
 		return claims[i].ID > claims[j].ID
 	})
-	respond(w, http.StatusOK, domain.Envelope{Data: clamp(claims, limit), Lore: "Recent claim scrolls were pulled from active memory."})
+	claims = filterClaims(claims, filters)
+	claims, pageInfo := paginate(claims, page)
+	respond(w, http.StatusOK, domain.Envelope{Data: claims, Lore: "Recent claim scrolls were pulled from active memory.", Page: &pageInfo})
 }
 
 func (s *store) getClaim(w http.ResponseWriter, r *http.Request) {
@@ -251,11 +284,12 @@ func (s *store) getTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *store) listTransactions(w http.ResponseWriter, r *http.Request) {
-	limit := parseLimit(r, 25)
+	page := parsePage(r, 25)
+	filters := parseTransactionFilters(r)
 	if s.db != nil {
-		transactions, err := s.queryTransactions(limit)
+		transactions, pageInfo, err := s.queryTransactions(page, filters)
 		if err == nil {
-			respond(w, http.StatusOK, domain.Envelope{Data: transactions, Lore: "Recent EDI runes were pulled from the transaction ledger."})
+			respond(w, http.StatusOK, domain.Envelope{Data: transactions, Lore: "Recent EDI runes were pulled from the transaction ledger.", Page: &pageInfo})
 			return
 		}
 		log.Printf("[ASHN] postgres transaction list failed; using memory: %v", err)
@@ -269,7 +303,9 @@ func (s *store) listTransactions(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(transactions, func(i, j int) bool {
 		return transactions[i].CreatedAt.After(transactions[j].CreatedAt)
 	})
-	respond(w, http.StatusOK, domain.Envelope{Data: clamp(transactions, limit), Lore: "Recent EDI runes were pulled from active memory."})
+	transactions = filterTransactions(transactions, filters)
+	transactions, pageInfo := paginate(transactions, page)
+	respond(w, http.StatusOK, domain.Envelope{Data: transactions, Lore: "Recent EDI runes were pulled from active memory.", Page: &pageInfo})
 }
 
 func (s *store) findAdventurerProvider(w http.ResponseWriter, adventurerID, providerID string) (domain.Adventurer, domain.Provider, bool) {
@@ -474,55 +510,128 @@ func loadTransactions(db *sql.DB) map[string]domain.Transaction {
 	return transactions
 }
 
-func (s *store) queryAdventurers(limit int) ([]domain.Adventurer, error) {
-	rows, err := s.db.Query(`SELECT id, name, rank, guild, region, coverage_status FROM adventurers ORDER BY created_at DESC LIMIT $1`, limit)
+func (s *store) queryAdventurers(page pageRequest, filters adventurerFilters) ([]domain.Adventurer, domain.PageInfo, error) {
+	clauses, args := []string{}, []any{}
+	addTextFilter(&clauses, &args, "rank", filters.Rank)
+	addTextFilter(&clauses, &args, "region", filters.Region)
+	addTextFilter(&clauses, &args, "coverage_status", filters.CoverageStatus)
+	addSearchFilter(&clauses, &args, filters.Q, "id", "name", "guild", "rank", "region", "coverage_status")
+	query := `SELECT id, name, rank, guild, region, coverage_status FROM adventurers`
+	query = appendWhere(query, clauses)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, page.Limit+1, page.Offset)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, err
+		return nil, domain.PageInfo{}, err
 	}
 	defer rows.Close()
 	adventurers := []domain.Adventurer{}
 	for rows.Next() {
 		var adventurer domain.Adventurer
 		if err := rows.Scan(&adventurer.ID, &adventurer.Name, &adventurer.Rank, &adventurer.Guild, &adventurer.Region, &adventurer.CoverageStatus); err != nil {
-			return nil, err
+			return nil, domain.PageInfo{}, err
 		}
 		adventurers = append(adventurers, adventurer)
 	}
-	return adventurers, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	adventurers, pageInfo := trimFetchedPage(adventurers, page)
+	return adventurers, pageInfo, nil
 }
 
-func (s *store) queryClaims(limit int) ([]domain.Claim, error) {
-	rows, err := s.db.Query(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status FROM claims ORDER BY created_at DESC LIMIT $1`, limit)
+func (s *store) queryClaims(page pageRequest, filters claimFilters) ([]domain.Claim, domain.PageInfo, error) {
+	clauses, args := []string{}, []any{}
+	addTextFilter(&clauses, &args, "status", filters.Status)
+	addTextFilter(&clauses, &args, "provider_id", filters.ProviderID)
+	addTextFilter(&clauses, &args, "adventurer_id", filters.AdventurerID)
+	addTextFilter(&clauses, &args, "incident_severity", filters.Severity)
+	addSearchFilter(&clauses, &args, filters.Q, "id", "adventurer_id", "provider_id", "incident_severity", "status")
+	query := `SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status FROM claims`
+	query = appendWhere(query, clauses)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, page.Limit+1, page.Offset)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, err
+		return nil, domain.PageInfo{}, err
 	}
 	defer rows.Close()
 	claims := []domain.Claim{}
 	for rows.Next() {
 		var claim domain.Claim
 		if err := rows.Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AmountCents, &claim.Status); err != nil {
-			return nil, err
+			return nil, domain.PageInfo{}, err
 		}
 		claims = append(claims, claim)
 	}
-	return claims, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	claims, pageInfo := trimFetchedPage(claims, page)
+	return claims, pageInfo, nil
 }
 
-func (s *store) queryTransactions(limit int) ([]domain.Transaction, error) {
-	rows, err := s.db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, created_at FROM transactions ORDER BY created_at DESC LIMIT $1`, limit)
+func (s *store) queryTransactions(page pageRequest, filters transactionFilters) ([]domain.Transaction, domain.PageInfo, error) {
+	clauses, args := []string{}, []any{}
+	addTextFilter(&clauses, &args, "type", filters.Type)
+	addTextFilter(&clauses, &args, "status", filters.Status)
+	addSearchFilter(&clauses, &args, filters.Q, "id", "type", "status", "sender_id", "receiver_id", "payload::text")
+	query := `SELECT id, type, status, sender_id, receiver_id, payload, created_at FROM transactions`
+	query = appendWhere(query, clauses)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, page.Limit+1, page.Offset)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, err
+		return nil, domain.PageInfo{}, err
 	}
 	defer rows.Close()
 	transactions := []domain.Transaction{}
 	for rows.Next() {
 		var transaction domain.Transaction
 		if err := rows.Scan(&transaction.ID, &transaction.Type, &transaction.Status, &transaction.SenderID, &transaction.ReceiverID, &transaction.Payload, &transaction.CreatedAt); err != nil {
-			return nil, err
+			return nil, domain.PageInfo{}, err
 		}
 		transactions = append(transactions, transaction)
 	}
-	return transactions, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	transactions, pageInfo := trimFetchedPage(transactions, page)
+	return transactions, pageInfo, nil
+}
+
+func parsePage(r *http.Request, fallback int) pageRequest {
+	return pageRequest{Limit: parseLimit(r, fallback), Offset: parseOffset(r)}
+}
+
+func parseAdventurerFilters(r *http.Request) adventurerFilters {
+	query := r.URL.Query()
+	return adventurerFilters{
+		Q:              strings.TrimSpace(query.Get("q")),
+		Rank:           strings.TrimSpace(query.Get("rank")),
+		Region:         strings.TrimSpace(query.Get("region")),
+		CoverageStatus: strings.TrimSpace(query.Get("coverageStatus")),
+	}
+}
+
+func parseClaimFilters(r *http.Request) claimFilters {
+	query := r.URL.Query()
+	return claimFilters{
+		Q:            strings.TrimSpace(query.Get("q")),
+		Status:       strings.TrimSpace(query.Get("status")),
+		ProviderID:   strings.TrimSpace(query.Get("providerId")),
+		AdventurerID: strings.TrimSpace(query.Get("adventurerId")),
+		Severity:     strings.TrimSpace(query.Get("severity")),
+	}
+}
+
+func parseTransactionFilters(r *http.Request) transactionFilters {
+	query := r.URL.Query()
+	return transactionFilters{
+		Q:      strings.TrimSpace(query.Get("q")),
+		Type:   strings.TrimSpace(query.Get("type")),
+		Status: strings.TrimSpace(query.Get("status")),
+	}
 }
 
 func parseLimit(r *http.Request, fallback int) int {
@@ -540,11 +649,138 @@ func parseLimit(r *http.Request, fallback int) int {
 	return limit
 }
 
-func clamp[T any](items []T, limit int) []T {
-	if len(items) <= limit {
-		return items
+func parseOffset(r *http.Request) int {
+	value := r.URL.Query().Get("offset")
+	if value == "" {
+		return 0
 	}
-	return items[:limit]
+	offset, err := strconv.Atoi(value)
+	if err != nil || offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+func paginate[T any](items []T, page pageRequest) ([]T, domain.PageInfo) {
+	if page.Offset >= len(items) {
+		return []T{}, domain.PageInfo{Limit: page.Limit, Offset: page.Offset, Count: 0, HasMore: false}
+	}
+	end := page.Offset + page.Limit
+	hasMore := end < len(items)
+	if end > len(items) {
+		end = len(items)
+	}
+	paged := items[page.Offset:end]
+	return paged, domain.PageInfo{Limit: page.Limit, Offset: page.Offset, Count: len(paged), HasMore: hasMore}
+}
+
+func trimFetchedPage[T any](items []T, page pageRequest) ([]T, domain.PageInfo) {
+	hasMore := len(items) > page.Limit
+	if hasMore {
+		items = items[:page.Limit]
+	}
+	return items, domain.PageInfo{Limit: page.Limit, Offset: page.Offset, Count: len(items), HasMore: hasMore}
+}
+
+func filterAdventurers(items []domain.Adventurer, filters adventurerFilters) []domain.Adventurer {
+	filtered := []domain.Adventurer{}
+	for _, item := range items {
+		if filters.Rank != "" && !sameFold(string(item.Rank), filters.Rank) {
+			continue
+		}
+		if filters.Region != "" && !sameFold(string(item.Region), filters.Region) {
+			continue
+		}
+		if filters.CoverageStatus != "" && !sameFold(string(item.CoverageStatus), filters.CoverageStatus) {
+			continue
+		}
+		if filters.Q != "" && !containsAny(filters.Q, item.ID, item.Name, item.Guild, string(item.Rank), string(item.Region), string(item.CoverageStatus)) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func filterClaims(items []domain.Claim, filters claimFilters) []domain.Claim {
+	filtered := []domain.Claim{}
+	for _, item := range items {
+		if filters.Status != "" && !sameFold(string(item.Status), filters.Status) {
+			continue
+		}
+		if filters.ProviderID != "" && !sameFold(item.ProviderID, filters.ProviderID) {
+			continue
+		}
+		if filters.AdventurerID != "" && !sameFold(item.AdventurerID, filters.AdventurerID) {
+			continue
+		}
+		if filters.Severity != "" && !sameFold(string(item.IncidentSeverity), filters.Severity) {
+			continue
+		}
+		if filters.Q != "" && !containsAny(filters.Q, item.ID, item.AdventurerID, item.ProviderID, string(item.IncidentSeverity), string(item.Status)) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func filterTransactions(items []domain.Transaction, filters transactionFilters) []domain.Transaction {
+	filtered := []domain.Transaction{}
+	for _, item := range items {
+		if filters.Type != "" && !sameFold(string(item.Type), filters.Type) {
+			continue
+		}
+		if filters.Status != "" && !sameFold(string(item.Status), filters.Status) {
+			continue
+		}
+		if filters.Q != "" && !containsAny(filters.Q, item.ID, string(item.Type), string(item.Status), item.SenderID, item.ReceiverID, string(item.Payload)) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func addTextFilter(clauses *[]string, args *[]any, column string, value string) {
+	if value == "" {
+		return
+	}
+	*args = append(*args, value)
+	*clauses = append(*clauses, fmt.Sprintf("LOWER(%s) = LOWER($%d)", column, len(*args)))
+}
+
+func addSearchFilter(clauses *[]string, args *[]any, query string, columns ...string) {
+	if query == "" {
+		return
+	}
+	*args = append(*args, "%"+query+"%")
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		parts = append(parts, fmt.Sprintf("%s ILIKE $%d", column, len(*args)))
+	}
+	*clauses = append(*clauses, "("+strings.Join(parts, " OR ")+")")
+}
+
+func appendWhere(query string, clauses []string) string {
+	if len(clauses) == 0 {
+		return query
+	}
+	return query + " WHERE " + strings.Join(clauses, " AND ")
+}
+
+func sameFold(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
+func containsAny(query string, values ...string) bool {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {

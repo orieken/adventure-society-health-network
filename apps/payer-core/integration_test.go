@@ -87,19 +87,34 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	assert.Equal(t, domain.ClaimPaid, reloaded.claims[claim.ID].Status)
 
 	listClaims := httptest.NewRecorder()
-	mux.ServeHTTP(listClaims, httptest.NewRequest(http.MethodGet, "/claims?limit=10", nil))
+	mux.ServeHTTP(listClaims, httptest.NewRequest(http.MethodGet, "/claims?limit=10&status=Paid&providerId=provider-vitesse-temple&q=paid", nil))
 	require.Equal(t, http.StatusOK, listClaims.Code)
+	claimsEnvelope := decodeEnvelope(t, listClaims)
 	var claims []domain.Claim
-	require.NoError(t, json.Unmarshal(decodeEnvelope(t, listClaims).Data, &claims))
+	require.NoError(t, json.Unmarshal(claimsEnvelope.Data, &claims))
 	require.Len(t, claims, 1)
 	assert.Equal(t, domain.ClaimPaid, claims[0].Status)
+	require.NotNil(t, claimsEnvelope.Page)
+	assert.Equal(t, 0, claimsEnvelope.Page.Offset)
 
 	listTransactions := httptest.NewRecorder()
-	mux.ServeHTTP(listTransactions, httptest.NewRequest(http.MethodGet, "/transactions?limit=10", nil))
+	mux.ServeHTTP(listTransactions, httptest.NewRequest(http.MethodGet, "/transactions?limit=1&type=835&status=Paid", nil))
 	require.Equal(t, http.StatusOK, listTransactions.Code)
+	transactionsEnvelope := decodeEnvelope(t, listTransactions)
 	var transactions []domain.Transaction
-	require.NoError(t, json.Unmarshal(decodeEnvelope(t, listTransactions).Data, &transactions))
-	assert.Len(t, transactions, 6)
+	require.NoError(t, json.Unmarshal(transactionsEnvelope.Data, &transactions))
+	require.Len(t, transactions, 1)
+	assert.Equal(t, domain.Tx835, transactions[0].Type)
+	require.NotNil(t, transactionsEnvelope.Page)
+	assert.False(t, transactionsEnvelope.Page.HasMore)
+
+	listAdventurers := httptest.NewRecorder()
+	mux.ServeHTTP(listAdventurers, httptest.NewRequest(http.MethodGet, "/adventurers?limit=10&q=Farros%20Integration&rank=Iron&region=Greenstone&coverageStatus=Active", nil))
+	require.Equal(t, http.StatusOK, listAdventurers.Code)
+	var adventurers []domain.Adventurer
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, listAdventurers).Data, &adventurers))
+	require.Len(t, adventurers, 1)
+	assert.Equal(t, adventurer.ID, adventurers[0].ID)
 }
 
 func newIntegrationStore(db *sql.DB) *store {

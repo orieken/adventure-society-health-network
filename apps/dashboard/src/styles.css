@@ -280,6 +280,25 @@ code {
   font-size: 13px;
 }
 
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #d8c8b8;
+  font-size: 13px;
+}
+
+.pager div {
+  display: flex;
+  gap: 8px;
+}
+
+.pager button {
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
 .event p {
   margin: 0;
   color: #fff7eb;

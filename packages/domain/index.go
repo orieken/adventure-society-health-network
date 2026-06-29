@@ -156,11 +156,19 @@ type PaymentRequest struct {
 	PaymentAmountCents int64 `json:"paymentAmountCents"`
 }
 
+type PageInfo struct {
+	Limit   int  `json:"limit"`
+	Offset  int  `json:"offset"`
+	Count   int  `json:"count"`
+	HasMore bool `json:"hasMore"`
+}
+
 type Envelope struct {
 	Data         any           `json:"data,omitempty"`
 	Lore         string        `json:"lore,omitempty"`
 	Transaction  *Transaction  `json:"transaction,omitempty"`
 	Transactions []Transaction `json:"transactions,omitempty"`
+	Page         *PageInfo     `json:"page,omitempty"`
 }
 
 type ErrorEnvelope struct {

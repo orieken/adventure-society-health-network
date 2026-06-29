@@ -29,11 +29,19 @@ type Claim = {
   status: string;
 };
 
+type PageInfo = {
+  limit: number;
+  offset: number;
+  count: number;
+  hasMore: boolean;
+};
+
 type Envelope<T = unknown> = {
   data?: T;
   lore?: string;
   transaction?: Transaction;
   transactions?: Transaction[];
+  page?: PageInfo;
   error?: string;
 };
 
@@ -48,16 +56,30 @@ type Transaction = {
 };
 
 const apiUrl = import.meta.env.VITE_ASHN_API_URL ?? "http://localhost:8080";
-
-function matchesSearch(value: unknown, searchTerm: string) {
-  const query = searchTerm.trim().toLowerCase();
-  if (!query) return true;
-  return JSON.stringify(value).toLowerCase().includes(query);
-}
+const adventurerPageSize = 10;
+const claimPageSize = 10;
+const transactionPageSize = 25;
+const transactionTypes = ["All", "834", "820", "270", "271", "278", "837", "835", "276", "277", "269"];
+const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
+const claimStatuses = ["All", "Submitted", "Pending", "Approved", "Denied", "Paid"];
 
 function providerLabel(providerId: string, providers: Provider[]) {
   if (providerId === "All") return "All";
   return providers.find((provider) => provider.id === providerId)?.name ?? providerId;
+}
+
+function buildQuery(values: Record<string, string | number>) {
+  const params = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    if (value === "" || value === "All") return;
+    params.set(key, String(value));
+  });
+  return params.toString();
+}
+
+function pageSummary(page: PageInfo) {
+  if (page.count === 0) return "Showing 0";
+  return `Showing ${page.offset + 1}-${page.offset + page.count}`;
 }
 
 function App() {
@@ -69,6 +91,12 @@ function App() {
   const [recentAdventurers, setRecentAdventurers] = useState<Adventurer[]>([]);
   const [recentClaims, setRecentClaims] = useState<Claim[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
+  const [adventurerPage, setAdventurerPage] = useState<PageInfo>({ limit: adventurerPageSize, offset: 0, count: 0, hasMore: false });
+  const [claimPage, setClaimPage] = useState<PageInfo>({ limit: claimPageSize, offset: 0, count: 0, hasMore: false });
+  const [transactionPage, setTransactionPage] = useState<PageInfo>({ limit: transactionPageSize, offset: 0, count: 0, hasMore: false });
+  const [adventurerOffset, setAdventurerOffset] = useState(0);
+  const [claimOffset, setClaimOffset] = useState(0);
+  const [transactionOffset, setTransactionOffset] = useState(0);
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [events, setEvents] = useState<Envelope[]>([]);
@@ -84,69 +112,55 @@ function App() {
     [providers, selectedProviderId]
   );
 
-  const transactionTypes = useMemo(
-    () => ["All", ...Array.from(new Set(recentTransactions.map((transaction) => transaction.type))).sort()],
-    [recentTransactions]
-  );
-
-  const transactionStatuses = useMemo(
-    () => ["All", ...Array.from(new Set(recentTransactions.map((transaction) => transaction.status))).sort()],
-    [recentTransactions]
-  );
-
-  const claimStatuses = useMemo(
-    () => ["All", ...Array.from(new Set(recentClaims.map((item) => item.status))).sort()],
-    [recentClaims]
-  );
-
   const providerFilters = useMemo(
     () => ["All", ...providers.map((provider) => provider.id)],
     [providers]
   );
 
-  const filteredTransactions = useMemo(
-    () => recentTransactions.filter((transaction) => {
-      const matchesType = transactionTypeFilter === "All" || transaction.type === transactionTypeFilter;
-      const matchesStatus = transactionStatusFilter === "All" || transaction.status === transactionStatusFilter;
-      return matchesType && matchesStatus && matchesSearch(transaction, searchTerm);
-    }),
-    [recentTransactions, searchTerm, transactionStatusFilter, transactionTypeFilter]
-  );
-
-  const filteredClaims = useMemo(
-    () => recentClaims.filter((item) => {
-      const matchesStatus = claimStatusFilter === "All" || item.status === claimStatusFilter;
-      const matchesProvider = providerFilter === "All" || item.providerId === providerFilter;
-      return matchesStatus && matchesProvider && matchesSearch(item, searchTerm);
-    }),
-    [claimStatusFilter, providerFilter, recentClaims, searchTerm]
-  );
-
-  const filteredAdventurers = useMemo(
-    () => recentAdventurers.filter((item) => matchesSearch(item, searchTerm)),
-    [recentAdventurers, searchTerm]
-  );
-
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [adventurerOffset, claimOffset, claimStatusFilter, providerFilter, searchTerm, transactionOffset, transactionStatusFilter, transactionTypeFilter]);
 
-  async function refresh() {
+  async function refresh(pushProviderEvent = false) {
+    const adventurerQuery = buildQuery({ limit: adventurerPageSize, offset: adventurerOffset, q: searchTerm });
+    const claimQuery = buildQuery({
+      limit: claimPageSize,
+      offset: claimOffset,
+      q: searchTerm,
+      status: claimStatusFilter,
+      providerId: providerFilter
+    });
+    const transactionQuery = buildQuery({
+      limit: transactionPageSize,
+      offset: transactionOffset,
+      q: searchTerm,
+      type: transactionTypeFilter,
+      status: transactionStatusFilter
+    });
     const [healthResult, providersResult, adventurersResult, claimsResult, transactionsResult] = await Promise.all([
       request<Record<string, string>>("/v1/health"),
       request<Provider[]>("/v1/providers"),
-      request<Adventurer[]>("/v1/adventurers?limit=10"),
-      request<Claim[]>("/v1/claims?limit=10"),
-      request<Transaction[]>("/v1/transactions?limit=25")
+      request<Adventurer[]>(`/v1/adventurers?${adventurerQuery}`),
+      request<Claim[]>(`/v1/claims?${claimQuery}`),
+      request<Transaction[]>(`/v1/transactions?${transactionQuery}`)
     ]);
     setHealth(healthResult);
     setProviders(providersResult.data ?? []);
     setRecentAdventurers(adventurersResult.data ?? []);
     setRecentClaims(claimsResult.data ?? []);
     setRecentTransactions(transactionsResult.data ?? []);
-    if (providersResult.lore) {
+    setAdventurerPage(adventurersResult.page ?? { limit: adventurerPageSize, offset: adventurerOffset, count: adventurersResult.data?.length ?? 0, hasMore: false });
+    setClaimPage(claimsResult.page ?? { limit: claimPageSize, offset: claimOffset, count: claimsResult.data?.length ?? 0, hasMore: false });
+    setTransactionPage(transactionsResult.page ?? { limit: transactionPageSize, offset: transactionOffset, count: transactionsResult.data?.length ?? 0, hasMore: false });
+    if (pushProviderEvent && providersResult.lore) {
       pushEvent(providersResult);
     }
+  }
+
+  function resetLedgerOffsets() {
+    setAdventurerOffset(0);
+    setClaimOffset(0);
+    setTransactionOffset(0);
   }
 
   async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
@@ -290,9 +304,9 @@ function App() {
       </section>
 
       <section className="stats-grid">
-        <MetricCard label="Adventurers" value={filteredAdventurers.length} detail={`${recentAdventurers.length} recent registrations`} />
-        <MetricCard label="Claims" value={filteredClaims.length} detail={`${recentClaims.filter((item) => item.status === "Paid").length} paid`} />
-        <MetricCard label="Transactions" value={filteredTransactions.length} detail={`${recentTransactions.length} ledger entries loaded`} />
+        <MetricCard label="Adventurers" value={adventurerPage.count} detail={pageSummary(adventurerPage)} />
+        <MetricCard label="Claims" value={claimPage.count} detail={`${recentClaims.filter((item) => item.status === "Paid").length} paid on this page`} />
+        <MetricCard label="Transactions" value={transactionPage.count} detail={`${recentTransactions.length} ledger entries loaded`} />
       </section>
 
       <section className="grid">
@@ -369,7 +383,7 @@ function App() {
       <section className="panel ledger">
         <div className="ledger-title">
           <h2>Live Session Events</h2>
-          <button onClick={refresh} disabled={busy}>Refresh</button>
+          <button onClick={() => refresh(true)} disabled={busy}>Refresh</button>
         </div>
         {events.length === 0 ? (
           <p className="muted">No transactions yet. The Society scribe is sharpening a quill.</p>
@@ -389,6 +403,7 @@ function App() {
               setTransactionStatusFilter("All");
               setClaimStatusFilter("All");
               setProviderFilter("All");
+              resetLedgerOffsets();
             }}
           >
             Clear
@@ -399,31 +414,46 @@ function App() {
             Search ledger
             <input
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              onChange={(event) => {
+                setSearchTerm(event.target.value);
+                resetLedgerOffsets();
+              }}
               placeholder="Search IDs, names, statuses, providers..."
             />
           </label>
           <label>
             Transaction type
-            <select value={transactionTypeFilter} onChange={(event) => setTransactionTypeFilter(event.target.value)}>
+            <select value={transactionTypeFilter} onChange={(event) => {
+              setTransactionTypeFilter(event.target.value);
+              setTransactionOffset(0);
+            }}>
               {transactionTypes.map((type) => <option key={type}>{type}</option>)}
             </select>
           </label>
           <label>
             Transaction status
-            <select value={transactionStatusFilter} onChange={(event) => setTransactionStatusFilter(event.target.value)}>
+            <select value={transactionStatusFilter} onChange={(event) => {
+              setTransactionStatusFilter(event.target.value);
+              setTransactionOffset(0);
+            }}>
               {transactionStatuses.map((status) => <option key={status}>{status}</option>)}
             </select>
           </label>
           <label>
             Claim status
-            <select value={claimStatusFilter} onChange={(event) => setClaimStatusFilter(event.target.value)}>
+            <select value={claimStatusFilter} onChange={(event) => {
+              setClaimStatusFilter(event.target.value);
+              setClaimOffset(0);
+            }}>
               {claimStatuses.map((status) => <option key={status}>{status}</option>)}
             </select>
           </label>
           <label>
             Provider
-            <select value={providerFilter} onChange={(event) => setProviderFilter(event.target.value)}>
+            <select value={providerFilter} onChange={(event) => {
+              setProviderFilter(event.target.value);
+              setClaimOffset(0);
+            }}>
               {providerFilters.map((providerId) => (
                 <option value={providerId} key={providerId}>{providerLabel(providerId, providers)}</option>
               ))}
@@ -438,13 +468,14 @@ function App() {
             <h2>Persisted Transactions</h2>
             <span className="muted">from Postgres</span>
           </div>
-          {filteredTransactions.length === 0 ? (
+          {recentTransactions.length === 0 ? (
             <p className="muted">No transactions match the current filters.</p>
           ) : (
-            filteredTransactions.map((transaction) => (
+            recentTransactions.map((transaction) => (
               <TransactionRow key={transaction.id} transaction={transaction} onSelect={openTransactionDetail} />
             ))
           )}
+          <Pager page={transactionPage} onPrevious={() => setTransactionOffset(Math.max(0, transactionPage.offset - transactionPage.limit))} onNext={() => setTransactionOffset(transactionPage.offset + transactionPage.limit)} />
         </div>
 
         <div className="panel ledger">
@@ -452,11 +483,12 @@ function App() {
             <h2>Recent Claims</h2>
             <span className="muted">from Postgres</span>
           </div>
-          {filteredClaims.length === 0 ? (
+          {recentClaims.length === 0 ? (
             <p className="muted">No claims match the current filters.</p>
           ) : (
-            filteredClaims.map((item) => <ClaimRow key={item.id} claim={item} onSelect={openClaimDetail} />)
+            recentClaims.map((item) => <ClaimRow key={item.id} claim={item} onSelect={openClaimDetail} />)
           )}
+          <Pager page={claimPage} onPrevious={() => setClaimOffset(Math.max(0, claimPage.offset - claimPage.limit))} onNext={() => setClaimOffset(claimPage.offset + claimPage.limit)} />
         </div>
 
         <div className="panel ledger">
@@ -464,11 +496,12 @@ function App() {
             <h2>Recent Adventurers</h2>
             <span className="muted">from Postgres</span>
           </div>
-          {filteredAdventurers.length === 0 ? (
+          {recentAdventurers.length === 0 ? (
             <p className="muted">No adventurers match the current search.</p>
           ) : (
-            filteredAdventurers.map((item) => <AdventurerRow key={item.id} adventurer={item} />)
+            recentAdventurers.map((item) => <AdventurerRow key={item.id} adventurer={item} />)
           )}
+          <Pager page={adventurerPage} onPrevious={() => setAdventurerOffset(Math.max(0, adventurerPage.offset - adventurerPage.limit))} onNext={() => setAdventurerOffset(adventurerPage.offset + adventurerPage.limit)} />
         </div>
       </section>
 
@@ -517,6 +550,18 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
       <span>{label}</span>
       <strong>{value}</strong>
       <p>{detail}</p>
+    </div>
+  );
+}
+
+function Pager({ page, onPrevious, onNext }: { page: PageInfo; onPrevious: () => void; onNext: () => void }) {
+  return (
+    <div className="pager">
+      <span>{pageSummary(page)}</span>
+      <div>
+        <button className="secondary" disabled={page.offset === 0} onClick={onPrevious}>Previous</button>
+        <button className="secondary" disabled={!page.hasMore} onClick={onNext}>Next</button>
+      </div>
     </div>
   );
 }
