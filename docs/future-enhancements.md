@@ -23,8 +23,8 @@ This keeps `payer-core` focused on business state while giving us a clean place 
 - [x] Forward accepted work to `payer-core` through internal HTTP APIs.
 - [x] Add gateway route `POST /v1/x12/xml`.
 - [x] Add unit tests for valid XML, invalid XML, missing fields, and unsupported transaction types.
-- [ ] Persist raw inbound XML for audit/debug replay.
-- [ ] Add DB-backed integration tests through `api-gateway → edi-intake → payer-core`.
+- [x] Persist raw inbound XML for audit/debug replay.
+- [x] Add DB-backed integration tests through `api-gateway → edi-intake → payer-core`.
 
 Suggested service boundary:
 
@@ -160,7 +160,6 @@ Example `270` eligibility inquiry:
 ## Open Architecture Questions
 
 - Should XML intake call existing `payer-core` endpoints or write transactions directly through a shared package?
-- Should raw inbound payloads live in the existing `transactions` table or a new `inbound_messages` table?
 - Should `api-gateway` expose `/v1/x12/xml`, or should partner endpoints live directly on `edi-intake`?
 - Do we want canonical ASHN XML first, or transaction-specific XML documents per X12 type?
 - Should rejected XML submissions still create audit records?

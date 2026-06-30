@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -13,11 +14,14 @@ import (
 	"strings"
 
 	"ashn/packages/domain"
+
+	_ "github.com/lib/pq"
 )
 
 type intakeApp struct {
 	payerURL string
 	client   *http.Client
+	db       *sql.DB
 }
 
 type inboundTransaction struct {
@@ -80,7 +84,8 @@ type xmlPremiumPayment struct {
 }
 
 func main() {
-	app := intakeApp{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), client: http.DefaultClient}
+	db := openDB()
+	app := intakeApp{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), client: http.DefaultClient, db: db}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
@@ -90,18 +95,23 @@ func main() {
 }
 
 func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
-	if !isXMLContent(r.Header.Get("Content-Type")) {
-		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe only accepts XML scrolls.")
-		return
-	}
+	contentType := r.Header.Get("Content-Type")
 	defer r.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
+		a.auditInboundMessage(contentType, "", "", "rejected", "invalid xml", http.StatusBadRequest)
 		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll faded before the scribe could read it.")
+		return
+	}
+	rawXML := string(body)
+	if !isXMLContent(contentType) {
+		a.auditInboundMessage(contentType, "", rawXML, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
+		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe only accepts XML scrolls.")
 		return
 	}
 	inbound, err := parseInboundXML(body)
 	if err != nil {
+		a.auditInboundMessage(contentType, "", rawXML, "rejected", "invalid xml", http.StatusBadRequest)
 		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll does not match the Society intake format.")
 		return
 	}
@@ -111,10 +121,16 @@ func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "not implemented") {
 			status = http.StatusNotImplemented
 		}
+		a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", err.Error(), status)
 		fail(w, status, err.Error(), "The intake scribe rejected the XML scroll before it entered the ledger.")
 		return
 	}
-	a.forward(w, method, path, payload)
+	status, forwardErr := a.forward(w, method, path, payload)
+	if forwardErr != "" {
+		a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", forwardErr, status)
+		return
+	}
+	a.auditInboundMessage(contentType, inbound.Type, rawXML, "accepted", "", status)
 }
 
 func parseInboundXML(body []byte) (inboundTransaction, error) {
@@ -223,20 +239,20 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 	}
 }
 
-func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any) {
+func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any) (int, string) {
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, "request creation failed", "The intake scribe could not translate the XML scroll.")
-			return
+			return http.StatusInternalServerError, "request creation failed"
 		}
 		reader = bytes.NewReader(payload)
 	}
 	req, err := http.NewRequest(method, a.payerURL+path, reader)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "request creation failed", "The intake courier could not bind the payer route.")
-		return
+		return http.StatusInternalServerError, "request creation failed"
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -244,7 +260,7 @@ func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any)
 	resp, err := a.httpClient().Do(req)
 	if err != nil {
 		fail(w, http.StatusBadGateway, "payer-core unavailable", "The intake courier could not reach the Adventure Society.")
-		return
+		return http.StatusBadGateway, "payer-core unavailable"
 	}
 	defer resp.Body.Close()
 	for key, values := range resp.Header {
@@ -254,6 +270,21 @@ func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any)
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+	if resp.StatusCode >= 400 {
+		return resp.StatusCode, "payer-core rejected XML-derived request"
+	}
+	return resp.StatusCode, ""
+}
+
+func (a intakeApp) auditInboundMessage(contentType, transactionType, rawPayload, status, errorText string, downstreamStatus int) {
+	if a.db == nil {
+		return
+	}
+	_, err := a.db.Exec(`INSERT INTO inbound_messages (id, content_type, transaction_type, raw_payload, status, error, downstream_status) VALUES ($1, $2, NULLIF($3, ''), $4, $5, NULLIF($6, ''), $7)`,
+		domain.NewID(), contentType, transactionType, rawPayload, status, errorText, downstreamStatus)
+	if err != nil {
+		log.Printf("[ASHN] postgres inbound message audit failed: %v", err)
+	}
 }
 
 func requireFields(fields map[string]string) error {
@@ -297,6 +328,26 @@ func fail(w http.ResponseWriter, status int, message, loreText string) {
 
 func health(w http.ResponseWriter, _ *http.Request) {
 	respond(w, http.StatusOK, map[string]string{"status": "ok", "service": "edi-intake"})
+}
+
+func openDB() *sql.DB {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Printf("[ASHN] DATABASE_URL not set; edi-intake audit persistence disabled")
+		return nil
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		log.Printf("[ASHN] postgres open failed; edi-intake audit persistence disabled: %v", err)
+		return nil
+	}
+	if err := db.Ping(); err != nil {
+		log.Printf("[ASHN] postgres ping failed; edi-intake audit persistence disabled: %v", err)
+		_ = db.Close()
+		return nil
+	}
+	log.Printf("[ASHN] edi-intake connected to Postgres")
+	return db
 }
 
 func env(key, fallback string) string {

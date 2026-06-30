@@ -9,6 +9,8 @@ It exposes:
 
 The service accepts `application/xml` or `text/xml`, validates the canonical ASHN XML envelope, maps it into existing domain requests, and forwards accepted work to `payer-core`.
 
+When `DATABASE_URL` is configured, every XML submission is written to `inbound_messages` with its raw payload, transaction type, accepted/rejected status, downstream response status, and validation error if present.
+
 Example:
 
 ```xml
