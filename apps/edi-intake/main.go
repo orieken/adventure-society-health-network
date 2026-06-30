@@ -89,6 +89,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
+	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	addr := env("EDI_INTAKE_ADDR", ":8083")
 	log.Printf("[ASHN] edi-intake listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
@@ -285,6 +286,137 @@ func (a intakeApp) auditInboundMessage(contentType, transactionType, rawPayload,
 	if err != nil {
 		log.Printf("[ASHN] postgres inbound message audit failed: %v", err)
 	}
+}
+
+func (a intakeApp) listMessages(w http.ResponseWriter, r *http.Request) {
+	page := parsePage(r, 25)
+	if a.db == nil {
+		pageInfo := domain.PageInfo{Limit: page.Limit, Offset: page.Offset, Count: 0, HasMore: false}
+		respond(w, http.StatusOK, domain.Envelope{Data: []domain.InboundMessage{}, Lore: "The XML intake archive is not connected to a database.", Page: &pageInfo})
+		return
+	}
+	messages, pageInfo, err := a.queryMessages(page, parseMessageFilters(r))
+	if err != nil {
+		log.Printf("[ASHN] postgres inbound message list failed: %v", err)
+		fail(w, http.StatusInternalServerError, "message list failed", "The intake archive could not be opened.")
+		return
+	}
+	respond(w, http.StatusOK, domain.Envelope{Data: messages, Lore: "The XML intake archive opened its scroll case.", Page: &pageInfo})
+}
+
+func (a intakeApp) queryMessages(page pageRequest, filters messageFilters) ([]domain.InboundMessage, domain.PageInfo, error) {
+	clauses, args := []string{}, []any{}
+	addTextFilter(&clauses, &args, "status", filters.Status)
+	addTextFilter(&clauses, &args, "transaction_type", filters.Type)
+	addSearchFilter(&clauses, &args, filters.Q, "id", "content_type", "COALESCE(transaction_type, '')", "raw_payload", "status", "COALESCE(error, '')")
+	query := `SELECT id, content_type, COALESCE(transaction_type, ''), raw_payload, status, COALESCE(error, ''), COALESCE(downstream_status, 0), created_at FROM inbound_messages`
+	query = appendWhere(query, clauses)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, page.Limit+1, page.Offset)
+	rows, err := a.db.Query(query, args...)
+	if err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	defer rows.Close()
+	messages := []domain.InboundMessage{}
+	for rows.Next() {
+		var message domain.InboundMessage
+		if err := rows.Scan(&message.ID, &message.ContentType, &message.TransactionType, &message.RawPayload, &message.Status, &message.Error, &message.DownstreamStatus, &message.CreatedAt); err != nil {
+			return nil, domain.PageInfo{}, err
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	messages, pageInfo := trimFetchedPage(messages, page)
+	return messages, pageInfo, nil
+}
+
+type pageRequest struct {
+	Limit  int
+	Offset int
+}
+
+type messageFilters struct {
+	Status string
+	Type   string
+	Q      string
+}
+
+func parsePage(r *http.Request, fallback int) pageRequest {
+	return pageRequest{Limit: parseLimit(r, fallback), Offset: parseOffset(r)}
+}
+
+func parseMessageFilters(r *http.Request) messageFilters {
+	query := r.URL.Query()
+	return messageFilters{
+		Status: strings.TrimSpace(query.Get("status")),
+		Type:   strings.TrimSpace(query.Get("type")),
+		Q:      strings.TrimSpace(query.Get("q")),
+	}
+}
+
+func parseLimit(r *http.Request, fallback int) int {
+	value := r.URL.Query().Get("limit")
+	if value == "" {
+		return fallback
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 {
+		return fallback
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func parseOffset(r *http.Request) int {
+	value := r.URL.Query().Get("offset")
+	if value == "" {
+		return 0
+	}
+	offset, err := strconv.Atoi(value)
+	if err != nil || offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+func trimFetchedPage[T any](items []T, page pageRequest) ([]T, domain.PageInfo) {
+	hasMore := len(items) > page.Limit
+	if hasMore {
+		items = items[:page.Limit]
+	}
+	return items, domain.PageInfo{Limit: page.Limit, Offset: page.Offset, Count: len(items), HasMore: hasMore}
+}
+
+func addTextFilter(clauses *[]string, args *[]any, column string, value string) {
+	if value == "" {
+		return
+	}
+	*args = append(*args, value)
+	*clauses = append(*clauses, fmt.Sprintf("LOWER(%s) = LOWER($%d)", column, len(*args)))
+}
+
+func addSearchFilter(clauses *[]string, args *[]any, query string, columns ...string) {
+	if query == "" {
+		return
+	}
+	*args = append(*args, "%"+query+"%")
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		parts = append(parts, fmt.Sprintf("%s ILIKE $%d", column, len(*args)))
+	}
+	*clauses = append(*clauses, "("+strings.Join(parts, " OR ")+")")
+}
+
+func appendWhere(query string, clauses []string) string {
+	if len(clauses) == 0 {
+		return query
+	}
+	return query + " WHERE " + strings.Join(clauses, " AND ")
 }
 
 func requireFields(fields map[string]string) error {

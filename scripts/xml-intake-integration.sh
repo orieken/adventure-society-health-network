@@ -125,4 +125,44 @@ if [[ "$accepted_count" != "1" || "$rejected_count" != "1" || "$transaction_coun
   exit 1
 fi
 
+messages_response="$(mktemp)"
+messages_status="$(curl -sS -o "$messages_response" -w "%{http_code}" "$API_URL/v1/x12/messages?limit=10&status=accepted&type=834&q=Farros")"
+if [[ "$messages_status" != "200" ]]; then
+  echo "[ASHN] Expected XML messages status 200, got $messages_status" >&2
+  cat "$messages_response" >&2
+  exit 1
+fi
+
+node - "$messages_response" <<'NODE'
+const fs = require("fs");
+const payload = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (!payload.page || payload.page.count !== 1) {
+  throw new Error(`expected one accepted XML audit message, got ${JSON.stringify(payload.page)}`);
+}
+const [message] = payload.data;
+if (message.transactionType !== "834" || message.status !== "accepted" || !message.rawPayload.includes("XML Integration Farros")) {
+  throw new Error(`unexpected accepted XML audit message: ${JSON.stringify(message)}`);
+}
+NODE
+
+rejected_messages_response="$(mktemp)"
+rejected_messages_status="$(curl -sS -o "$rejected_messages_response" -w "%{http_code}" "$API_URL/v1/x12/messages?limit=10&status=rejected&type=270&q=missing-provider")"
+if [[ "$rejected_messages_status" != "200" ]]; then
+  echo "[ASHN] Expected rejected XML messages status 200, got $rejected_messages_status" >&2
+  cat "$rejected_messages_response" >&2
+  exit 1
+fi
+
+node - "$rejected_messages_response" <<'NODE'
+const fs = require("fs");
+const payload = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (!payload.page || payload.page.count !== 1) {
+  throw new Error(`expected one rejected XML audit message, got ${JSON.stringify(payload.page)}`);
+}
+const [message] = payload.data;
+if (message.transactionType !== "270" || message.status !== "rejected" || !message.error.includes("missing field")) {
+  throw new Error(`unexpected rejected XML audit message: ${JSON.stringify(message)}`);
+}
+NODE
+
 echo "[ASHN] XML intake integration passed"

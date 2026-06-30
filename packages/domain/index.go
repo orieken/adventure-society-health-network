@@ -117,6 +117,17 @@ type Transaction struct {
 	CreatedAt  time.Time         `json:"createdAt"`
 }
 
+type InboundMessage struct {
+	ID               string    `json:"id"`
+	ContentType      string    `json:"contentType"`
+	TransactionType  string    `json:"transactionType,omitempty"`
+	RawPayload       string    `json:"rawPayload"`
+	Status           string    `json:"status"`
+	Error            string    `json:"error,omitempty"`
+	DownstreamStatus int       `json:"downstreamStatus,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
 type Claim struct {
 	ID               string           `json:"id"`
 	AdventurerID     string           `json:"adventurerId"`

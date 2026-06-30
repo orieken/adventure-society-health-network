@@ -113,6 +113,24 @@ func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
 	assert.Equal(t, "XML accepted.", decodeGatewayEnvelope(t, response).Lore)
 }
 
+func TestGatewayRoutesXMLAuditMessagesToEDIIntake(t *testing.T) {
+	var downstreamURI string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamURI = r.URL.RequestURI()
+		assert.Equal(t, http.MethodGet, r.Method)
+		return jsonResponse(http.StatusOK, domain.Envelope{Data: []domain.InboundMessage{}, Lore: "Messages returned."})
+	})}
+
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", ediURL: "http://edi-intake", client: client})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/x12/messages?limit=10&offset=20&status=accepted&type=834&q=farros", nil)
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, "/x12/messages?limit=10&offset=20&status=accepted&type=834&q=farros", downstreamURI)
+	assert.Equal(t, "Messages returned.", decodeGatewayEnvelope(t, response).Lore)
+}
+
 func TestGatewayHealthAggregatesDownstreamServices(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		assert.Equal(t, "/health", r.URL.Path)

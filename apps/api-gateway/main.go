@@ -63,6 +63,8 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.proxy(w, r, g.payerURL, path)
 	case path == "/x12/xml" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.ediURL, path)
+	case path == "/x12/messages" && r.Method == http.MethodGet:
+		g.proxy(w, r, g.ediURL, path)
 	case strings.HasPrefix(path, "/providers"):
 		g.proxy(w, r, g.providerURL, path)
 	default:

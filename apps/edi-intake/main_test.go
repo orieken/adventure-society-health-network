@@ -15,9 +15,10 @@ import (
 )
 
 type testEnvelope struct {
-	Data  json.RawMessage `json:"data"`
-	Lore  string          `json:"lore"`
-	Error string          `json:"error"`
+	Data  json.RawMessage  `json:"data"`
+	Lore  string           `json:"lore"`
+	Page  *domain.PageInfo `json:"page"`
+	Error string           `json:"error"`
 }
 
 func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
@@ -184,10 +185,26 @@ func TestAcceptXMLRejectsUnimplemented820(t *testing.T) {
 	assert.Equal(t, "transaction type 820 not implemented", decodeEnvelope(t, response).Error)
 }
 
+func TestListMessagesWithoutDatabaseReturnsEmptyPage(t *testing.T) {
+	handler := newIntakeTestMux(intakeApp{})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/x12/messages?limit=5&offset=10", nil)
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Page)
+	assert.Equal(t, 5, envelope.Page.Limit)
+	assert.Equal(t, 10, envelope.Page.Offset)
+	assert.Equal(t, 0, envelope.Page.Count)
+}
+
 func newIntakeTestMux(app intakeApp) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
+	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	return mux
 }
 

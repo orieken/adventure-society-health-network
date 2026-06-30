@@ -56,13 +56,26 @@ type Transaction = {
   createdAt: string;
 };
 
+type InboundMessage = {
+  id: string;
+  contentType: string;
+  transactionType?: string;
+  rawPayload: string;
+  status: string;
+  error?: string;
+  downstreamStatus?: number;
+  createdAt: string;
+};
+
 const apiUrl = import.meta.env.VITE_ASHN_API_URL ?? "http://localhost:8080";
 const adventurerPageSize = 10;
 const claimPageSize = 10;
 const transactionPageSize = 25;
+const auditPageSize = 10;
 const transactionTypes = ["All", "834", "820", "270", "271", "278", "837", "835", "276", "277", "269"];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Approved", "Denied", "Paid"];
+const auditStatuses = ["All", "accepted", "rejected"];
 
 function providerLabel(providerId: string, providers: Provider[]) {
   if (providerId === "All") return "All";
@@ -92,14 +105,18 @@ function App() {
   const [recentAdventurers, setRecentAdventurers] = useState<Adventurer[]>([]);
   const [recentClaims, setRecentClaims] = useState<Claim[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
+  const [inboundMessages, setInboundMessages] = useState<InboundMessage[]>([]);
   const [adventurerPage, setAdventurerPage] = useState<PageInfo>({ limit: adventurerPageSize, offset: 0, count: 0, hasMore: false });
   const [claimPage, setClaimPage] = useState<PageInfo>({ limit: claimPageSize, offset: 0, count: 0, hasMore: false });
   const [transactionPage, setTransactionPage] = useState<PageInfo>({ limit: transactionPageSize, offset: 0, count: 0, hasMore: false });
+  const [auditPage, setAuditPage] = useState<PageInfo>({ limit: auditPageSize, offset: 0, count: 0, hasMore: false });
   const [adventurerOffset, setAdventurerOffset] = useState(0);
   const [claimOffset, setClaimOffset] = useState(0);
   const [transactionOffset, setTransactionOffset] = useState(0);
+  const [auditOffset, setAuditOffset] = useState(0);
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedInboundMessage, setSelectedInboundMessage] = useState<InboundMessage | null>(null);
   const [events, setEvents] = useState<Envelope[]>([]);
   const [busy, setBusy] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -107,6 +124,8 @@ function App() {
   const [transactionStatusFilter, setTransactionStatusFilter] = useState("All");
   const [claimStatusFilter, setClaimStatusFilter] = useState("All");
   const [providerFilter, setProviderFilter] = useState("All");
+  const [auditStatusFilter, setAuditStatusFilter] = useState("All");
+  const [auditTypeFilter, setAuditTypeFilter] = useState("All");
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -120,7 +139,7 @@ function App() {
 
   useEffect(() => {
     void refresh();
-  }, [adventurerOffset, claimOffset, claimStatusFilter, providerFilter, searchTerm, transactionOffset, transactionStatusFilter, transactionTypeFilter]);
+  }, [adventurerOffset, auditOffset, auditStatusFilter, auditTypeFilter, claimOffset, claimStatusFilter, providerFilter, searchTerm, transactionOffset, transactionStatusFilter, transactionTypeFilter]);
 
   async function refresh(pushProviderEvent = false) {
     const adventurerQuery = buildQuery({ limit: adventurerPageSize, offset: adventurerOffset, q: searchTerm });
@@ -138,21 +157,31 @@ function App() {
       type: transactionTypeFilter,
       status: transactionStatusFilter
     });
-    const [healthResult, providersResult, adventurersResult, claimsResult, transactionsResult] = await Promise.all([
+    const auditQuery = buildQuery({
+      limit: auditPageSize,
+      offset: auditOffset,
+      q: searchTerm,
+      status: auditStatusFilter,
+      type: auditTypeFilter
+    });
+    const [healthResult, providersResult, adventurersResult, claimsResult, transactionsResult, auditResult] = await Promise.all([
       request<Record<string, string>>("/v1/health"),
       request<Provider[]>("/v1/providers"),
       request<Adventurer[]>(`/v1/adventurers?${adventurerQuery}`),
       request<Claim[]>(`/v1/claims?${claimQuery}`),
-      request<Transaction[]>(`/v1/transactions?${transactionQuery}`)
+      request<Transaction[]>(`/v1/transactions?${transactionQuery}`),
+      request<InboundMessage[]>(`/v1/x12/messages?${auditQuery}`)
     ]);
     setHealth(healthResult);
     setProviders(providersResult.data ?? []);
     setRecentAdventurers(adventurersResult.data ?? []);
     setRecentClaims(claimsResult.data ?? []);
     setRecentTransactions(transactionsResult.data ?? []);
+    setInboundMessages(auditResult.data ?? []);
     setAdventurerPage(adventurersResult.page ?? { limit: adventurerPageSize, offset: adventurerOffset, count: adventurersResult.data?.length ?? 0, hasMore: false });
     setClaimPage(claimsResult.page ?? { limit: claimPageSize, offset: claimOffset, count: claimsResult.data?.length ?? 0, hasMore: false });
     setTransactionPage(transactionsResult.page ?? { limit: transactionPageSize, offset: transactionOffset, count: transactionsResult.data?.length ?? 0, hasMore: false });
+    setAuditPage(auditResult.page ?? { limit: auditPageSize, offset: auditOffset, count: auditResult.data?.length ?? 0, hasMore: false });
     if (pushProviderEvent && providersResult.lore) {
       pushEvent(providersResult);
     }
@@ -162,6 +191,7 @@ function App() {
     setAdventurerOffset(0);
     setClaimOffset(0);
     setTransactionOffset(0);
+    setAuditOffset(0);
   }
 
   async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
@@ -280,6 +310,7 @@ function App() {
     if (result.data) {
       setSelectedClaim(result.data);
       setSelectedTransaction(null);
+      setSelectedInboundMessage(null);
     }
     setBusy(false);
   }
@@ -291,6 +322,7 @@ function App() {
     if (transaction) {
       setSelectedTransaction(transaction);
       setSelectedClaim(null);
+      setSelectedInboundMessage(null);
     }
     setBusy(false);
   }
@@ -420,6 +452,8 @@ function App() {
               setTransactionStatusFilter("All");
               setClaimStatusFilter("All");
               setProviderFilter("All");
+              setAuditStatusFilter("All");
+              setAuditTypeFilter("All");
               resetLedgerOffsets();
             }}
           >
@@ -476,6 +510,24 @@ function App() {
               ))}
             </select>
           </label>
+          <label>
+            XML status
+            <select value={auditStatusFilter} onChange={(event) => {
+              setAuditStatusFilter(event.target.value);
+              setAuditOffset(0);
+            }}>
+              {auditStatuses.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+          <label>
+            XML type
+            <select value={auditTypeFilter} onChange={(event) => {
+              setAuditTypeFilter(event.target.value);
+              setAuditOffset(0);
+            }}>
+              {transactionTypes.map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
         </div>
       </section>
 
@@ -522,13 +574,33 @@ function App() {
         </div>
       </section>
 
-      {(selectedClaim || selectedTransaction) && (
+      <section className="panel ledger">
+        <div className="ledger-title">
+          <h2>XML Intake Audits</h2>
+          <span className="muted">from edi-intake</span>
+        </div>
+        {inboundMessages.length === 0 ? (
+          <p className="muted">No XML intake messages match the current filters.</p>
+        ) : (
+          inboundMessages.map((message) => (
+            <InboundMessageRow key={message.id} message={message} onSelect={(item) => {
+              setSelectedInboundMessage(item);
+              setSelectedClaim(null);
+              setSelectedTransaction(null);
+            }} />
+          ))
+        )}
+        <Pager page={auditPage} onPrevious={() => setAuditOffset(Math.max(0, auditPage.offset - auditPage.limit))} onNext={() => setAuditOffset(auditPage.offset + auditPage.limit)} />
+      </section>
+
+      {(selectedClaim || selectedTransaction || selectedInboundMessage) && (
         <section className="panel detail-panel">
           <div className="ledger-title">
-            <h2>{selectedTransaction ? "Transaction Detail" : "Claim Detail"}</h2>
+            <h2>{selectedTransaction ? "Transaction Detail" : selectedInboundMessage ? "XML Intake Detail" : "Claim Detail"}</h2>
             <button className="secondary" onClick={() => {
               setSelectedClaim(null);
               setSelectedTransaction(null);
+              setSelectedInboundMessage(null);
             }}>
               Close
             </button>
@@ -565,6 +637,22 @@ function App() {
               <DetailItem label="Provider" value={selectedClaim.providerId} />
               <DetailItem label="Transaction" value={selectedClaim.transactionId} />
               <DetailItem label="Claim ID" value={selectedClaim.id} />
+            </div>
+          )}
+          {selectedInboundMessage && (
+            <div className="detail-grid">
+              <DetailItem label="Status" value={selectedInboundMessage.status} />
+              <DetailItem label="Type" value={selectedInboundMessage.transactionType ?? "—"} />
+              <DetailItem label="Downstream" value={selectedInboundMessage.downstreamStatus ? String(selectedInboundMessage.downstreamStatus) : "—"} />
+              <DetailItem label="Content Type" value={selectedInboundMessage.contentType} />
+              <DetailItem label="Created" value={new Date(selectedInboundMessage.createdAt).toLocaleString()} />
+              <DetailItem label="ID" value={selectedInboundMessage.id} />
+              {selectedInboundMessage.error && <DetailItem label="Error" value={selectedInboundMessage.error} />}
+              <PayloadBlock
+                title="Raw XML"
+                value={selectedInboundMessage.rawPayload}
+                onCopy={copyText}
+              />
             </div>
           )}
         </section>
@@ -663,6 +751,18 @@ function TransactionRow({ transaction, onSelect }: { transaction: Transaction; o
         <span>{new Date(transaction.createdAt).toLocaleString()}</span>
       </div>
       <code>{transaction.id}</code>
+    </article>
+  );
+}
+
+function InboundMessageRow({ message, onSelect }: { message: InboundMessage; onSelect: (message: InboundMessage) => void }) {
+  return (
+    <article className="compact-row clickable" onClick={() => onSelect(message)}>
+      <div>
+        <strong>{message.transactionType || "unknown"} · {message.status}</strong>
+        <span>{message.downstreamStatus ? `${message.downstreamStatus} · ` : ""}{new Date(message.createdAt).toLocaleString()}</span>
+      </div>
+      <code>{message.id}</code>
     </article>
   );
 }

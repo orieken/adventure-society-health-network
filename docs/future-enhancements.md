@@ -103,6 +103,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [ ] Add a transaction timeline view grouped by adventurer or claim.
 - [ ] Add saved filters for transaction type, status, provider, and date range.
 - [ ] Add raw payload tabs: JSON, XML, and X12.
+- [x] Add XML intake audit visibility with raw XML detail.
 - [ ] Add ledger export to JSON, XML, and CSV.
 - [ ] Add visual links between request/response transaction pairs.
 
