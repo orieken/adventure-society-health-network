@@ -14,11 +14,17 @@ import (
 type gateway struct {
 	payerURL    string
 	providerURL string
+	ediURL      string
 	client      *http.Client
 }
 
 func main() {
-	g := gateway{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), providerURL: env("PROVIDER_SERVICE_URL", "http://localhost:8082"), client: http.DefaultClient}
+	g := gateway{
+		payerURL:    env("PAYER_CORE_URL", "http://localhost:8081"),
+		providerURL: env("PROVIDER_SERVICE_URL", "http://localhost:8082"),
+		ediURL:      env("EDI_INTAKE_URL", "http://localhost:8083"),
+		client:      http.DefaultClient,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/", g.route)
 	addr := env("API_GATEWAY_ADDR", ":8080")
@@ -55,6 +61,8 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.proxy(w, r, g.payerURL, path)
 	case strings.HasPrefix(path, "/transactions/") && r.Method == http.MethodGet:
 		g.proxy(w, r, g.payerURL, path)
+	case path == "/x12/xml" && r.Method == http.MethodPost:
+		g.proxy(w, r, g.ediURL, path)
 	case strings.HasPrefix(path, "/providers"):
 		g.proxy(w, r, g.providerURL, path)
 	default:
@@ -89,8 +97,12 @@ func (g gateway) proxy(w http.ResponseWriter, r *http.Request, baseURL, path str
 }
 
 func (g gateway) health(w http.ResponseWriter) {
-	status := map[string]string{"api-gateway": "ok", "payer-core": "unknown", "provider-service": "unknown"}
-	for service, url := range map[string]string{"payer-core": g.payerURL, "provider-service": g.providerURL} {
+	status := map[string]string{"api-gateway": "ok"}
+	for service, url := range map[string]string{"payer-core": g.payerURL, "provider-service": g.providerURL, "edi-intake": g.ediURL} {
+		if url == "" {
+			continue
+		}
+		status[service] = "unknown"
 		resp, err := g.httpClient().Get(url + "/health")
 		if err == nil && resp.StatusCode < 500 {
 			status[service] = "ok"

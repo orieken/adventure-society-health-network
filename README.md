@@ -55,6 +55,8 @@ The demo performs:
 
 Service logs are written under `.dev/logs/` while `make dev-stack` is running.
 
+The stack also starts `edi-intake` on `http://localhost:8083`; the public XML endpoint is available through the gateway at `POST /v1/x12/xml`.
+
 ## Database
 
 Start Postgres and apply the schema/seed data:
@@ -89,6 +91,7 @@ Run services with persistence:
 export DATABASE_URL="postgres://ashn_user:ashn_password@localhost:5432/ashn?sslmode=disable"
 go run ./apps/payer-core
 go run ./apps/provider-service
+go run ./apps/edi-intake
 go run ./apps/api-gateway
 ```
 
@@ -99,6 +102,7 @@ Run services in separate terminals:
 ```sh
 go run ./apps/payer-core
 go run ./apps/provider-service
+go run ./apps/edi-intake
 go run ./apps/api-gateway
 go run ./apps/ashn-cli providers list
 ```

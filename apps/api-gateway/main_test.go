@@ -91,13 +91,35 @@ func TestGatewayRoutesPersistedListsToPayerCore(t *testing.T) {
 	}, paths)
 }
 
+func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
+	var downstreamPath string
+	var downstreamContentType string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPath = r.URL.Path
+		downstreamContentType = r.Header.Get("Content-Type")
+		assert.Equal(t, http.MethodPost, r.Method)
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "XML accepted."})
+	})}
+
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", ediURL: "http://edi-intake", client: client})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, "/x12/xml", downstreamPath)
+	assert.Equal(t, "application/xml", downstreamContentType)
+	assert.Equal(t, "XML accepted.", decodeGatewayEnvelope(t, response).Lore)
+}
+
 func TestGatewayHealthAggregatesDownstreamServices(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		assert.Equal(t, "/health", r.URL.Path)
 		return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
 	})}
 
-	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", client: client})
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", ediURL: "http://edi-intake", client: client})
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
 	handler.ServeHTTP(response, request)
@@ -109,6 +131,7 @@ func TestGatewayHealthAggregatesDownstreamServices(t *testing.T) {
 	assert.Equal(t, "ok", health["api-gateway"])
 	assert.Equal(t, "ok", health["payer-core"])
 	assert.Equal(t, "ok", health["provider-service"])
+	assert.Equal(t, "ok", health["edi-intake"])
 	assert.NotEmpty(t, envelope.Lore)
 }
 

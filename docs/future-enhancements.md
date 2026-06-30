@@ -12,18 +12,19 @@ This keeps `payer-core` focused on business state while giving us a clean place 
 
 ### P0 — XML EDI Intake Service
 
-- [ ] Add a new `apps/edi-intake` service.
-- [ ] Expose `POST /x12/xml` for XML transaction submissions.
-- [ ] Accept `Content-Type: application/xml` and `text/xml`.
-- [ ] Parse XML into a neutral inbound envelope.
-- [ ] Detect transaction type: `834`, `270`, `278`, `837`, `276`, `835`, `820`.
-- [ ] Validate required fields per transaction type.
-- [ ] Return structured validation errors for malformed or incomplete XML.
-- [ ] Convert accepted XML into ASHN `domain.Transaction` records.
-- [ ] Forward accepted work to `payer-core` through internal HTTP APIs.
+- [x] Add a new `apps/edi-intake` service.
+- [x] Expose `POST /x12/xml` for XML transaction submissions.
+- [x] Accept `Content-Type: application/xml` and `text/xml`.
+- [x] Parse XML into a neutral inbound envelope.
+- [x] Detect transaction type: `834`, `270`, `278`, `837`, `276`, `835`, `820`.
+- [x] Validate required fields per transaction type.
+- [x] Return structured validation errors for malformed or incomplete XML.
+- [x] Convert accepted XML into ASHN payer requests.
+- [x] Forward accepted work to `payer-core` through internal HTTP APIs.
+- [x] Add gateway route `POST /v1/x12/xml`.
+- [x] Add unit tests for valid XML, invalid XML, missing fields, and unsupported transaction types.
 - [ ] Persist raw inbound XML for audit/debug replay.
-- [ ] Add unit tests for valid XML, invalid XML, missing fields, and unsupported transaction types.
-- [ ] Add integration tests through `api-gateway → edi-intake → payer-core`.
+- [ ] Add DB-backed integration tests through `api-gateway → edi-intake → payer-core`.
 
 Suggested service boundary:
 

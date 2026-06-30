@@ -170,6 +170,7 @@ The important architectural choice is that ASHN stores normalized business entit
 | Service | Responsibility |
 | --- | --- |
 | `api-gateway` | Public demo API, routing, CORS, health aggregation |
+| `edi-intake` | XML intake, validation, and mapping into payer workflows |
 | `payer-core` | Enrollment, eligibility, authorization, claims, payments, transaction ledger |
 | `provider-service` | Provider registry and provider-facing lookup behavior |
 | `dashboard` | Visual workflow, ledger search, filters, pagination, and detail views |
