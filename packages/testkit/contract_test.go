@@ -15,6 +15,9 @@ func TestEnrollmentTransactionContract(t *testing.T) {
 	assert.Equal(t, domain.Tx834, tx.Type)
 	assert.Equal(t, domain.TxStatusAccepted, tx.Status)
 	assert.NotEmpty(t, tx.Payload)
+	assert.Contains(t, tx.RawX12, "ISA*")
+	assert.Contains(t, tx.RawX12, "ST*834")
+	assert.Contains(t, tx.RawX12, "INS*Y")
 }
 
 func TestClaimStatusTransactionPair(t *testing.T) {
@@ -22,6 +25,10 @@ func TestClaimStatusTransactionPair(t *testing.T) {
 	response := edimock.Generate277("claim-1", domain.ClaimPending)
 	assert.Equal(t, domain.Tx276, request.Type)
 	assert.Equal(t, domain.TxStatusDispatched, request.Status)
+	assert.Contains(t, request.RawX12, "ST*276")
+	assert.Contains(t, request.RawX12, "REF*1K")
 	assert.Equal(t, domain.Tx277, response.Type)
 	assert.Equal(t, domain.TxStatusAccepted, response.Status)
+	assert.Contains(t, response.RawX12, "ST*277")
+	assert.Contains(t, response.RawX12, "STC*A1")
 }

@@ -19,7 +19,7 @@ ASHN translates those ideas into a small working system:
 - the dashboard and CLI trigger business actions
 - the API gateway routes requests to payer and provider services
 - the payer service creates EDI-inspired `Transaction` records
-- each transaction captures type, status, sender, receiver, payload, and timestamp
+- each transaction captures type, status, sender, receiver, JSON payload, raw X12 text, and timestamp
 - Postgres stores the transaction ledger for search, filtering, and replayable demos
 
 ## End-to-End Flow
@@ -156,6 +156,7 @@ Every emitted X12-inspired event becomes a `Transaction` record:
       "status": "Submitted"
     }
   },
+  "rawX12": "ISA*00*...~\nGS*HC*...~\nST*837*...~\nCLM*...~\nSE*...~",
   "createdAt": "2026-06-29T16:00:00Z"
 }
 ```
@@ -192,7 +193,7 @@ What it models well:
 
 What it simplifies:
 
-- full X12 segment syntax such as `ISA`, `GS`, `ST`, `BHT`, `NM1`, and `SE`
+- production-grade X12 segment generation and companion-guide compliance
 - companion-guide validation
 - clearinghouse routing
 - acknowledgments such as `999` or `277CA`
@@ -218,7 +219,7 @@ Good next expansions include:
 - add `999` acknowledgments for syntactic acceptance or rejection
 - add `277CA` claim acknowledgments after `837` submission
 - model `820` premium payment in the visible workflow
-- add generated raw X12 segment strings alongside JSON payloads
+- expand generated raw X12 segment strings toward companion-guide examples
 - introduce clearinghouse-style routing and trading partner IDs
 - add validation rules per transaction type
 - make the `278` authorization lifecycle asynchronous with approval and denial decisions

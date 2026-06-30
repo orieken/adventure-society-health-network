@@ -49,12 +49,14 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P1 — Raw X12 Generation
 
-- [ ] Generate raw X12-like strings alongside the current JSON payloads.
-- [ ] Add envelope segments: `ISA`, `GS`, `ST`, `BHT`, `SE`, `GE`, `IEA`.
-- [ ] Add transaction-specific segment examples for `834`, `270`, `271`, `278`, `837`, `835`, `276`, and `277`.
-- [ ] Store raw X12 text on each ledger transaction.
-- [ ] Show raw X12 in the dashboard transaction detail panel.
-- [ ] Add copy/download buttons for raw transaction payloads.
+- [x] Generate raw X12-like strings alongside the current JSON payloads.
+- [x] Add envelope segments: `ISA`, `GS`, `ST`, `BHT`, `SE`, `GE`, `IEA`.
+- [x] Add transaction-specific segment examples for `834`, `270`, `271`, `278`, `837`, `835`, `276`, and `277`.
+- [x] Store raw X12 text on each ledger transaction.
+- [x] Show raw X12 in the dashboard transaction detail panel.
+- [x] Add copy buttons for raw transaction payloads.
+- [ ] Add download buttons for raw transaction payloads.
+- [ ] Expand segment generation toward companion-guide examples.
 
 ### P1 — Acknowledgments
 

@@ -105,6 +105,8 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	require.NoError(t, json.Unmarshal(transactionsEnvelope.Data, &transactions))
 	require.Len(t, transactions, 1)
 	assert.Equal(t, domain.Tx835, transactions[0].Type)
+	assert.Contains(t, transactions[0].RawX12, "ISA*")
+	assert.Contains(t, transactions[0].RawX12, "ST*835")
 	require.NotNil(t, transactionsEnvelope.Page)
 	assert.False(t, transactionsEnvelope.Page.HasMore)
 

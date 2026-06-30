@@ -24,8 +24,11 @@ CREATE TABLE IF NOT EXISTS transactions (
   sender_id TEXT NOT NULL,
   receiver_id TEXT NOT NULL,
   payload JSONB NOT NULL,
+  raw_x12 TEXT,
   created_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS raw_x12 TEXT;
 
 CREATE TABLE IF NOT EXISTS claims (
   id TEXT PRIMARY KEY,

@@ -355,6 +355,28 @@ pre {
   margin: 0;
 }
 
+.payload-block {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+}
+
+.payload-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.payload-title h3 {
+  margin: 0;
+}
+
+.payload-title button {
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
 .detail-item {
   display: grid;
   gap: 6px;

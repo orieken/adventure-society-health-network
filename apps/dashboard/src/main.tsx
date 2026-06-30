@@ -52,6 +52,7 @@ type Transaction = {
   senderId: string;
   receiverId: string;
   payload: unknown;
+  rawX12?: string;
   createdAt: string;
 };
 
@@ -176,6 +177,10 @@ function App() {
 
   function pushEvent(event: Envelope) {
     setEvents((current) => [event, ...current].slice(0, 8));
+  }
+
+  function copyText(value: string) {
+    void navigator.clipboard?.writeText(value);
   }
 
   async function enroll(event: FormEvent<HTMLFormElement>) {
@@ -524,7 +529,16 @@ function App() {
               <DetailItem label="Receiver" value={selectedTransaction.receiverId} />
               <DetailItem label="Created" value={new Date(selectedTransaction.createdAt).toLocaleString()} />
               <DetailItem label="ID" value={selectedTransaction.id} />
-              <pre>{JSON.stringify(selectedTransaction.payload, null, 2)}</pre>
+              <PayloadBlock
+                title="Raw X12"
+                value={selectedTransaction.rawX12 ?? "No raw X12 was generated for this transaction."}
+                onCopy={copyText}
+              />
+              <PayloadBlock
+                title="JSON Payload"
+                value={JSON.stringify(selectedTransaction.payload, null, 2)}
+                onCopy={copyText}
+              />
             </div>
           )}
           {selectedClaim && (
@@ -562,6 +576,18 @@ function Pager({ page, onPrevious, onNext }: { page: PageInfo; onPrevious: () =>
         <button className="secondary" disabled={page.offset === 0} onClick={onPrevious}>Previous</button>
         <button className="secondary" disabled={!page.hasMore} onClick={onNext}>Next</button>
       </div>
+    </div>
+  );
+}
+
+function PayloadBlock({ title, value, onCopy }: { title: string; value: string; onCopy: (value: string) => void }) {
+  return (
+    <div className="payload-block">
+      <div className="payload-title">
+        <h3>{title}</h3>
+        <button className="secondary" onClick={() => onCopy(value)}>Copy</button>
+      </div>
+      <pre>{value}</pre>
     </div>
   );
 }

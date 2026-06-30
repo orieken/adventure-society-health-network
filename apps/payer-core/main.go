@@ -355,8 +355,8 @@ func (s *store) saveTransaction(tx domain.Transaction) {
 	defer s.mu.Unlock()
 	s.transactions[tx.ID] = tx
 	if s.db != nil {
-		_, err := s.db.Exec(`INSERT INTO transactions (id, type, status, sender_id, receiver_id, payload, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
-			tx.ID, tx.Type, tx.Status, tx.SenderID, tx.ReceiverID, []byte(tx.Payload), tx.CreatedAt)
+		_, err := s.db.Exec(`INSERT INTO transactions (id, type, status, sender_id, receiver_id, payload, raw_x12, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
+			tx.ID, tx.Type, tx.Status, tx.SenderID, tx.ReceiverID, []byte(tx.Payload), tx.RawX12, tx.CreatedAt)
 		if err != nil {
 			log.Printf("[ASHN] postgres transaction persistence failed: %v", err)
 		}
@@ -489,7 +489,7 @@ func loadTransactions(db *sql.DB) map[string]domain.Transaction {
 	if db == nil {
 		return transactions
 	}
-	rows, err := db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, created_at FROM transactions`)
+	rows, err := db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), created_at FROM transactions`)
 	if err != nil {
 		log.Printf("[ASHN] postgres transaction load failed: %v", err)
 		return transactions
@@ -497,7 +497,7 @@ func loadTransactions(db *sql.DB) map[string]domain.Transaction {
 	defer rows.Close()
 	for rows.Next() {
 		var tx domain.Transaction
-		if err := rows.Scan(&tx.ID, &tx.Type, &tx.Status, &tx.SenderID, &tx.ReceiverID, &tx.Payload, &tx.CreatedAt); err != nil {
+		if err := rows.Scan(&tx.ID, &tx.Type, &tx.Status, &tx.SenderID, &tx.ReceiverID, &tx.Payload, &tx.RawX12, &tx.CreatedAt); err != nil {
 			log.Printf("[ASHN] postgres transaction row skipped: %v", err)
 			continue
 		}
@@ -575,8 +575,8 @@ func (s *store) queryTransactions(page pageRequest, filters transactionFilters) 
 	clauses, args := []string{}, []any{}
 	addTextFilter(&clauses, &args, "type", filters.Type)
 	addTextFilter(&clauses, &args, "status", filters.Status)
-	addSearchFilter(&clauses, &args, filters.Q, "id", "type", "status", "sender_id", "receiver_id", "payload::text")
-	query := `SELECT id, type, status, sender_id, receiver_id, payload, created_at FROM transactions`
+	addSearchFilter(&clauses, &args, filters.Q, "id", "type", "status", "sender_id", "receiver_id", "payload::text", "COALESCE(raw_x12, '')")
+	query := `SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), created_at FROM transactions`
 	query = appendWhere(query, clauses)
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	args = append(args, page.Limit+1, page.Offset)
@@ -588,7 +588,7 @@ func (s *store) queryTransactions(page pageRequest, filters transactionFilters) 
 	transactions := []domain.Transaction{}
 	for rows.Next() {
 		var transaction domain.Transaction
-		if err := rows.Scan(&transaction.ID, &transaction.Type, &transaction.Status, &transaction.SenderID, &transaction.ReceiverID, &transaction.Payload, &transaction.CreatedAt); err != nil {
+		if err := rows.Scan(&transaction.ID, &transaction.Type, &transaction.Status, &transaction.SenderID, &transaction.ReceiverID, &transaction.Payload, &transaction.RawX12, &transaction.CreatedAt); err != nil {
 			return nil, domain.PageInfo{}, err
 		}
 		transactions = append(transactions, transaction)

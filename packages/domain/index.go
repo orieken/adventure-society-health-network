@@ -113,6 +113,7 @@ type Transaction struct {
 	SenderID   string            `json:"senderId"`
 	ReceiverID string            `json:"receiverId"`
 	Payload    json.RawMessage   `json:"payload"`
+	RawX12     string            `json:"rawX12,omitempty"`
 	CreatedAt  time.Time         `json:"createdAt"`
 }
 
