@@ -210,6 +210,8 @@ Behind the story, every step is a real service call and every X12-inspired event
 
 ## Future X12 Enhancements
 
+For the prioritized implementation backlog, including the proposed XML EDI intake service, see [ASHN Future Enhancements TODO](future-enhancements.md).
+
 Good next expansions include:
 
 - add `999` acknowledgments for syntactic acceptance or rejection
