@@ -183,6 +183,18 @@ function App() {
     void navigator.clipboard?.writeText(value);
   }
 
+  function downloadText(filename: string, value: string) {
+    const blob = new Blob([value], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async function enroll(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -533,6 +545,9 @@ function App() {
                 title="Raw X12"
                 value={selectedTransaction.rawX12 ?? "No raw X12 was generated for this transaction."}
                 onCopy={copyText}
+                downloadLabel="Download .x12"
+                onDownload={() => downloadText(`ashn-${selectedTransaction.type}-${selectedTransaction.id}.x12`, selectedTransaction.rawX12 ?? "")}
+                canDownload={Boolean(selectedTransaction.rawX12)}
               />
               <PayloadBlock
                 title="JSON Payload"
@@ -580,12 +595,31 @@ function Pager({ page, onPrevious, onNext }: { page: PageInfo; onPrevious: () =>
   );
 }
 
-function PayloadBlock({ title, value, onCopy }: { title: string; value: string; onCopy: (value: string) => void }) {
+function PayloadBlock({
+  title,
+  value,
+  onCopy,
+  onDownload,
+  downloadLabel = "Download",
+  canDownload = false
+}: {
+  title: string;
+  value: string;
+  onCopy: (value: string) => void;
+  onDownload?: () => void;
+  downloadLabel?: string;
+  canDownload?: boolean;
+}) {
   return (
     <div className="payload-block">
       <div className="payload-title">
         <h3>{title}</h3>
-        <button className="secondary" onClick={() => onCopy(value)}>Copy</button>
+        <div>
+          <button className="secondary" onClick={() => onCopy(value)}>Copy</button>
+          {onDownload && (
+            <button className="secondary" disabled={!canDownload} onClick={onDownload}>{downloadLabel}</button>
+          )}
+        </div>
       </div>
       <pre>{value}</pre>
     </div>

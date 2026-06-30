@@ -372,6 +372,13 @@ pre {
   margin: 0;
 }
 
+.payload-title div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .payload-title button {
   border-radius: 12px;
   padding: 9px 12px;

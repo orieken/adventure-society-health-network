@@ -55,7 +55,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Store raw X12 text on each ledger transaction.
 - [x] Show raw X12 in the dashboard transaction detail panel.
 - [x] Add copy buttons for raw transaction payloads.
-- [ ] Add download buttons for raw transaction payloads.
+- [x] Add download buttons for raw transaction payloads.
 - [ ] Expand segment generation toward companion-guide examples.
 
 ### P1 — Acknowledgments
