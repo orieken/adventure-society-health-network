@@ -118,10 +118,12 @@ accepted_count="$(sql_value "SELECT count(*) FROM inbound_messages WHERE transac
 rejected_count="$(sql_value "SELECT count(*) FROM inbound_messages WHERE transaction_type = '270' AND status = 'rejected' AND error LIKE 'missing field%' AND raw_payload LIKE '%missing-provider%';")"
 transaction_count="$(sql_value "SELECT count(*) FROM transactions WHERE type = '834' AND status = 'Accepted';")"
 adventurer_count="$(sql_value "SELECT count(*) FROM adventurers WHERE name = 'XML Integration Farros';")"
+accepted_999_count="$(sql_value "SELECT count(*) FROM transactions WHERE type = '999' AND status = 'Accepted' AND related_id IN (SELECT id FROM inbound_messages WHERE transaction_type = '834' AND status = 'accepted');")"
+rejected_999_count="$(sql_value "SELECT count(*) FROM transactions WHERE type = '999' AND status = 'Failed' AND related_id IN (SELECT id FROM inbound_messages WHERE transaction_type = '270' AND status = 'rejected');")"
 
-if [[ "$accepted_count" != "1" || "$rejected_count" != "1" || "$transaction_count" != "1" || "$adventurer_count" != "1" ]]; then
+if [[ "$accepted_count" != "1" || "$rejected_count" != "1" || "$transaction_count" != "1" || "$adventurer_count" != "1" || "$accepted_999_count" != "1" || "$rejected_999_count" != "1" ]]; then
   echo "[ASHN] XML intake integration assertions failed" >&2
-  echo "accepted_count=$accepted_count rejected_count=$rejected_count transaction_count=$transaction_count adventurer_count=$adventurer_count" >&2
+  echo "accepted_count=$accepted_count rejected_count=$rejected_count transaction_count=$transaction_count adventurer_count=$adventurer_count accepted_999_count=$accepted_999_count rejected_999_count=$rejected_999_count" >&2
   exit 1
 fi
 

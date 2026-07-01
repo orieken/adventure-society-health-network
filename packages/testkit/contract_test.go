@@ -32,3 +32,20 @@ func TestClaimStatusTransactionPair(t *testing.T) {
 	assert.Contains(t, response.RawX12, "ST*277")
 	assert.Contains(t, response.RawX12, "STC*A1")
 }
+
+func TestAcknowledgmentTransactions(t *testing.T) {
+	ack := edimock.Generate999("message-1", domain.Tx837, "edi-intake", "partner", true, "")
+	assert.Equal(t, domain.Tx999, ack.Type)
+	assert.Equal(t, domain.TxStatusAccepted, ack.Status)
+	assert.Equal(t, "message-1", ack.RelatedID)
+	assert.Contains(t, ack.RawX12, "ST*999")
+	assert.Contains(t, ack.RawX12, "AK9*A")
+
+	claim := domain.Claim{ID: "claim-1", ProviderID: "provider-vitesse-temple", Status: domain.ClaimSubmitted}
+	claimAck := edimock.Generate277CA(claim, "tx-837", true)
+	assert.Equal(t, domain.Tx277CA, claimAck.Type)
+	assert.Equal(t, domain.TxStatusAccepted, claimAck.Status)
+	assert.Equal(t, "tx-837", claimAck.RelatedID)
+	assert.Contains(t, claimAck.RawX12, "ST*277CA")
+	assert.Contains(t, claimAck.RawX12, "STC*A1")
+}

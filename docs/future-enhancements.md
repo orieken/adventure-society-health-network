@@ -60,11 +60,11 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P1 — Acknowledgments
 
-- [ ] Add `999` implementation acknowledgment for accepted or rejected syntax.
-- [ ] Add `277CA` claim acknowledgment after `837` submission.
-- [ ] Track acknowledgment relationships between source transactions and responses.
-- [ ] Add dashboard filters for original transaction vs acknowledgment.
-- [ ] Add tests for accepted and rejected acknowledgment flows.
+- [x] Add `999` implementation acknowledgment for accepted or rejected syntax.
+- [x] Add `277CA` claim acknowledgment after `837` submission.
+- [x] Track acknowledgment relationships between source transactions and responses.
+- [x] Add dashboard filters for acknowledgment transaction types.
+- [x] Add tests for accepted and rejected acknowledgment flows.
 
 ### P1 — Asynchronous Processing
 

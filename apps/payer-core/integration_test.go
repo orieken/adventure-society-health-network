@@ -77,13 +77,13 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	assertTableCount(t, db, "claims", 1)
 	assertTableCount(t, db, "enrollments", 1)
 	assertTableCount(t, db, "auth_requests", 1)
-	assertTableCount(t, db, "transactions", 6)
+	assertTableCount(t, db, "transactions", 7)
 
 	reloaded := newIntegrationStore(db)
 	assert.Contains(t, reloaded.adventurers, adventurer.ID)
 	assert.Contains(t, reloaded.claims, claim.ID)
 	assert.Len(t, reloaded.providers, 6)
-	assert.Len(t, reloaded.transactions, 6)
+	assert.Len(t, reloaded.transactions, 7)
 	assert.Equal(t, domain.ClaimPaid, reloaded.claims[claim.ID].Status)
 
 	listClaims := httptest.NewRecorder()

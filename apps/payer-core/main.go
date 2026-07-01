@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
@@ -78,6 +79,7 @@ func main() {
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)
+	mux.HandleFunc("POST /transactions", app.recordTransaction)
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	addr := env("PAYER_CORE_ADDR", ":8081")
 	log.Printf("[ASHN] payer-core listening on %s", addr)
@@ -190,9 +192,11 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	tx := edimock.Generate837(claim)
 	claim.TransactionID = tx.ID
+	ack := edimock.Generate277CA(claim, tx.ID, true)
 	s.saveTransaction(tx)
+	s.saveTransaction(ack)
 	s.saveClaim(claim)
-	respond(w, http.StatusCreated, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx837, adventurer.Name, provider.Name), Transaction: &tx})
+	respond(w, http.StatusCreated, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx837, adventurer.Name, provider.Name), Transaction: &tx, Transactions: []domain.Transaction{tx, ack}})
 }
 
 func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
@@ -308,6 +312,21 @@ func (s *store) listTransactions(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, domain.Envelope{Data: transactions, Lore: "Recent EDI runes were pulled from active memory.", Page: &pageInfo})
 }
 
+func (s *store) recordTransaction(w http.ResponseWriter, r *http.Request) {
+	var tx domain.Transaction
+	if !decode(w, r, &tx) {
+		return
+	}
+	if tx.ID == "" {
+		tx.ID = domain.NewID()
+	}
+	if tx.CreatedAt.IsZero() {
+		tx.CreatedAt = time.Now().UTC()
+	}
+	s.saveTransaction(tx)
+	respond(w, http.StatusCreated, domain.Envelope{Data: tx, Transaction: &tx, Lore: "The Society ledger recorded an externally generated EDI rune."})
+}
+
 func (s *store) findAdventurerProvider(w http.ResponseWriter, adventurerID, providerID string) (domain.Adventurer, domain.Provider, bool) {
 	s.mu.RLock()
 	adventurer, adventurerOK := s.adventurers[adventurerID]
@@ -355,8 +374,8 @@ func (s *store) saveTransaction(tx domain.Transaction) {
 	defer s.mu.Unlock()
 	s.transactions[tx.ID] = tx
 	if s.db != nil {
-		_, err := s.db.Exec(`INSERT INTO transactions (id, type, status, sender_id, receiver_id, payload, raw_x12, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-			tx.ID, tx.Type, tx.Status, tx.SenderID, tx.ReceiverID, []byte(tx.Payload), tx.RawX12, tx.CreatedAt)
+		_, err := s.db.Exec(`INSERT INTO transactions (id, type, status, sender_id, receiver_id, payload, raw_x12, related_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9) ON CONFLICT (id) DO NOTHING`,
+			tx.ID, tx.Type, tx.Status, tx.SenderID, tx.ReceiverID, []byte(tx.Payload), tx.RawX12, tx.RelatedID, tx.CreatedAt)
 		if err != nil {
 			log.Printf("[ASHN] postgres transaction persistence failed: %v", err)
 		}
@@ -489,7 +508,7 @@ func loadTransactions(db *sql.DB) map[string]domain.Transaction {
 	if db == nil {
 		return transactions
 	}
-	rows, err := db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), created_at FROM transactions`)
+	rows, err := db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), COALESCE(related_id, ''), created_at FROM transactions`)
 	if err != nil {
 		log.Printf("[ASHN] postgres transaction load failed: %v", err)
 		return transactions
@@ -497,7 +516,7 @@ func loadTransactions(db *sql.DB) map[string]domain.Transaction {
 	defer rows.Close()
 	for rows.Next() {
 		var tx domain.Transaction
-		if err := rows.Scan(&tx.ID, &tx.Type, &tx.Status, &tx.SenderID, &tx.ReceiverID, &tx.Payload, &tx.RawX12, &tx.CreatedAt); err != nil {
+		if err := rows.Scan(&tx.ID, &tx.Type, &tx.Status, &tx.SenderID, &tx.ReceiverID, &tx.Payload, &tx.RawX12, &tx.RelatedID, &tx.CreatedAt); err != nil {
 			log.Printf("[ASHN] postgres transaction row skipped: %v", err)
 			continue
 		}
@@ -575,8 +594,8 @@ func (s *store) queryTransactions(page pageRequest, filters transactionFilters) 
 	clauses, args := []string{}, []any{}
 	addTextFilter(&clauses, &args, "type", filters.Type)
 	addTextFilter(&clauses, &args, "status", filters.Status)
-	addSearchFilter(&clauses, &args, filters.Q, "id", "type", "status", "sender_id", "receiver_id", "payload::text", "COALESCE(raw_x12, '')")
-	query := `SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), created_at FROM transactions`
+	addSearchFilter(&clauses, &args, filters.Q, "id", "type", "status", "sender_id", "receiver_id", "payload::text", "COALESCE(raw_x12, '')", "COALESCE(related_id, '')")
+	query := `SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), COALESCE(related_id, ''), created_at FROM transactions`
 	query = appendWhere(query, clauses)
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	args = append(args, page.Limit+1, page.Offset)
@@ -588,7 +607,7 @@ func (s *store) queryTransactions(page pageRequest, filters transactionFilters) 
 	transactions := []domain.Transaction{}
 	for rows.Next() {
 		var transaction domain.Transaction
-		if err := rows.Scan(&transaction.ID, &transaction.Type, &transaction.Status, &transaction.SenderID, &transaction.ReceiverID, &transaction.Payload, &transaction.RawX12, &transaction.CreatedAt); err != nil {
+		if err := rows.Scan(&transaction.ID, &transaction.Type, &transaction.Status, &transaction.SenderID, &transaction.ReceiverID, &transaction.Payload, &transaction.RawX12, &transaction.RelatedID, &transaction.CreatedAt); err != nil {
 			return nil, domain.PageInfo{}, err
 		}
 		transactions = append(transactions, transaction)

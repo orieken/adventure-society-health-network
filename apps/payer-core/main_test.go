@@ -84,6 +84,10 @@ func TestClaimPaymentUpdatesClaimAndEmits835(t *testing.T) {
 	claimEnvelope := decodeEnvelope(t, claimResponse)
 	var claim domain.Claim
 	require.NoError(t, json.Unmarshal(claimEnvelope.Data, &claim))
+	require.Len(t, claimEnvelope.Transactions, 2)
+	assert.Equal(t, domain.Tx837, claimEnvelope.Transactions[0].Type)
+	assert.Equal(t, domain.Tx277CA, claimEnvelope.Transactions[1].Type)
+	assert.Equal(t, claimEnvelope.Transactions[0].ID, claimEnvelope.Transactions[1].RelatedID)
 
 	paymentResponse := serveJSON(t, mux, http.MethodPost, "/claims/"+claim.ID+"/payment", domain.PaymentRequest{PaymentAmountCents: 100000})
 
@@ -240,6 +244,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)
+	mux.HandleFunc("POST /transactions", app.recordTransaction)
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	return mux
 }

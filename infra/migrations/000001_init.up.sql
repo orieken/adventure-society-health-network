@@ -25,10 +25,12 @@ CREATE TABLE IF NOT EXISTS transactions (
   receiver_id TEXT NOT NULL,
   payload JSONB NOT NULL,
   raw_x12 TEXT,
+  related_id TEXT,
   created_at TIMESTAMPTZ NOT NULL
 );
 
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS raw_x12 TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS related_id TEXT;
 
 CREATE TABLE IF NOT EXISTS claims (
   id TEXT PRIMARY KEY,
@@ -85,6 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_providers_region ON providers(region);
 CREATE INDEX IF NOT EXISTS idx_providers_tier_rank ON providers(tier_rank);
 CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+CREATE INDEX IF NOT EXISTS idx_transactions_related_id ON transactions(related_id);
 CREATE INDEX IF NOT EXISTS idx_claims_adventurer_id ON claims(adventurer_id);
 CREATE INDEX IF NOT EXISTS idx_claims_provider_id ON claims(provider_id);
 CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);

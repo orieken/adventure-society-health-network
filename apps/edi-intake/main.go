@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"ashn/packages/domain"
+	edimock "ashn/packages/edi-mock"
 
 	_ "github.com/lib/pq"
 )
@@ -100,19 +101,22 @@ func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		a.auditInboundMessage(contentType, "", "", "rejected", "invalid xml", http.StatusBadRequest)
+		messageID := a.auditInboundMessage(contentType, "", "", "rejected", "invalid xml", http.StatusBadRequest)
+		a.record999(messageID, "", "", false, "invalid xml")
 		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll faded before the scribe could read it.")
 		return
 	}
 	rawXML := string(body)
 	if !isXMLContent(contentType) {
-		a.auditInboundMessage(contentType, "", rawXML, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
+		messageID := a.auditInboundMessage(contentType, "", rawXML, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
+		a.record999(messageID, "", "", false, "unsupported content type")
 		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe only accepts XML scrolls.")
 		return
 	}
 	inbound, err := parseInboundXML(body)
 	if err != nil {
-		a.auditInboundMessage(contentType, "", rawXML, "rejected", "invalid xml", http.StatusBadRequest)
+		messageID := a.auditInboundMessage(contentType, "", rawXML, "rejected", "invalid xml", http.StatusBadRequest)
+		a.record999(messageID, "", "", false, "invalid xml")
 		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll does not match the Society intake format.")
 		return
 	}
@@ -122,16 +126,19 @@ func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "not implemented") {
 			status = http.StatusNotImplemented
 		}
-		a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", err.Error(), status)
+		messageID := a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", err.Error(), status)
+		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
 		fail(w, status, err.Error(), "The intake scribe rejected the XML scroll before it entered the ledger.")
 		return
 	}
 	status, forwardErr := a.forward(w, method, path, payload)
 	if forwardErr != "" {
-		a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", forwardErr, status)
+		messageID := a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", forwardErr, status)
+		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, forwardErr)
 		return
 	}
-	a.auditInboundMessage(contentType, inbound.Type, rawXML, "accepted", "", status)
+	messageID := a.auditInboundMessage(contentType, inbound.Type, rawXML, "accepted", "", status)
+	a.record999(messageID, inbound.Type, inbound.Sender.ID, true, "")
 }
 
 func parseInboundXML(body []byte) (inboundTransaction, error) {
@@ -277,14 +284,46 @@ func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any)
 	return resp.StatusCode, ""
 }
 
-func (a intakeApp) auditInboundMessage(contentType, transactionType, rawPayload, status, errorText string, downstreamStatus int) {
+func (a intakeApp) auditInboundMessage(contentType, transactionType, rawPayload, status, errorText string, downstreamStatus int) string {
+	id := domain.NewID()
 	if a.db == nil {
-		return
+		return id
 	}
 	_, err := a.db.Exec(`INSERT INTO inbound_messages (id, content_type, transaction_type, raw_payload, status, error, downstream_status) VALUES ($1, $2, NULLIF($3, ''), $4, $5, NULLIF($6, ''), $7)`,
-		domain.NewID(), contentType, transactionType, rawPayload, status, errorText, downstreamStatus)
+		id, contentType, transactionType, rawPayload, status, errorText, downstreamStatus)
 	if err != nil {
 		log.Printf("[ASHN] postgres inbound message audit failed: %v", err)
+	}
+	return id
+}
+
+func (a intakeApp) record999(relatedID string, transactionType string, receiverID string, accepted bool, errorText string) {
+	if relatedID == "" {
+		return
+	}
+	if receiverID == "" {
+		receiverID = "external-partner"
+	}
+	ack := edimock.Generate999(relatedID, domain.TransactionType(transactionType), "edi-intake", receiverID, accepted, errorText)
+	payload, err := json.Marshal(ack)
+	if err != nil {
+		log.Printf("[ASHN] 999 marshal failed: %v", err)
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, a.payerURL+"/transactions", bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("[ASHN] 999 request creation failed: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.httpClient().Do(req)
+	if err != nil {
+		log.Printf("[ASHN] 999 persistence failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		log.Printf("[ASHN] 999 persistence rejected by payer-core: %s", resp.Status)
 	}
 }
 

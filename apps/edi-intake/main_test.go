@@ -22,19 +22,31 @@ type testEnvelope struct {
 }
 
 func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
-	var downstreamPath string
-	var downstreamMethod string
+	downstreamPaths := []string{}
 	var claimRequest domain.ClaimRequest
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		downstreamPath = r.URL.Path
-		downstreamMethod = r.Method
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&claimRequest))
-		return jsonResponse(http.StatusCreated, domain.Envelope{
-			Data:        domain.Claim{ID: "claim-1", AdventurerID: claimRequest.AdventurerID, ProviderID: claimRequest.ProviderID, Status: domain.ClaimSubmitted},
-			Lore:        "Incident claim submitted.",
-			Transaction: &domain.Transaction{Type: domain.Tx837, Status: domain.TxStatusAccepted},
-		})
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims":
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&claimRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Data:        domain.Claim{ID: "claim-1", AdventurerID: claimRequest.AdventurerID, ProviderID: claimRequest.ProviderID, Status: domain.ClaimSubmitted},
+				Lore:        "Incident claim submitted.",
+				Transaction: &domain.Transaction{Type: domain.Tx837, Status: domain.TxStatusAccepted},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.TxStatusAccepted, ack.Status)
+			assert.NotEmpty(t, ack.RelatedID)
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
 	})}
 	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
 
@@ -54,8 +66,7 @@ func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusCreated, response.Code)
-	assert.Equal(t, http.MethodPost, downstreamMethod)
-	assert.Equal(t, "/claims", downstreamPath)
+	assert.Equal(t, []string{"/claims", "/transactions"}, downstreamPaths)
 	assert.Equal(t, "adv-1", claimRequest.AdventurerID)
 	assert.Equal(t, domain.SeverityAwakened, claimRequest.IncidentSeverity)
 	assert.Equal(t, int64(125000), claimRequest.AmountCents)
@@ -64,12 +75,22 @@ func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
 }
 
 func TestAcceptXMLRoutesClaimStatusToPayerCore(t *testing.T) {
-	var downstreamPath string
-	var downstreamMethod string
+	downstreamPaths := []string{}
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		downstreamPath = r.URL.Path
-		downstreamMethod = r.Method
-		return jsonResponse(http.StatusOK, domain.Envelope{Data: map[string]string{"claimId": "claim-1", "status": "Paid"}, Lore: "Claim status returned."})
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims/claim-1/status":
+			assert.Equal(t, http.MethodGet, r.Method)
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: map[string]string{"claimId": "claim-1", "status": "Paid"}, Lore: "Claim status returned."})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
 	})}
 	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
 
@@ -84,8 +105,7 @@ func TestAcceptXMLRoutesClaimStatusToPayerCore(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusOK, response.Code)
-	assert.Equal(t, http.MethodGet, downstreamMethod)
-	assert.Equal(t, "/claims/claim-1/status", downstreamPath)
+	assert.Equal(t, []string{"/claims/claim-1/status", "/transactions"}, downstreamPaths)
 }
 
 func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {

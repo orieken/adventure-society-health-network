@@ -72,6 +72,8 @@ sequenceDiagram
 | `835` | Claim payment / remittance advice | Society pays the provider and explains the remittance | `Paid` |
 | `276` | Claim status request | Provider asks for the current state of a claim | `Dispatched` |
 | `277` | Claim status response | Society returns the claim’s current status | `Accepted` |
+| `999` | Implementation acknowledgment | Intake confirms whether an XML submission was accepted or rejected | `Accepted` or `Failed` |
+| `277CA` | Claim acknowledgment | Society confirms receipt of an `837` claim before adjudication | `Accepted` |
 | `269` | Health care benefit coordination | Reserved in the domain model for future coordination workflows | Not yet emitted |
 
 ## How Each Step Works

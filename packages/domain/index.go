@@ -46,16 +46,18 @@ const (
 type TransactionType string
 
 const (
-	Tx834 TransactionType = "834"
-	Tx820 TransactionType = "820"
-	Tx270 TransactionType = "270"
-	Tx271 TransactionType = "271"
-	Tx278 TransactionType = "278"
-	Tx837 TransactionType = "837"
-	Tx835 TransactionType = "835"
-	Tx276 TransactionType = "276"
-	Tx277 TransactionType = "277"
-	Tx269 TransactionType = "269"
+	Tx834   TransactionType = "834"
+	Tx820   TransactionType = "820"
+	Tx270   TransactionType = "270"
+	Tx271   TransactionType = "271"
+	Tx278   TransactionType = "278"
+	Tx837   TransactionType = "837"
+	Tx835   TransactionType = "835"
+	Tx276   TransactionType = "276"
+	Tx277   TransactionType = "277"
+	Tx269   TransactionType = "269"
+	Tx999   TransactionType = "999"
+	Tx277CA TransactionType = "277CA"
 )
 
 type TransactionStatus string
@@ -114,6 +116,7 @@ type Transaction struct {
 	ReceiverID string            `json:"receiverId"`
 	Payload    json.RawMessage   `json:"payload"`
 	RawX12     string            `json:"rawX12,omitempty"`
+	RelatedID  string            `json:"relatedId,omitempty"`
 	CreatedAt  time.Time         `json:"createdAt"`
 }
 

@@ -1,6 +1,7 @@
 package edimock
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -74,6 +75,38 @@ func Generate277(claimID string, status domain.ClaimStatus) domain.Transaction {
 		"x12": "277 Claim Status Response", "claimId": claimID, "claimStatus": status,
 		"lore": lore.ThemeTransaction(domain.Tx277, claimID, "Adventure Society"),
 	})
+}
+
+func Generate999(relatedID string, acknowledgedType domain.TransactionType, senderID, receiverID string, accepted bool, errorText string) domain.Transaction {
+	status := domain.TxStatusAccepted
+	outcome := "accepted"
+	if !accepted {
+		status = domain.TxStatusFailed
+		outcome = "rejected"
+	}
+	tx := transaction(domain.Tx999, status, senderID, receiverID, map[string]any{
+		"x12": "999 Implementation Acknowledgment", "relatedId": relatedID, "acknowledgedType": acknowledgedType,
+		"accepted": accepted, "outcome": outcome, "error": errorText,
+	})
+	tx.RelatedID = relatedID
+	tx.RawX12 = rawX12(tx)
+	return tx
+}
+
+func Generate277CA(claim domain.Claim, relatedID string, accepted bool) domain.Transaction {
+	status := domain.TxStatusAccepted
+	outcome := "accepted"
+	if !accepted {
+		status = domain.TxStatusFailed
+		outcome = "rejected"
+	}
+	tx := transaction(domain.Tx277CA, status, "Adventure Society", claim.ProviderID, map[string]any{
+		"x12": "277CA Health Care Claim Acknowledgment", "claimId": claim.ID, "relatedId": relatedID,
+		"accepted": accepted, "outcome": outcome, "claimStatus": claim.Status,
+	})
+	tx.RelatedID = relatedID
+	tx.RawX12 = rawX12(tx)
+	return tx
 }
 
 func transaction(txType domain.TransactionType, status domain.TransactionStatus, senderID, receiverID string, payload any) domain.Transaction {
@@ -159,6 +192,21 @@ func transactionSegments(tx domain.Transaction) []string {
 			"TRN*2*" + element(tx.ID) + "~",
 			"STC*A1:" + statusCode(tx.Status) + "~",
 		}
+	case domain.Tx999:
+		acknowledgedType := acknowledgedTransactionType(tx)
+		return []string{
+			"AK1*HC*" + controlNumber(tx.RelatedID) + "~",
+			"AK2*" + element(string(acknowledgedType)) + "*" + controlNumber(tx.RelatedID) + "~",
+			"IK5*" + implementationAckCode(tx.Status) + "~",
+			"AK9*" + implementationAckCode(tx.Status) + "*1*1*" + ackAcceptedCount(tx.Status) + "~",
+		}
+	case domain.Tx277CA:
+		return []string{
+			"HL*1**20*1~",
+			"NM1*PR*2*" + element(tx.SenderID) + "*****PI*" + element(tx.SenderID) + "~",
+			"TRN*2*" + controlNumber(tx.RelatedID) + "~",
+			"STC*A1:" + statusCode(tx.Status) + "*" + tx.CreatedAt.Format("20060102") + "~",
+		}
 	default:
 		return []string{"NTE*ADD*ASHN placeholder transaction~"}
 	}
@@ -176,9 +224,39 @@ func implementationGuide(txType domain.TransactionType) string {
 		return "278A1"
 	case domain.Tx835:
 		return "835A1"
+	case domain.Tx999:
+		return "999A1"
+	case domain.Tx277CA:
+		return "277A1"
 	default:
 		return "837P"
 	}
+}
+
+func acknowledgedTransactionType(tx domain.Transaction) domain.TransactionType {
+	var payload map[string]any
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return domain.Tx837
+	}
+	acknowledgedType, ok := payload["acknowledgedType"]
+	if !ok {
+		return domain.Tx837
+	}
+	return domain.TransactionType(fmt.Sprint(acknowledgedType))
+}
+
+func implementationAckCode(status domain.TransactionStatus) string {
+	if status == domain.TxStatusAccepted {
+		return "A"
+	}
+	return "R"
+}
+
+func ackAcceptedCount(status domain.TransactionStatus) string {
+	if status == domain.TxStatusAccepted {
+		return "1"
+	}
+	return "0"
 }
 
 func eligibilityCode(status domain.TransactionStatus) string {

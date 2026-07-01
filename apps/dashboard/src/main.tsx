@@ -53,6 +53,7 @@ type Transaction = {
   receiverId: string;
   payload: unknown;
   rawX12?: string;
+  relatedId?: string;
   createdAt: string;
 };
 
@@ -72,7 +73,7 @@ const adventurerPageSize = 10;
 const claimPageSize = 10;
 const transactionPageSize = 25;
 const auditPageSize = 10;
-const transactionTypes = ["All", "834", "820", "270", "271", "278", "837", "835", "276", "277", "269"];
+const transactionTypes = ["All", "834", "820", "270", "271", "278", "837", "835", "276", "277", "269", "999", "277CA"];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
@@ -613,6 +614,7 @@ function App() {
               <DetailItem label="Receiver" value={selectedTransaction.receiverId} />
               <DetailItem label="Created" value={new Date(selectedTransaction.createdAt).toLocaleString()} />
               <DetailItem label="ID" value={selectedTransaction.id} />
+              <DetailItem label="Related" value={selectedTransaction.relatedId ?? "—"} />
               <PayloadBlock
                 title="Raw X12"
                 value={selectedTransaction.rawX12 ?? "No raw X12 was generated for this transaction."}
