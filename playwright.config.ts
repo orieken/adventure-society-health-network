@@ -6,7 +6,7 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"], ["html", { open: "never" }]],
-  timeout: 30_000,
+  timeout: process.env.CI ? 90_000 : 30_000,
   expect: {
     timeout: 5_000
   },

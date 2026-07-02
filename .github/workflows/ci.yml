@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ashn
+          POSTGRES_PASSWORD: ashn_password
+          POSTGRES_USER: ashn_user
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ashn_user -d ashn"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://ashn_user:ashn_password@localhost:5432/ashn?sslmode=disable
+      GOCACHE: ${{ github.workspace }}/.gocache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit coverage
+        run: |
+          mkdir -p "$GOCACHE"
+          go test ./... -coverprofile=coverage.out
+
+      - name: Apply database migrations
+        run: docker exec -i ${{ job.services.postgres.id }} psql -U ashn_user -d ashn < infra/migrations/000001_init.up.sql
+
+      - name: Run DB-backed integration coverage
+        run: ASHN_INTEGRATION=1 go test ./apps/payer-core -run Integration -count=1 -coverprofile=coverage.integration.out
+
+      - name: Enforce 85% merged coverage
+        run: |
+          { head -n 1 coverage.out; tail -n +2 coverage.out; tail -n +2 coverage.integration.out; } > coverage.merged.out
+          go tool cover -func=coverage.merged.out | tail -n 1
+          coverage="$(go tool cover -func=coverage.merged.out | awk '/total:/ {gsub("%", "", $3); print $3}')"
+          awk -v coverage="$coverage" 'BEGIN { if (coverage < 85) { printf "coverage %.1f%% is below 85%%\n", coverage; exit 1 } }'
+
+  e2e-contracts:
+    name: Saturday Playwright contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck E2E tests
+        run: npm run typecheck:e2e
+
+      - name: Run safe service contracts
+        run: npm run test:e2e:services
