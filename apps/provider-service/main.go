@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"ashn/packages/domain"
+	"ashn/packages/openapidocs"
 
 	_ "github.com/lib/pq"
 )
@@ -24,6 +25,8 @@ func main() {
 	db := openDB()
 	app := providerApp{providers: loadProviders(db), payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), client: http.DefaultClient}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN Provider Service Docs"))
+	mux.HandleFunc("GET /openapi.json", openapidocs.JSONHandler(providerOpenAPI()))
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("GET /providers", app.listProviders)
 	mux.HandleFunc("GET /providers/{id}", app.getProvider)
@@ -174,6 +177,29 @@ func fail(w http.ResponseWriter, status int, message, loreText string) {
 
 func health(w http.ResponseWriter, _ *http.Request) {
 	respond(w, http.StatusOK, map[string]string{"status": "ok", "service": "provider-service"})
+}
+
+func providerOpenAPI() map[string]any {
+	return openapidocs.Spec(openapidocs.Service{
+		Title:       "ASHN Provider Service",
+		Description: "Provider registry and provider-facing workflows for eligibility and claim submission.",
+		Version:     "0.1.0",
+		Paths: map[string]map[string]openapidocs.Operation{
+			"/health": {"get": {Summary: "Check provider-service health", Tags: []string{"health"}}},
+			"/providers": {
+				"get": {Summary: "List providers", Tags: []string{"providers"}},
+			},
+			"/providers/{id}": {
+				"get": {Summary: "Get provider detail", Tags: []string{"providers"}},
+			},
+			"/providers/{id}/verify-eligibility": {
+				"post": {Summary: "Verify eligibility through payer-core", Tags: []string{"providers", "eligibility"}, RequestBody: true},
+			},
+			"/providers/{id}/submit-claim": {
+				"post": {Summary: "Submit claim through payer-core", Tags: []string{"providers", "claims"}, RequestBody: true},
+			},
+		},
+	})
 }
 
 func env(key, fallback string) string {

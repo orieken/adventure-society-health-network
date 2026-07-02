@@ -18,6 +18,7 @@ import (
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
 	"ashn/packages/lore"
+	"ashn/packages/openapidocs"
 
 	_ "github.com/lib/pq"
 )
@@ -76,6 +77,8 @@ func main() {
 		go runEmbeddedWorker(db)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN Payer Core Docs"))
+	mux.HandleFunc("GET /openapi.json", openapidocs.JSONHandler(payerOpenAPI()))
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /enrollments", app.enroll)
 	mux.HandleFunc("GET /adventurers", app.listAdventurers)
@@ -982,6 +985,58 @@ func fail(w http.ResponseWriter, status int, message, loreText string) {
 
 func health(w http.ResponseWriter, _ *http.Request) {
 	respond(w, http.StatusOK, map[string]string{"status": "ok", "service": "payer-core"})
+}
+
+func payerOpenAPI() map[string]any {
+	return openapidocs.Spec(openapidocs.Service{
+		Title:       "ASHN Payer Core",
+		Description: "Core payer API for enrollment, eligibility, authorization, claims, transactions, exports, and replay.",
+		Version:     "0.1.0",
+		Paths: map[string]map[string]openapidocs.Operation{
+			"/health": {"get": {Summary: "Check payer-core health", Tags: []string{"health"}}},
+			"/enrollments": {
+				"post": {Summary: "Create 834 enrollment", Tags: []string{"adventurers", "x12"}, RequestBody: true},
+			},
+			"/adventurers": {
+				"get": {Summary: "List adventurers", Tags: []string{"adventurers"}},
+			},
+			"/adventurers/{id}": {
+				"get": {Summary: "Get adventurer detail", Tags: []string{"adventurers"}},
+			},
+			"/eligibility/query": {
+				"post": {Summary: "Run 270/271 eligibility", Tags: []string{"eligibility", "x12"}, RequestBody: true},
+			},
+			"/auth-requests": {
+				"post": {Summary: "Submit 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true},
+			},
+			"/claims": {
+				"get":  {Summary: "List claims", Tags: []string{"claims"}},
+				"post": {Summary: "Submit 837 claim", Tags: []string{"claims", "x12"}, RequestBody: true},
+			},
+			"/claims/{id}": {
+				"get": {Summary: "Get claim detail", Tags: []string{"claims"}},
+			},
+			"/claims/{id}/status": {
+				"get": {Summary: "Get claim status", Tags: []string{"claims"}},
+			},
+			"/claims/{id}/payment": {
+				"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true},
+			},
+			"/transactions": {
+				"get":  {Summary: "List ledger transactions", Tags: []string{"transactions"}},
+				"post": {Summary: "Record transaction", Tags: []string{"transactions"}, RequestBody: true},
+			},
+			"/transactions/{id}": {
+				"get": {Summary: "Get transaction detail", Tags: []string{"transactions"}},
+			},
+			"/transactions/{id}/export": {
+				"get": {Summary: "Export transaction as JSON, XML, or X12", Tags: []string{"transactions", "export"}},
+			},
+			"/transactions/{id}/replay": {
+				"post": {Summary: "Replay transaction", Tags: []string{"transactions", "replay"}},
+			},
+		},
+	})
 }
 
 func env(key, fallback string) string {

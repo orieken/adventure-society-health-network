@@ -431,7 +431,7 @@ function App() {
           <div className="gateway-header">
             <div>
               <h2>Gateway Skill Tree</h2>
-              <p>{apiUrl}</p>
+              <a className="gateway-url" href={apiUrl} target="_blank" rel="noreferrer">{apiUrl}</a>
             </div>
             <span className="gateway-badge">Live</span>
           </div>

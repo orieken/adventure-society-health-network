@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ashn/packages/domain"
+	"ashn/packages/openapidocs"
 )
 
 type gateway struct {
@@ -26,6 +27,8 @@ func main() {
 		client:      http.DefaultClient,
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN API Gateway Docs"))
+	mux.HandleFunc("GET /openapi.json", openapidocs.JSONHandler(apiGatewayOpenAPI()))
 	mux.HandleFunc("/v1/", g.route)
 	addr := env("API_GATEWAY_ADDR", ":8080")
 	log.Printf("[ASHN] api-gateway listening on %s", addr)
@@ -129,6 +132,44 @@ func (g gateway) httpClient() *http.Client {
 		return g.client
 	}
 	return http.DefaultClient
+}
+
+func apiGatewayOpenAPI() map[string]any {
+	return openapidocs.Spec(openapidocs.Service{
+		Title:       "ASHN API Gateway",
+		Description: "Public facade for the Adventure Society Health Network demo APIs.",
+		Version:     "0.1.0",
+		Paths: map[string]map[string]openapidocs.Operation{
+			"/v1/health": {"get": {Summary: "Check service health", Tags: []string{"gateway"}}},
+			"/v1/adventurers": {
+				"get":  {Summary: "List adventurers", Tags: []string{"adventurers"}},
+				"post": {Summary: "Create an enrollment", Tags: []string{"adventurers", "x12"}, RequestBody: true},
+			},
+			"/v1/adventurers/{id}": {"get": {Summary: "Get an adventurer", Tags: []string{"adventurers"}}},
+			"/v1/eligibility":      {"post": {Summary: "Run 270/271 eligibility", Tags: []string{"eligibility", "x12"}, RequestBody: true}},
+			"/v1/auth-requests":    {"post": {Summary: "Submit 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true}},
+			"/v1/claims": {
+				"get":  {Summary: "List claims", Tags: []string{"claims"}},
+				"post": {Summary: "Submit 837 claim", Tags: []string{"claims", "x12"}, RequestBody: true},
+			},
+			"/v1/claims/{id}":                       {"get": {Summary: "Get claim detail", Tags: []string{"claims"}}},
+			"/v1/claims/{id}/status":                {"get": {Summary: "Get claim status", Tags: []string{"claims"}}},
+			"/v1/claims/{id}/payment":               {"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true}},
+			"/v1/transactions":                      {"get": {Summary: "List ledger transactions", Tags: []string{"transactions"}}},
+			"/v1/transactions/{id}":                 {"get": {Summary: "Get transaction detail", Tags: []string{"transactions"}}},
+			"/v1/transactions/{id}/export":          {"get": {Summary: "Export transaction as JSON, XML, or X12", Tags: []string{"transactions", "export"}}},
+			"/v1/transactions/{id}/replay":          {"post": {Summary: "Replay transaction", Tags: []string{"transactions", "replay"}}},
+			"/v1/x12/xml":                           {"post": {Summary: "Accept XML intake", Tags: []string{"xml", "x12"}, RequestBody: true}},
+			"/v1/x12/messages":                      {"get": {Summary: "List XML intake audits", Tags: []string{"xml"}}},
+			"/v1/x12/messages/{id}/export":          {"get": {Summary: "Export XML intake audit", Tags: []string{"xml", "export"}}},
+			"/v1/x12/messages/{id}/replay":          {"post": {Summary: "Replay XML intake", Tags: []string{"xml", "replay"}}},
+			"/v1/x12/trading-partners":              {"get": {Summary: "List trading partners", Tags: []string{"trading partners", "x12"}}},
+			"/v1/providers":                         {"get": {Summary: "List providers", Tags: []string{"providers"}}},
+			"/v1/providers/{id}":                    {"get": {Summary: "Get provider detail", Tags: []string{"providers"}}},
+			"/v1/providers/{id}/submit-claim":       {"post": {Summary: "Submit claim through provider workflow", Tags: []string{"providers", "claims"}, RequestBody: true}},
+			"/v1/providers/{id}/verify-eligibility": {"post": {Summary: "Verify eligibility through provider workflow", Tags: []string{"providers", "eligibility"}, RequestBody: true}},
+		},
+	})
 }
 
 func cors(next http.Handler) http.Handler {

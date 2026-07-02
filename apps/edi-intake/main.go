@@ -16,6 +16,7 @@ import (
 
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
+	"ashn/packages/openapidocs"
 
 	_ "github.com/lib/pq"
 )
@@ -90,6 +91,8 @@ func main() {
 	db := openDB()
 	app := intakeApp{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), client: http.DefaultClient, db: db, tradingPartners: loadTradingPartners(db)}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN EDI Intake Docs"))
+	mux.HandleFunc("GET /openapi.json", openapidocs.JSONHandler(ediOpenAPI()))
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
@@ -763,6 +766,32 @@ func fail(w http.ResponseWriter, status int, message, loreText string) {
 
 func health(w http.ResponseWriter, _ *http.Request) {
 	respond(w, http.StatusOK, map[string]string{"status": "ok", "service": "edi-intake"})
+}
+
+func ediOpenAPI() map[string]any {
+	return openapidocs.Spec(openapidocs.Service{
+		Title:       "ASHN EDI Intake",
+		Description: "XML intake, audit visibility, trading partner lookup, acknowledgment, export, and replay endpoints.",
+		Version:     "0.1.0",
+		Paths: map[string]map[string]openapidocs.Operation{
+			"/health": {"get": {Summary: "Check edi-intake health", Tags: []string{"health"}}},
+			"/x12/xml": {
+				"post": {Summary: "Accept XML transaction intake", Tags: []string{"xml", "x12"}, RequestBody: true},
+			},
+			"/x12/messages": {
+				"get": {Summary: "List XML intake audit messages", Tags: []string{"xml", "audit"}},
+			},
+			"/x12/messages/{id}/export": {
+				"get": {Summary: "Export XML intake audit as JSON or XML", Tags: []string{"xml", "export"}},
+			},
+			"/x12/messages/{id}/replay": {
+				"post": {Summary: "Replay XML intake message", Tags: []string{"xml", "replay"}},
+			},
+			"/x12/trading-partners": {
+				"get": {Summary: "List trading partner profiles", Tags: []string{"trading partners", "x12"}},
+			},
+		},
+	})
 }
 
 func openDB() *sql.DB {
