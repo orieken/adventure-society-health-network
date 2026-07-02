@@ -8,6 +8,7 @@ Docs:
 - `docs/x12-workflow.md` — how ASHN maps healthcare X12 into the demo workflow
 - `docs/future-enhancements.md` — prioritized backlog, including the proposed XML EDI intake service
 - `docs/presentations/` — elevator pitch and technical deep-dive presentation decks
+- `docs/deployment.md` — Render + Netlify deployment guide
 
 ## Quick Start
 

@@ -69,6 +69,9 @@ func main() {
 		transactions: loadTransactions(db),
 		db:           db,
 	}
+	if env("ASHN_EMBED_WORKER", "") == "true" {
+		go runEmbeddedWorker(db)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /enrollments", app.enroll)
@@ -503,6 +506,26 @@ func (s *store) saveAuthRequest(adventurerID, providerID, transactionID, service
 		domain.NewID(), adventurerID, providerID, transactionID, serviceType, severity, status)
 	if err != nil {
 		log.Printf("[ASHN] postgres auth request persistence failed: %v", err)
+	}
+}
+
+func runEmbeddedWorker(db *sql.DB) {
+	if db == nil {
+		log.Printf("[ASHN] embedded worker disabled: database unavailable")
+		return
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	log.Printf("[ASHN] embedded tx-worker started")
+	for range ticker.C {
+		processed, err := asyncjobs.ProcessDue(db, 5)
+		if err != nil {
+			log.Printf("[ASHN] embedded tx-worker failed: %v", err)
+			continue
+		}
+		if processed > 0 {
+			log.Printf("[ASHN] embedded tx-worker processed %d job(s)", processed)
+		}
 	}
 }
 

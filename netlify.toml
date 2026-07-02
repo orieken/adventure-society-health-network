@@ -1,0 +1,12 @@
+[build]
+  base = "apps/dashboard"
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+[build.environment]
+  VITE_ASHN_API_URL = "https://ashn-api-gateway.onrender.com"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
