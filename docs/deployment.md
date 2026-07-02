@@ -17,11 +17,12 @@ It creates:
 - `ashn-edi-intake`
 - `ashn-postgres`
 
-`payer-core` runs `apps/migrate` before deploy, so the database schema and seed data are applied automatically.
+`payer-core` applies the initial migration on startup when `ASHN_AUTO_MIGRATE=true`, so the database schema and seed data are applied automatically on Render's free tier.
 
 For the first deployment, `payer-core` also runs the async job processor in embedded mode via:
 
 ```text
+ASHN_AUTO_MIGRATE=true
 ASHN_EMBED_WORKER=true
 ```
 
@@ -33,7 +34,7 @@ This avoids needing a separate paid Render background worker while keeping async
 2. Connect `orieken/adventure-society-health-network`.
 3. Select the root `render.yaml`.
 4. Create the Blueprint.
-5. Wait for `ashn-payer-core` to finish its pre-deploy migration.
+5. Wait for `ashn-payer-core` to start and apply its startup migration.
 6. Confirm `ashn-api-gateway` health:
 
 ```text

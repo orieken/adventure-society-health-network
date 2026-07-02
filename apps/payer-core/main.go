@@ -62,6 +62,9 @@ type transactionFilters struct {
 
 func main() {
 	db := openDB()
+	if db != nil && env("ASHN_AUTO_MIGRATE", "") == "true" {
+		applyMigration(db)
+	}
 	app := &store{
 		adventurers:  loadAdventurers(db),
 		providers:    loadProviders(db),
@@ -527,6 +530,20 @@ func runEmbeddedWorker(db *sql.DB) {
 			log.Printf("[ASHN] embedded tx-worker processed %d job(s)", processed)
 		}
 	}
+}
+
+func applyMigration(db *sql.DB) {
+	migrationPath := env("ASHN_MIGRATION_PATH", "infra/migrations/000001_init.up.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		log.Printf("[ASHN] auto migration read failed: %v", err)
+		return
+	}
+	if _, err := db.Exec(string(migration)); err != nil {
+		log.Printf("[ASHN] auto migration failed: %v", err)
+		return
+	}
+	log.Printf("[ASHN] auto migration applied")
 }
 
 func seedProviders() map[string]domain.Provider {

@@ -20,13 +20,14 @@ services:
     name: ashn-payer-core
     runtime: go
     plan: free
-    buildCommand: go build -o bin/migrate ./apps/migrate && go build -o bin/payer-core ./apps/payer-core
-    preDeployCommand: ./bin/migrate
+    buildCommand: go build -o bin/payer-core ./apps/payer-core
     startCommand: ./bin/payer-core
     healthCheckPath: /health
     envVars:
       - key: PAYER_CORE_ADDR
         value: :10000
+      - key: ASHN_AUTO_MIGRATE
+        value: "true"
       - key: ASHN_EMBED_WORKER
         value: "true"
       - key: DATABASE_URL
