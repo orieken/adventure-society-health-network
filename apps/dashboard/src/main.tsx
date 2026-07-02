@@ -428,14 +428,35 @@ function App() {
         </div>
         <div className="status-card">
           <span className="rune">◆</span>
-          <h2>Gateway</h2>
-          <p>{apiUrl}</p>
-          <div className="health-grid">
-            {Object.entries(health?.data ?? {}).map(([service, status]) => (
-              <span key={service} className={status === "ok" ? "ok" : "bad"}>
-                {service}: {status}
-              </span>
-            ))}
+          <div className="gateway-header">
+            <div>
+              <h2>Gateway Skill Tree</h2>
+              <p>{apiUrl}</p>
+            </div>
+            <span className="gateway-badge">Live</span>
+          </div>
+          <div className="gateway-tree" aria-label="Gateway service health diagram">
+            <div className="gateway-core">
+              <span className="gateway-diamond ok" />
+              <strong>API Gateway</strong>
+              <small>Routing Core</small>
+            </div>
+            <div className="gateway-branches">
+              {Object.entries(health?.data ?? {}).map(([service, status], index) => (
+                <div key={service} className={`gateway-node node-${index}`}>
+                  <span className={status === "ok" ? "gateway-diamond ok" : "gateway-diamond bad"} />
+                  <strong>{service}</strong>
+                  <small>{status}</small>
+                </div>
+              ))}
+              {Object.keys(health?.data ?? {}).length === 0 && (
+                <div className="gateway-node node-0">
+                  <span className="gateway-diamond bad" />
+                  <strong>Awaiting Signal</strong>
+                  <small>loading</small>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>
