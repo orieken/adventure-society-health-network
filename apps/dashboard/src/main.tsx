@@ -81,6 +81,8 @@ type TimelineGroup = {
   latestAt: number;
 };
 
+type DashboardTab = "workflow" | "timeline" | "ledger" | "xml" | "partners";
+
 type InboundMessage = {
   id: string;
   contentType: string;
@@ -102,6 +104,14 @@ const transactionTypes = ["All", "834", "820", "270", "271", "278", "837", "835"
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
+const dashboardTabs: { id: DashboardTab; label: string; detail: string }[] = [
+  { id: "workflow", label: "Workflow", detail: "Run the demo flow" },
+  { id: "timeline", label: "Timeline", detail: "Follow transaction chains" },
+  { id: "ledger", label: "Ledger", detail: "Browse DB records" },
+  { id: "xml", label: "XML Intake", detail: "Inspect inbound audits" },
+  { id: "partners", label: "Partners", detail: "Review routing profiles" }
+];
+const filterTabs: DashboardTab[] = ["timeline", "ledger", "xml"];
 
 function providerLabel(providerId: string, providers: Provider[]) {
   if (providerId === "All") return "All";
@@ -153,6 +163,7 @@ function App() {
   const [providerFilter, setProviderFilter] = useState("All");
   const [auditStatusFilter, setAuditStatusFilter] = useState("All");
   const [auditTypeFilter, setAuditTypeFilter] = useState("All");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("workflow");
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -392,6 +403,18 @@ function App() {
     setBusy(false);
   }
 
+  function openInboundMessageDetail(message: InboundMessage) {
+    setSelectedInboundMessage(message);
+    setSelectedClaim(null);
+    setSelectedTransaction(null);
+  }
+
+  function closeDetail() {
+    setSelectedClaim(null);
+    setSelectedTransaction(null);
+    setSelectedInboundMessage(null);
+  }
+
   return (
     <main>
       <section className="hero">
@@ -423,6 +446,20 @@ function App() {
         <MetricCard label="Transactions" value={transactionPage.count} detail={`${recentTransactions.length} ledger entries loaded`} />
       </section>
 
+      <nav className="tab-nav" aria-label="Dashboard sections">
+        {dashboardTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeTab === tab.id ? "tab-button active" : "tab-button"}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <strong>{tab.label}</strong>
+            <span>{tab.detail}</span>
+          </button>
+        ))}
+      </nav>
+
+      {activeTab === "partners" && (
       <section className="panel trading-panel">
         <div className="ledger-title">
           <div>
@@ -439,7 +476,10 @@ function App() {
           )}
         </div>
       </section>
+      )}
 
+      {activeTab === "workflow" && (
+      <>
       <section className="grid">
         <div className="panel">
           <h2>1. Enroll Adventurer</h2>
@@ -522,7 +562,10 @@ function App() {
           events.map((event, index) => <LedgerEvent key={index} event={event} />)
         )}
       </section>
+      </>
+      )}
 
+      {filterTabs.includes(activeTab) && (
       <section className="panel filters-panel">
         <div className="ledger-title">
           <h2>Search & Filters</h2>
@@ -612,7 +655,9 @@ function App() {
           </label>
         </div>
       </section>
+      )}
 
+      {activeTab === "timeline" && (
       <section className="panel timeline-panel">
         <div className="ledger-title">
           <div>
@@ -631,7 +676,9 @@ function App() {
           </div>
         )}
       </section>
+      )}
 
+      {activeTab === "ledger" && (
       <section className="history-grid">
         <div className="panel ledger">
           <div className="ledger-title">
@@ -674,7 +721,9 @@ function App() {
           <Pager page={adventurerPage} onPrevious={() => setAdventurerOffset(Math.max(0, adventurerPage.offset - adventurerPage.limit))} onNext={() => setAdventurerOffset(adventurerPage.offset + adventurerPage.limit)} />
         </div>
       </section>
+      )}
 
+      {activeTab === "xml" && (
       <section className="panel ledger">
         <div className="ledger-title">
           <h2>XML Intake Audits</h2>
@@ -684,27 +733,22 @@ function App() {
           <p className="muted">No XML intake messages match the current filters.</p>
         ) : (
           inboundMessages.map((message) => (
-            <InboundMessageRow key={message.id} message={message} onSelect={(item) => {
-              setSelectedInboundMessage(item);
-              setSelectedClaim(null);
-              setSelectedTransaction(null);
-            }} />
+            <InboundMessageRow key={message.id} message={message} onSelect={openInboundMessageDetail} />
           ))
         )}
         <Pager page={auditPage} onPrevious={() => setAuditOffset(Math.max(0, auditPage.offset - auditPage.limit))} onNext={() => setAuditOffset(auditPage.offset + auditPage.limit)} />
       </section>
+      )}
 
       {(selectedClaim || selectedTransaction || selectedInboundMessage) && (
-        <section className="panel detail-panel">
+        <div className="drawer-backdrop" onClick={closeDetail}>
+        <aside className="detail-drawer" onClick={(event) => event.stopPropagation()} aria-label="Selected record details">
           <div className="ledger-title">
-            <h2>{selectedTransaction ? "Transaction Detail" : selectedInboundMessage ? "XML Intake Detail" : "Claim Detail"}</h2>
-            <button className="secondary" onClick={() => {
-              setSelectedClaim(null);
-              setSelectedTransaction(null);
-              setSelectedInboundMessage(null);
-            }}>
-              Close
-            </button>
+            <div>
+              <p className="eyebrow">Selected Record</p>
+              <h2>{selectedTransaction ? "Transaction Detail" : selectedInboundMessage ? "XML Intake Detail" : "Claim Detail"}</h2>
+            </div>
+            <button className="secondary" onClick={closeDetail}>Close</button>
           </div>
           {selectedTransaction && (
             <div className="detail-grid">
@@ -774,7 +818,8 @@ function App() {
               />
             </div>
           )}
-        </section>
+        </aside>
+        </div>
       )}
     </main>
   );

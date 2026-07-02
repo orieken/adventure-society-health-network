@@ -78,6 +78,35 @@ h2 {
   margin-bottom: 24px;
 }
 
+.tab-nav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.tab-button {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff7eb;
+  text-align: left;
+}
+
+.tab-button.active {
+  border-color: rgba(246, 185, 90, 0.7);
+  background: linear-gradient(135deg, rgba(246, 185, 90, 0.22), rgba(255, 122, 89, 0.18));
+  box-shadow: 0 14px 42px rgba(246, 185, 90, 0.14);
+}
+
+.tab-button span {
+  color: #d8c8b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .history-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -355,6 +384,40 @@ pre {
   margin-top: 24px;
 }
 
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(8, 5, 13, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.detail-drawer {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  width: min(760px, calc(100% - 28px));
+  height: 100vh;
+  overflow: auto;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(246, 185, 90, 0.14), transparent 24rem),
+    rgba(22, 17, 32, 0.96);
+  box-shadow: -28px 0 80px rgba(0, 0, 0, 0.38);
+  padding: 28px;
+}
+
+.detail-drawer .eyebrow {
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.detail-drawer h2 {
+  margin-bottom: 0;
+}
+
 .filters-panel {
   margin-top: 24px;
 }
@@ -564,6 +627,15 @@ pre {
   .filters-grid,
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tab-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-drawer {
+    width: 100%;
+    padding: 20px;
   }
 
   .wide-filter {
