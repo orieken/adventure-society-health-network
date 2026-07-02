@@ -91,6 +91,42 @@ func TestGatewayRoutesPersistedListsToPayerCore(t *testing.T) {
 	}, paths)
 }
 
+func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
+	paths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.Method+" "+r.URL.RequestURI())
+		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "payer route"})
+	})}
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", client: client})
+
+	for _, item := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v1/claims"},
+		{http.MethodGet, "/v1/claims/claim-1"},
+		{http.MethodGet, "/v1/claims/claim-1/status"},
+		{http.MethodPost, "/v1/claims/claim-1/payment"},
+		{http.MethodGet, "/v1/transactions/tx-1"},
+		{http.MethodGet, "/v1/transactions/tx-1/export?format=x12"},
+		{http.MethodPost, "/v1/transactions/tx-1/replay"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(item.method, item.path, nil))
+		assert.Equal(t, http.StatusOK, response.Code)
+	}
+
+	assert.Equal(t, []string{
+		"POST /claims",
+		"GET /claims/claim-1",
+		"GET /claims/claim-1/status",
+		"POST /claims/claim-1/payment",
+		"GET /transactions/tx-1",
+		"GET /transactions/tx-1/export?format=x12",
+		"POST /transactions/tx-1/replay",
+	}, paths)
+}
+
 func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
 	var downstreamPath string
 	var downstreamContentType string
@@ -131,6 +167,34 @@ func TestGatewayRoutesXMLAuditMessagesToEDIIntake(t *testing.T) {
 	assert.Equal(t, "Messages returned.", decodeGatewayEnvelope(t, response).Lore)
 }
 
+func TestGatewayRoutesXMLMessageActionsAndTradingPartnersToEDIIntake(t *testing.T) {
+	paths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.Method+" "+r.URL.RequestURI())
+		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "edi route"})
+	})}
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", ediURL: "http://edi-intake", client: client})
+
+	for _, item := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/x12/messages/msg-1/export?format=json"},
+		{http.MethodPost, "/v1/x12/messages/msg-1/replay"},
+		{http.MethodGet, "/v1/x12/trading-partners"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(item.method, item.path, nil))
+		assert.Equal(t, http.StatusOK, response.Code)
+	}
+
+	assert.Equal(t, []string{
+		"GET /x12/messages/msg-1/export?format=json",
+		"POST /x12/messages/msg-1/replay",
+		"GET /x12/trading-partners",
+	}, paths)
+}
+
 func TestGatewayHealthAggregatesDownstreamServices(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		assert.Equal(t, "/health", r.URL.Path)
@@ -151,6 +215,60 @@ func TestGatewayHealthAggregatesDownstreamServices(t *testing.T) {
 	assert.Equal(t, "ok", health["provider-service"])
 	assert.Equal(t, "ok", health["edi-intake"])
 	assert.NotEmpty(t, envelope.Lore)
+}
+
+func TestGatewayHealthMarksUnavailableServices(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Host, "down") {
+			return nil, assert.AnError
+		}
+		return jsonResponse(http.StatusInternalServerError, map[string]string{"status": "bad"})
+	})}
+
+	response := httptest.NewRecorder()
+	gateway{payerURL: "http://down", providerURL: "http://provider", ediURL: "", client: client}.health(response)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var envelope testEnvelope
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	var health map[string]string
+	require.NoError(t, json.Unmarshal(envelope.Data, &health))
+	assert.Equal(t, "unavailable", health["payer-core"])
+	assert.Equal(t, "unavailable", health["provider-service"])
+	assert.NotContains(t, health, "edi-intake")
+}
+
+func TestGatewayProxyHandlesRequestCreationAndDownstreamErrors(t *testing.T) {
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	gateway{}.proxy(response, request, "://bad-url", "/test")
+	assert.Equal(t, http.StatusInternalServerError, response.Code)
+	assert.Equal(t, "request creation failed", decodeGatewayEnvelope(t, response).Error)
+
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return nil, assert.AnError
+	})}
+	response = httptest.NewRecorder()
+	gateway{client: client}.proxy(response, request, "http://downstream", "/test")
+	assert.Equal(t, http.StatusBadGateway, response.Code)
+	assert.Equal(t, "downstream unavailable", decodeGatewayEnvelope(t, response).Error)
+}
+
+func TestGatewayEnvHTTPClientAndLogMiddleware(t *testing.T) {
+	t.Setenv("GATEWAY_TEST_ENV", "configured")
+	assert.Equal(t, "configured", env("GATEWAY_TEST_ENV", "fallback"))
+	assert.Equal(t, "fallback", env("GATEWAY_MISSING_ENV", "fallback"))
+	assert.Same(t, http.DefaultClient, gateway{}.httpClient())
+
+	called := false
+	handler := logRequests(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	assert.True(t, called)
+	assert.Equal(t, http.StatusNoContent, response.Code)
 }
 
 func TestGatewayOptionsReturnsCORSPreflight(t *testing.T) {
@@ -174,6 +292,17 @@ func TestGatewayUnknownRouteReturnsErrorEnvelope(t *testing.T) {
 	envelope := decodeGatewayEnvelope(t, response)
 	assert.Equal(t, "route not found", envelope.Error)
 	assert.NotEmpty(t, envelope.Lore)
+}
+
+func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
+	spec := apiGatewayOpenAPI()
+
+	info := spec["info"].(map[string]string)
+	assert.Equal(t, "ASHN API Gateway", info["title"])
+	paths := spec["paths"].(map[string]any)
+	assert.Contains(t, paths, "/v1/health")
+	assert.Contains(t, paths, "/v1/x12/xml")
+	assert.Contains(t, paths, "/v1/transactions/{id}/export")
 }
 
 func gatewayHandler(g gateway) http.Handler {

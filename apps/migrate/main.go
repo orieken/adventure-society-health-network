@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,33 +11,43 @@ import (
 )
 
 func main() {
+	if err := runMigrationFromEnv(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runMigrationFromEnv() error {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Fatal("[ASHN] DATABASE_URL is required for migrations")
+		return fmt.Errorf("[ASHN] DATABASE_URL is required for migrations")
 	}
 
 	migrationPath := filepath.Join("infra", "migrations", "000001_init.up.sql")
 	if value := os.Getenv("ASHN_MIGRATION_PATH"); value != "" {
 		migrationPath = value
 	}
+	return runMigration(dsn, migrationPath, sql.Open)
+}
 
+func runMigration(dsn, migrationPath string, openDB func(string, string) (*sql.DB, error)) error {
 	migration, err := os.ReadFile(migrationPath)
 	if err != nil {
-		log.Fatalf("[ASHN] read migration failed: %v", err)
+		return fmt.Errorf("[ASHN] read migration failed: %w", err)
 	}
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := openDB("postgres", dsn)
 	if err != nil {
-		log.Fatalf("[ASHN] postgres open failed: %v", err)
+		return fmt.Errorf("[ASHN] postgres open failed: %w", err)
 	}
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("[ASHN] postgres ping failed: %v", err)
+		return fmt.Errorf("[ASHN] postgres ping failed: %w", err)
 	}
 
 	if _, err := db.Exec(string(migration)); err != nil {
-		log.Fatalf("[ASHN] migration failed: %v", err)
+		return fmt.Errorf("[ASHN] migration failed: %w", err)
 	}
 	log.Println("[ASHN] migration applied")
+	return nil
 }

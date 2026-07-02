@@ -2,14 +2,19 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
 	"ashn/packages/domain"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,6 +73,64 @@ func TestEligibilityReturns270And271Pair(t *testing.T) {
 	assert.Len(t, app.transactions, 2)
 }
 
+func TestGetAdventurerReturnsDetailAndNotFound(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankIron}
+	mux := newPayerTestMux(app)
+
+	found := httptest.NewRecorder()
+	mux.ServeHTTP(found, httptest.NewRequest(http.MethodGet, "/adventurers/adv-1", nil))
+	assert.Equal(t, http.StatusOK, found.Code)
+	var adventurer domain.Adventurer
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, found).Data, &adventurer))
+	assert.Equal(t, "Farros", adventurer.Name)
+
+	missing := httptest.NewRecorder()
+	mux.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/adventurers/missing", nil))
+	assert.Equal(t, http.StatusNotFound, missing.Code)
+	assert.Equal(t, "adventurer not found", decodeEnvelope(t, missing).Error)
+}
+
+func TestAuthRequestQueuesPending278(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/auth-requests", domain.PriorAuthRequest{
+		AdventurerID:     "adv-1",
+		ProviderID:       "provider-vitesse-temple",
+		ServiceType:      "resurrection",
+		IncidentSeverity: domain.SeverityDiamond,
+	})
+
+	assert.Equal(t, http.StatusAccepted, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx278, envelope.Transaction.Type)
+	assert.Equal(t, domain.TxStatusPending, envelope.Transaction.Status)
+	assert.Contains(t, app.transactions, envelope.Transaction.ID)
+}
+
+func TestEligibilityMissingReferencesReturnErrors(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	missingAdventurer := serveJSON(t, mux, http.MethodPost, "/eligibility/query", domain.EligibilityRequest{
+		AdventurerID: "missing",
+		ProviderID:   "provider-vitesse-temple",
+	})
+	assert.Equal(t, http.StatusNotFound, missingAdventurer.Code)
+	assert.Equal(t, "adventurer not found", decodeEnvelope(t, missingAdventurer).Error)
+
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros"}
+	missingProvider := serveJSON(t, mux, http.MethodPost, "/eligibility/query", domain.EligibilityRequest{
+		AdventurerID: "adv-1",
+		ProviderID:   "missing",
+	})
+	assert.Equal(t, http.StatusNotFound, missingProvider.Code)
+	assert.Equal(t, "provider not found", decodeEnvelope(t, missingProvider).Error)
+}
+
 func TestClaimPaymentUpdatesClaimAndEmits835(t *testing.T) {
 	app := newTestStore()
 	adventurer := domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankIron, Guild: "Grim Foundations", Region: domain.RegionGreenstone, CoverageStatus: domain.CoverageActive}
@@ -97,6 +160,16 @@ func TestClaimPaymentUpdatesClaimAndEmits835(t *testing.T) {
 	assert.Equal(t, domain.Tx835, paymentEnvelope.Transaction.Type)
 	assert.Equal(t, domain.TxStatusPaid, paymentEnvelope.Transaction.Status)
 	assert.Equal(t, domain.ClaimPaid, app.claims[claim.ID].Status)
+}
+
+func TestPayClaimMissingClaimReturnsError(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/missing/payment", domain.PaymentRequest{PaymentAmountCents: 100000})
+
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.Equal(t, "claim not found", decodeEnvelope(t, response).Error)
 }
 
 func TestGetClaimReturnsClaimDetail(t *testing.T) {
@@ -133,6 +206,17 @@ func TestGetTransactionReturnsTransactionDetail(t *testing.T) {
 	assert.Equal(t, domain.Tx837, envelope.Transaction.Type)
 }
 
+func TestGetTransactionMissingReturnsError(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/transactions/missing", nil))
+
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.Equal(t, "transaction not found", decodeEnvelope(t, response).Error)
+}
+
 func TestExportAndReplayTransaction(t *testing.T) {
 	app := newTestStore()
 	tx := domain.Transaction{ID: "tx-1", Type: domain.Tx837, Status: domain.TxStatusAccepted, SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", Payload: domain.Payload(map[string]string{"claimId": "claim-1"}), RawX12: "ST*837*tx-1~", CreatedAt: time.Now()}
@@ -155,6 +239,61 @@ func TestExportAndReplayTransaction(t *testing.T) {
 	assert.Contains(t, app.transactions, envelope.Transaction.ID)
 }
 
+func TestExportTransactionSupportsXMLJSONAndMissingTransaction(t *testing.T) {
+	app := newTestStore()
+	tx := domain.Transaction{
+		ID: "tx-1", Type: domain.Tx837, Status: domain.TxStatusAccepted, SenderID: `provider&"one"`,
+		ReceiverID: "Adventure Society", RelatedID: "related-1", Payload: domain.Payload(map[string]string{"claimId": "claim-1"}),
+		RawX12: "ST*837*tx-1~", CreatedAt: time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC),
+	}
+	app.transactions[tx.ID] = tx
+	mux := newPayerTestMux(app)
+
+	xmlResponse := httptest.NewRecorder()
+	mux.ServeHTTP(xmlResponse, httptest.NewRequest(http.MethodGet, "/transactions/tx-1/export?format=xml", nil))
+	assert.Equal(t, http.StatusOK, xmlResponse.Code)
+	assert.Contains(t, xmlResponse.Header().Get("Content-Type"), "application/xml")
+	assert.Contains(t, xmlResponse.Body.String(), `provider&amp;&quot;one&quot;`)
+	assert.Contains(t, xmlResponse.Body.String(), "<RawX12><![CDATA[ST*837*tx-1~]]></RawX12>")
+
+	jsonResponse := httptest.NewRecorder()
+	mux.ServeHTTP(jsonResponse, httptest.NewRequest(http.MethodGet, "/transactions/tx-1/export", nil))
+	assert.Equal(t, http.StatusOK, jsonResponse.Code)
+	assert.Contains(t, jsonResponse.Header().Get("Content-Type"), "application/json")
+	assert.Contains(t, jsonResponse.Body.String(), `"id": "tx-1"`)
+
+	missingResponse := httptest.NewRecorder()
+	mux.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "/transactions/missing/export", nil))
+	assert.Equal(t, http.StatusNotFound, missingResponse.Code)
+}
+
+func TestReplayMissingTransactionReturnsError(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/transactions/missing/replay", nil))
+
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.Equal(t, "transaction not found", decodeEnvelope(t, response).Error)
+}
+
+func TestRecordTransactionAssignsMissingFields(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/transactions", domain.Transaction{
+		Type: domain.Tx999, Status: domain.TxStatusAccepted, SenderID: "edi", ReceiverID: "provider",
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.NotEmpty(t, envelope.Transaction.ID)
+	assert.False(t, envelope.Transaction.CreatedAt.IsZero())
+	assert.Contains(t, app.transactions, envelope.Transaction.ID)
+}
+
 func TestMissingClaimReturnsErrorEnvelope(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)
@@ -167,6 +306,32 @@ func TestMissingClaimReturnsErrorEnvelope(t *testing.T) {
 	envelope := decodeEnvelope(t, response)
 	assert.Equal(t, "claim not found", envelope.Error)
 	assert.NotEmpty(t, envelope.Lore)
+}
+
+func TestClaimStatusReturns276And277Pair(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{ID: "claim-1", Status: domain.ClaimPaid}
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/claims/claim-1/status", nil))
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.Len(t, envelope.Transactions, 2)
+	assert.Equal(t, domain.Tx276, envelope.Transactions[0].Type)
+	assert.Equal(t, domain.Tx277, envelope.Transactions[1].Type)
+}
+
+func TestPayerRejectsInvalidJSON(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/enrollments", bytes.NewReader([]byte("{"))))
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "invalid json", decodeEnvelope(t, response).Error)
 }
 
 func TestListEndpointsReturnPersistedMemory(t *testing.T) {
@@ -246,6 +411,296 @@ func TestListEndpointsApplyFiltersAndPagination(t *testing.T) {
 	assert.False(t, transactionsEnvelope.Page.HasMore)
 }
 
+func TestPayerOpenAPIIncludesWorkflowRoutes(t *testing.T) {
+	spec := payerOpenAPI()
+
+	info := spec["info"].(map[string]string)
+	assert.Equal(t, "ASHN Payer Core", info["title"])
+	paths := spec["paths"].(map[string]any)
+	assert.Contains(t, paths, "/enrollments")
+	assert.Contains(t, paths, "/claims/{id}/payment")
+	assert.Contains(t, paths, "/transactions/{id}/replay")
+}
+
+func TestPayerHealthAndPaginationHelpers(t *testing.T) {
+	healthResponse := httptest.NewRecorder()
+	health(healthResponse, httptest.NewRequest(http.MethodGet, "/health", nil))
+	assert.Equal(t, http.StatusOK, healthResponse.Code)
+	assert.Contains(t, healthResponse.Body.String(), "payer-core")
+
+	request := httptest.NewRequest(http.MethodGet, "/items?limit=999&offset=-10", nil)
+	page := parsePage(request, 25)
+	assert.Equal(t, 100, page.Limit)
+	assert.Equal(t, 0, page.Offset)
+
+	trimmed, pageInfo := trimFetchedPage([]int{1, 2, 3}, pageRequest{Limit: 2, Offset: 10})
+	assert.Equal(t, []int{1, 2}, trimmed)
+	assert.True(t, pageInfo.HasMore)
+
+	assert.Equal(t, "SELECT * FROM claims", appendWhere("SELECT * FROM claims", nil))
+	clauses, args := []string{}, []any{}
+	addTextFilter(&clauses, &args, "status", "Paid")
+	addSearchFilter(&clauses, &args, "farros", "id", "name")
+	assert.Len(t, clauses, 2)
+	assert.Len(t, args, 2)
+
+	emptyPage, emptyPageInfo := paginate([]int{1}, pageRequest{Limit: 2, Offset: 10})
+	assert.Empty(t, emptyPage)
+	assert.Equal(t, 0, emptyPageInfo.Count)
+
+	assert.False(t, sameFold(" Paid ", "Denied"))
+	assert.False(t, containsAny("needle", "hay", "stack"))
+}
+
+func TestPayerFiltersExcludeNonMatches(t *testing.T) {
+	assert.Empty(t, filterAdventurers([]domain.Adventurer{{ID: "adv-1", Rank: domain.RankGold}}, adventurerFilters{Rank: "Iron"}))
+	assert.Empty(t, filterAdventurers([]domain.Adventurer{{ID: "adv-1", Region: domain.RegionVitesse}}, adventurerFilters{Region: "Greenstone"}))
+	assert.Empty(t, filterAdventurers([]domain.Adventurer{{ID: "adv-1", CoverageStatus: domain.CoverageSuspended}}, adventurerFilters{CoverageStatus: "Active"}))
+	assert.Empty(t, filterAdventurers([]domain.Adventurer{{ID: "adv-1", Name: "Farros"}}, adventurerFilters{Q: "Aldrion"}))
+
+	assert.Empty(t, filterClaims([]domain.Claim{{ID: "claim-1", Status: domain.ClaimDenied}}, claimFilters{Status: "Paid"}))
+	assert.Empty(t, filterClaims([]domain.Claim{{ID: "claim-1", ProviderID: "provider-1"}}, claimFilters{ProviderID: "provider-2"}))
+	assert.Empty(t, filterClaims([]domain.Claim{{ID: "claim-1", AdventurerID: "adv-1"}}, claimFilters{AdventurerID: "adv-2"}))
+	assert.Empty(t, filterClaims([]domain.Claim{{ID: "claim-1", IncidentSeverity: domain.SeverityNormal}}, claimFilters{Severity: "Diamond"}))
+	assert.Empty(t, filterClaims([]domain.Claim{{ID: "claim-1"}}, claimFilters{Q: "missing"}))
+
+	assert.Empty(t, filterTransactions([]domain.Transaction{{ID: "tx-1", Type: domain.Tx834}}, transactionFilters{Type: "837"}))
+	assert.Empty(t, filterTransactions([]domain.Transaction{{ID: "tx-1", Status: domain.TxStatusDenied}}, transactionFilters{Status: "Accepted"}))
+	assert.Empty(t, filterTransactions([]domain.Transaction{{ID: "tx-1"}}, transactionFilters{Q: "missing"}))
+}
+
+func TestPayerEnvLogMiddlewareEmbeddedWorkerAndMigration(t *testing.T) {
+	t.Setenv("PAYER_TEST_ENV", "configured")
+	assert.Equal(t, "configured", env("PAYER_TEST_ENV", "fallback"))
+	assert.Equal(t, "fallback", env("PAYER_MISSING_ENV", "fallback"))
+
+	called := false
+	handler := logRequests(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	assert.True(t, called)
+	assert.Equal(t, http.StatusNoContent, response.Code)
+
+	assert.NotPanics(t, func() { runEmbeddedWorker(nil) })
+
+	migrationPath := filepath.Join(t.TempDir(), "migration.sql")
+	require.NoError(t, os.WriteFile(migrationPath, []byte("SELECT 1;"), 0o600))
+	t.Setenv("ASHN_MIGRATION_PATH", migrationPath)
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	mock.ExpectExec("SELECT 1").WillReturnResult(sqlmock.NewResult(0, 1))
+	applyMigration(db)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	t.Setenv("DATABASE_URL", "")
+	assert.Nil(t, openDB())
+
+	assert.Nil(t, openDBWith("dsn", func(_, _ string) (*sql.DB, error) {
+		return nil, assert.AnError
+	}))
+
+	pingDB, pingMock, pingCleanup := newPayerMockDBWithPing(t)
+	defer pingCleanup()
+	pingMock.ExpectPing().WillReturnError(assert.AnError)
+	assert.Nil(t, openDBWith("dsn", func(_, _ string) (*sql.DB, error) {
+		return pingDB, nil
+	}))
+
+	okDB, okMock, okCleanup := newPayerMockDBWithPing(t)
+	defer okCleanup()
+	okMock.ExpectPing()
+	assert.NotNil(t, openDBWith("dsn", func(driverName, dsn string) (*sql.DB, error) {
+		assert.Equal(t, "postgres", driverName)
+		assert.Equal(t, "dsn", dsn)
+		return okDB, nil
+	}))
+	require.NoError(t, okMock.ExpectationsWereMet())
+
+	missingPath := filepath.Join(t.TempDir(), "missing.sql")
+	t.Setenv("ASHN_MIGRATION_PATH", missingPath)
+	assert.NotPanics(t, func() { applyMigration(nil) })
+}
+
+func TestPayerLoadersReadFromDatabase(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "provider_type", "tier_rank", "region"}).
+			AddRow("provider-1", "Provider One", domain.ProviderTypeClinic, domain.RankGold, domain.RegionVitesse))
+	providers := loadProviders(db)
+	require.Len(t, providers, 1)
+	assert.Equal(t, "Provider One", providers["provider-1"].Name)
+
+	mock.ExpectQuery("SELECT id, name, rank, guild, region, coverage_status FROM adventurers").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "rank", "guild", "region", "coverage_status"}).
+			AddRow("adv-1", "Farros", domain.RankIron, "Grim Foundations", domain.RegionGreenstone, domain.CoverageActive))
+	adventurers := loadAdventurers(db)
+	require.Len(t, adventurers, 1)
+	assert.Equal(t, "Farros", adventurers["adv-1"].Name)
+
+	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved))
+	claims := loadClaims(db)
+	require.Len(t, claims, 1)
+	assert.Equal(t, domain.ClaimApproved, claims["claim-1"].Status)
+
+	mock.ExpectQuery("SELECT id, type, status, sender_id, receiver_id, payload").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "status", "sender_id", "receiver_id", "payload", "raw_x12", "related_id", "created_at"}).
+			AddRow("tx-1", domain.Tx837, domain.TxStatusAccepted, "provider-1", societyID, []byte(`{"claimId":"claim-1"}`), "ST*837~", "", now))
+	transactions := loadTransactions(db)
+	require.Len(t, transactions, 1)
+	assert.Equal(t, domain.Tx837, transactions["tx-1"].Type)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPayerLoadersFallbackOnDatabaseErrors(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
+		WillReturnError(assert.AnError)
+	assert.Len(t, loadProviders(db), 6)
+
+	mock.ExpectQuery("SELECT id, name, rank, guild, region, coverage_status FROM adventurers").
+		WillReturnError(assert.AnError)
+	assert.Empty(t, loadAdventurers(db))
+
+	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
+		WillReturnError(assert.AnError)
+	assert.Empty(t, loadClaims(db))
+
+	mock.ExpectQuery("SELECT id, type, status, sender_id, receiver_id, payload").
+		WillReturnError(assert.AnError)
+	assert.Empty(t, loadTransactions(db))
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPayerLoadProvidersFallsBackWhenTableEmpty(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "provider_type", "tier_rank", "region"}))
+
+	assert.Len(t, loadProviders(db), 6)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPayerDatabaseQueriesReturnPagedResults(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	app := &store{db: db}
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT id, name, rank, guild, region, coverage_status FROM adventurers").
+		WithArgs("Iron", "%Farros%", 3, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "rank", "guild", "region", "coverage_status"}).
+			AddRow("adv-1", "Farros", domain.RankIron, "Grim", domain.RegionGreenstone, domain.CoverageActive).
+			AddRow("adv-2", "Farros Two", domain.RankIron, "Grim", domain.RegionGreenstone, domain.CoverageActive).
+			AddRow("adv-3", "Farros Three", domain.RankIron, "Grim", domain.RegionGreenstone, domain.CoverageActive))
+	adventurers, adventurerPage, err := app.queryAdventurers(pageRequest{Limit: 2, Offset: 1}, adventurerFilters{Q: "Farros", Rank: "Iron"})
+	require.NoError(t, err)
+	assert.Len(t, adventurers, 2)
+	assert.True(t, adventurerPage.HasMore)
+
+	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
+		WithArgs("Paid", "provider-1", "%claim%", 2, 0).
+		WillReturnRows(claimRows().
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimPaid))
+	claims, claimPage, err := app.queryClaims(pageRequest{Limit: 1, Offset: 0}, claimFilters{Q: "claim", Status: "Paid", ProviderID: "provider-1"})
+	require.NoError(t, err)
+	assert.Len(t, claims, 1)
+	assert.False(t, claimPage.HasMore)
+
+	mock.ExpectQuery("SELECT id, type, status, sender_id, receiver_id, payload").
+		WithArgs("837", "Accepted", "%provider%", 2, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "status", "sender_id", "receiver_id", "payload", "raw_x12", "related_id", "created_at"}).
+			AddRow("tx-1", domain.Tx837, domain.TxStatusAccepted, "provider-1", societyID, []byte(`{"provider":"provider-1"}`), "ST*837~", "", now))
+	transactions, transactionPage, err := app.queryTransactions(pageRequest{Limit: 1, Offset: 0}, transactionFilters{Q: "provider", Type: "837", Status: "Accepted"})
+	require.NoError(t, err)
+	assert.Len(t, transactions, 1)
+	assert.False(t, transactionPage.HasMore)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPayerFindAndSaveDatabasePaths(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	app := &store{db: db, adventurers: map[string]domain.Adventurer{}, claims: map[string]domain.Claim{}, transactions: map[string]domain.Transaction{}}
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
+		WithArgs("claim-1").
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved))
+	claim, ok := app.findClaim("claim-1")
+	require.True(t, ok)
+	assert.Equal(t, domain.ClaimApproved, claim.Status)
+
+	mock.ExpectQuery("SELECT id, type, status, sender_id, receiver_id, payload").
+		WithArgs("tx-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "status", "sender_id", "receiver_id", "payload", "raw_x12", "related_id", "created_at"}).
+			AddRow("tx-1", domain.Tx837, domain.TxStatusAccepted, "provider-1", societyID, []byte(`{"claimId":"claim-1"}`), "ST*837~", "", now))
+	tx, ok := app.findTransaction("tx-1")
+	require.True(t, ok)
+	assert.Equal(t, domain.Tx837, tx.Type)
+
+	mock.ExpectExec("INSERT INTO adventurers").
+		WithArgs("adv-2", "Aldrion", domain.RankGold, "Cloud Palace", domain.RegionVitesse, domain.CoverageActive).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	app.saveAdventurer(domain.Adventurer{ID: "adv-2", Name: "Aldrion", Rank: domain.RankGold, Guild: "Cloud Palace", Region: domain.RegionVitesse, CoverageStatus: domain.CoverageActive})
+
+	mock.ExpectExec("INSERT INTO claims").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	app.saveClaim(domain.Claim{ID: "claim-2", AdventurerID: "adv-2", ProviderID: "provider-1", IncidentSeverity: domain.SeverityNormal, AmountCents: 50000, Status: domain.ClaimSubmitted})
+
+	mock.ExpectExec("INSERT INTO transactions").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	app.saveTransaction(domain.Transaction{ID: "tx-2", Type: domain.Tx834, Status: domain.TxStatusAccepted, SenderID: "adv-2", ReceiverID: societyID, Payload: domain.Payload(map[string]string{"ok": "true"}), CreatedAt: now})
+
+	mock.ExpectExec("INSERT INTO enrollments").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	app.saveEnrollment("adv-2", "tx-2", string(domain.TxStatusAccepted))
+
+	mock.ExpectExec("INSERT INTO auth_requests").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	app.saveAuthRequest("adv-2", "provider-1", "tx-278", "resurrection", domain.SeverityDiamond, string(domain.TxStatusPending))
+
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO transaction_jobs (id, job_type, entity_id, status, attempts, run_after, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, 0, $5, $6, $6)`)).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	app.enqueueJob("job-kind", "entity-1", time.Second)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPayerFindDatabaseMissesFallBackToMemory(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	app := &store{db: db, claims: map[string]domain.Claim{"memory-claim": {ID: "memory-claim", Status: domain.ClaimSubmitted}}, transactions: map[string]domain.Transaction{"memory-tx": {ID: "memory-tx", Type: domain.Tx834}}}
+
+	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
+		WithArgs("memory-claim").
+		WillReturnRows(claimRows())
+	claim, ok := app.findClaim("memory-claim")
+	require.True(t, ok)
+	assert.Equal(t, "memory-claim", claim.ID)
+
+	mock.ExpectQuery("SELECT id, type, status, sender_id, receiver_id, payload").
+		WithArgs("memory-tx").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "status", "sender_id", "receiver_id", "payload", "raw_x12", "related_id", "created_at"}))
+	tx, ok := app.findTransaction("memory-tx")
+	require.True(t, ok)
+	assert.Equal(t, "memory-tx", tx.ID)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func newTestStore() *store {
 	return &store{
 		adventurers:  map[string]domain.Adventurer{},
@@ -259,7 +714,9 @@ func newPayerTestMux(app *store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /enrollments", app.enroll)
 	mux.HandleFunc("GET /adventurers", app.listAdventurers)
+	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
+	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
@@ -289,4 +746,30 @@ func decodeEnvelope(t *testing.T, response *httptest.ResponseRecorder) testEnvel
 	var envelope testEnvelope
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
 	return envelope
+}
+
+func newPayerMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	return db, mock, func() {
+		_ = db.Close()
+	}
+}
+
+func newPayerMockDBWithPing(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	require.NoError(t, err)
+	return db, mock, func() {
+		_ = db.Close()
+	}
+}
+
+func claimRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "amount_cents",
+		"allowed_amount_cents", "paid_amount_cents", "patient_responsibility_cents", "adjustment_amount_cents",
+		"adjustment_reason", "denial_reason", "status",
+	})
 }

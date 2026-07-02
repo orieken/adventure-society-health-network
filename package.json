@@ -1,0 +1,38 @@
+{
+  "name": "ashn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ASHN is a lore-themed EDI healthcare transaction simulator. Phase 1 uses structured JSON payloads that mirror X12 transaction flow.",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "npm run test:e2e",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:services": "playwright test tests/e2e/service-contracts.spec.ts",
+    "test:e2e:ui": "playwright test tests/e2e/dashboard.spec.ts",
+    "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orieken/adventure-society-health-network.git"
+  },
+  "keywords": [
+    "x12",
+    "edi",
+    "healthcare",
+    "playwright"
+  ],
+  "bugs": {
+    "url": "https://github.com/orieken/adventure-society-health-network/issues"
+  },
+  "homepage": "https://github.com/orieken/adventure-society-health-network#readme",
+  "devDependencies": {
+    "@orieken/saturday-playwright": "^0.1.1",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3"
+  }
+}

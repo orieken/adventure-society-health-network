@@ -48,7 +48,11 @@ func openDB() *sql.DB {
 	if dsn == "" {
 		return nil
 	}
-	db, err := sql.Open("postgres", dsn)
+	return openDBWith(dsn, sql.Open)
+}
+
+func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB {
+	db, err := open("postgres", dsn)
 	if err != nil {
 		log.Printf("[ASHN] postgres open failed: %v", err)
 		return nil

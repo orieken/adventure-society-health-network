@@ -4,3 +4,8 @@ bin/
 node_modules/
 dist/
 .dev/
+playwright-report/
+test-results/
+coverage.out
+coverage.integration.out
+coverage.merged.out

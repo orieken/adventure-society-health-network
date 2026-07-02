@@ -1052,7 +1052,11 @@ func openDB() *sql.DB {
 		log.Printf("[ASHN] DATABASE_URL not set; payer-core using in-memory persistence")
 		return nil
 	}
-	db, err := sql.Open("postgres", dsn)
+	return openDBWith(dsn, sql.Open)
+}
+
+func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB {
+	db, err := open("postgres", dsn)
 	if err != nil {
 		log.Printf("[ASHN] postgres open failed; using in-memory persistence: %v", err)
 		return nil

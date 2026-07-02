@@ -1,15 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"ashn/packages/domain"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -146,6 +149,38 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 			assert.NotNil(t, payload)
 		})
 	}
+}
+
+func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "unknown type", body: `<AshnX12Transaction type="999"></AshnX12Transaction>`, want: "unsupported transaction type"},
+		{name: "invalid service type", body: `<AshnX12Transaction type="278"><PriorAuthorization><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><ServiceType>vacation</ServiceType><IncidentSeverity>Diamond</IncidentSeverity></PriorAuthorization></AshnX12Transaction>`, want: "invalid field ServiceType"},
+		{name: "invalid payment amount", body: `<AshnX12Transaction type="835"><Payment><ClaimId>claim-1</ClaimId><PaymentAmountCents>-1</PaymentAmountCents></Payment></AshnX12Transaction>`, want: "invalid field PaymentAmountCents"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inbound, err := parseInboundXML([]byte(tt.body))
+			require.NoError(t, err)
+			_, _, _, err = inbound.toPayerRequest()
+			require.Error(t, err)
+			assert.Equal(t, tt.want, err.Error())
+		})
+	}
+}
+
+func TestValidateTradingPartnerAllowsMissingSenderAndRejectsReceiverMismatch(t *testing.T) {
+	app := intakeApp{tradingPartners: seedTradingPartners()}
+	inbound := inboundTransaction{Type: "834", Sender: party{ID: "partner-greenstone"}, Receiver: party{ID: "Wrong Receiver"}}
+
+	_, err := app.validateTradingPartner(inbound)
+
+	require.Error(t, err)
+	assert.Equal(t, "trading partner receiver mismatch", err.Error())
 }
 
 func TestAcceptXMLRejectsUnsupportedContentType(t *testing.T) {
@@ -326,6 +361,296 @@ func TestListMessagesWithoutDatabaseReturnsEmptyPage(t *testing.T) {
 	assert.Equal(t, 0, envelope.Page.Count)
 }
 
+func TestMessageArchiveQueriesExportsAndReplaysMissingMessages(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	app := intakeApp{db: db}
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WithArgs("accepted", "834", "%Farros%", 2, 0).
+		WillReturnRows(messageRows().
+			AddRow("msg-1", "partner-greenstone", "application/xml", "834", "<xml>Farros</xml>", "accepted", "", 201, now).
+			AddRow("msg-2", "partner-greenstone", "application/xml", "834", "<xml>Farros 2</xml>", "accepted", "", 201, now))
+	messages, page, err := app.queryMessages(pageRequest{Limit: 1, Offset: 0}, messageFilters{Status: "accepted", Type: "834", Q: "Farros"})
+	require.NoError(t, err)
+	assert.Len(t, messages, 1)
+	assert.True(t, page.HasMore)
+
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WithArgs("msg-1").
+		WillReturnRows(messageRows().AddRow("msg-1", "partner-greenstone", "application/xml", "834", "<xml>Farros</xml>", "accepted", "", 201, now))
+	found, ok := app.findMessage("msg-1")
+	require.True(t, ok)
+	assert.Equal(t, "msg-1", found.ID)
+
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WithArgs("msg-1").
+		WillReturnRows(messageRows().AddRow("msg-1", "partner-greenstone", "application/xml", "834", "<xml>Farros</xml>", "accepted", "", 201, now))
+	xmlResponse := httptest.NewRecorder()
+	xmlRequest := httptest.NewRequest(http.MethodGet, "/x12/messages/msg-1/export", nil)
+	xmlRequest.SetPathValue("id", "msg-1")
+	app.exportMessage(xmlResponse, xmlRequest)
+	assert.Equal(t, http.StatusOK, xmlResponse.Code)
+	assert.Contains(t, xmlResponse.Header().Get("Content-Type"), "application/xml")
+	assert.Equal(t, "<xml>Farros</xml>", xmlResponse.Body.String())
+
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WithArgs("msg-1").
+		WillReturnRows(messageRows().AddRow("msg-1", "partner-greenstone", "application/xml", "834", "<xml>Farros</xml>", "accepted", "", 201, now))
+	jsonResponse := httptest.NewRecorder()
+	jsonRequest := httptest.NewRequest(http.MethodGet, "/x12/messages/msg-1/export?format=json", nil)
+	jsonRequest.SetPathValue("id", "msg-1")
+	app.exportMessage(jsonResponse, jsonRequest)
+	assert.Equal(t, http.StatusOK, jsonResponse.Code)
+	assert.Contains(t, jsonResponse.Header().Get("Content-Type"), "application/json")
+	assert.Contains(t, jsonResponse.Body.String(), `"id": "msg-1"`)
+
+	missingExport := httptest.NewRecorder()
+	missingExportRequest := httptest.NewRequest(http.MethodGet, "/x12/messages/missing/export", nil)
+	missingExportRequest.SetPathValue("id", "missing")
+	intakeApp{}.exportMessage(missingExport, missingExportRequest)
+	assert.Equal(t, http.StatusNotFound, missingExport.Code)
+
+	missingReplay := httptest.NewRecorder()
+	missingReplayRequest := httptest.NewRequest(http.MethodPost, "/x12/messages/missing/replay", nil)
+	missingReplayRequest.SetPathValue("id", "missing")
+	intakeApp{}.replayMessage(missingReplay, missingReplayRequest)
+	assert.Equal(t, http.StatusNotFound, missingReplay.Code)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestReplayMessageReprocessesStoredXML(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	now := time.Now()
+	downstreamPaths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "replayed"})
+	})}
+	app := intakeApp{db: db, payerURL: "http://payer-core", client: client}
+
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WithArgs("msg-1").
+		WillReturnRows(messageRows().AddRow("msg-1", "partner-greenstone", "application/xml", "834", `
+<AshnX12Transaction type="834">
+  <Sender id="partner-greenstone" />
+  <Receiver id="Adventure Society" />
+  <Enrollment>
+    <Name>Replay Farros</Name>
+    <Rank>Iron</Rank>
+    <Guild>Grim Foundations</Guild>
+    <Region>Greenstone</Region>
+  </Enrollment>
+</AshnX12Transaction>`, "accepted", "", 201, now))
+	mock.ExpectExec("INSERT INTO inbound_messages").
+		WithArgs(sqlmock.AnyArg(), "tp-greenstone-guild", "application/xml", "834", sqlmock.AnyArg(), "accepted", "", 201).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/messages/msg-1/replay", nil)
+	request.SetPathValue("id", "msg-1")
+	app.replayMessage(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/enrollments", "/transactions"}, downstreamPaths)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestForwardHandlesRequestCreationDownstreamAndRejectedResponses(t *testing.T) {
+	response := httptest.NewRecorder()
+	status, message := intakeApp{payerURL: "://bad"}.forward(response, http.MethodPost, "/claims", map[string]string{"ok": "true"})
+	assert.Equal(t, http.StatusInternalServerError, status)
+	assert.Equal(t, "request creation failed", message)
+
+	response = httptest.NewRecorder()
+	status, message = intakeApp{payerURL: "http://payer", client: &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return nil, assert.AnError
+	})}}.forward(response, http.MethodPost, "/claims", map[string]string{"ok": "true"})
+	assert.Equal(t, http.StatusBadGateway, status)
+	assert.Equal(t, "payer-core unavailable", message)
+
+	response = httptest.NewRecorder()
+	status, message = intakeApp{payerURL: "http://payer", client: &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusBadRequest, domain.ErrorEnvelope{Error: "bad request"})
+	})}}.forward(response, http.MethodPost, "/claims", map[string]string{"ok": "true"})
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Equal(t, "payer-core rejected XML-derived request", message)
+}
+
+func TestRecord999HandlesRejectedPersistenceResponse(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		assert.Equal(t, "/transactions", r.URL.Path)
+		return jsonResponse(http.StatusBadRequest, domain.ErrorEnvelope{Error: "rejected"})
+	})}
+
+	assert.NotPanics(t, func() {
+		intakeApp{payerURL: "http://payer", client: client}.record999("related-1", "834", "partner-1", false, "bad")
+	})
+}
+
+func TestAuditInboundMessagePersistsWhenDatabaseExists(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	app := intakeApp{db: db}
+	mock.ExpectExec("INSERT INTO inbound_messages").
+		WithArgs(sqlmock.AnyArg(), "partner-1", "application/xml", "834", "<xml />", "accepted", "", 201).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	id := app.auditInboundMessage("application/xml", "partner-1", "834", "<xml />", "accepted", "", 201)
+
+	assert.NotEmpty(t, id)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestListMessagesDatabaseErrorReturnsEnvelope(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	app := intakeApp{db: db}
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WillReturnError(assert.AnError)
+
+	response := httptest.NewRecorder()
+	app.listMessages(response, httptest.NewRequest(http.MethodGet, "/x12/messages", nil))
+
+	assert.Equal(t, http.StatusInternalServerError, response.Code)
+	assert.Equal(t, "message list failed", decodeEnvelope(t, response).Error)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLoadTradingPartnersReadsDatabaseAndSplitsCSV(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "route_target", "status"}).
+			AddRow("tp-1", "Partner One", "sender-1", "Adventure Society", "834, 837, , 999", "payer-core", "active"))
+
+	partners := loadTradingPartners(db)
+
+	require.Len(t, partners, 1)
+	assert.Equal(t, []string{"834", "837", "999"}, partners["tp-1"].AllowedTransactionTypes)
+	require.NoError(t, mock.ExpectationsWereMet())
+	assert.Equal(t, []string{"270", "837"}, splitCSV("270, ,837"))
+}
+
+func TestLoadTradingPartnersFallsBackOnDatabaseErrorAndOpenDBNoEnv(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
+		WillReturnError(assert.AnError)
+	assert.Len(t, loadTradingPartners(db), 3)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	emptyDB, emptyMock, emptyCleanup := newIntakeMockDB(t)
+	defer emptyCleanup()
+	emptyMock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "route_target", "status"}))
+	assert.Len(t, loadTradingPartners(emptyDB), 3)
+	require.NoError(t, emptyMock.ExpectationsWereMet())
+
+	t.Setenv("DATABASE_URL", "")
+	assert.Nil(t, openDB())
+
+	assert.Nil(t, openDBWith("dsn", func(_, _ string) (*sql.DB, error) {
+		return nil, assert.AnError
+	}))
+
+	pingDB, pingMock, pingCleanup := newIntakeMockDBWithPing(t)
+	defer pingCleanup()
+	pingMock.ExpectPing().WillReturnError(assert.AnError)
+	assert.Nil(t, openDBWith("dsn", func(_, _ string) (*sql.DB, error) {
+		return pingDB, nil
+	}))
+
+	okDB, okMock, okCleanup := newIntakeMockDBWithPing(t)
+	defer okCleanup()
+	okMock.ExpectPing()
+	assert.NotNil(t, openDBWith("dsn", func(driverName, dsn string) (*sql.DB, error) {
+		assert.Equal(t, "postgres", driverName)
+		assert.Equal(t, "dsn", dsn)
+		return okDB, nil
+	}))
+	require.NoError(t, okMock.ExpectationsWereMet())
+}
+
+func TestFindMessageHandlesMissingRowsAndRecord999Guards(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	app := intakeApp{db: db, payerURL: "://bad"}
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WithArgs("missing").
+		WillReturnRows(messageRows())
+
+	_, ok := app.findMessage("missing")
+	assert.False(t, ok)
+	app.record999("", "834", "", true, "")
+	app.record999("related-1", "834", "", true, "")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEDIHelpersParseFiltersPaginationAndValidation(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/x12/messages?limit=999&offset=-1&status=accepted&type=834&q=Farros", nil)
+	page := parsePage(request, 25)
+	filters := parseMessageFilters(request)
+	assert.Equal(t, 100, page.Limit)
+	assert.Equal(t, 0, page.Offset)
+	assert.Equal(t, messageFilters{Status: "accepted", Type: "834", Q: "Farros"}, filters)
+
+	items, pageInfo := trimFetchedPage([]int{1, 2, 3}, pageRequest{Limit: 2, Offset: 10})
+	assert.Equal(t, []int{1, 2}, items)
+	assert.True(t, pageInfo.HasMore)
+
+	clauses, args := []string{}, []any{}
+	addTextFilter(&clauses, &args, "status", "accepted")
+	addSearchFilter(&clauses, &args, "Farros", "id", "raw_payload")
+	assert.Equal(t, "SELECT * FROM inbound_messages WHERE "+strings.Join(clauses, " AND "), appendWhere("SELECT * FROM inbound_messages", clauses))
+	assert.Len(t, args, 2)
+
+	assert.True(t, validRegion("Greenstone"))
+	assert.False(t, validRegion("Moon"))
+	assert.True(t, validServiceType("curse-removal"))
+	assert.False(t, validServiceType("vacation"))
+	parsed, err := parsePositiveInt64("AmountCents", "42")
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), parsed)
+	_, err = parsePositiveInt64("AmountCents", "0")
+	assert.Error(t, err)
+}
+
+func TestEDIHealthEnvAndLogMiddleware(t *testing.T) {
+	t.Setenv("EDI_TEST_ENV", "configured")
+	assert.Equal(t, "configured", env("EDI_TEST_ENV", "fallback"))
+	assert.Equal(t, "fallback", env("EDI_MISSING_ENV", "fallback"))
+
+	response := httptest.NewRecorder()
+	health(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), "edi-intake")
+
+	called := false
+	handler := logRequests(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	logged := httptest.NewRecorder()
+	handler.ServeHTTP(logged, httptest.NewRequest(http.MethodGet, "/health", nil))
+	assert.True(t, called)
+	assert.Equal(t, http.StatusNoContent, logged.Code)
+}
+
+func TestEDIOpenAPIIncludesIntakeRoutes(t *testing.T) {
+	spec := ediOpenAPI()
+
+	info := spec["info"].(map[string]string)
+	assert.Equal(t, "ASHN EDI Intake", info["title"])
+	paths := spec["paths"].(map[string]any)
+	assert.Contains(t, paths, "/x12/xml")
+	assert.Contains(t, paths, "/x12/messages/{id}/replay")
+	assert.Contains(t, paths, "/x12/trading-partners")
+}
+
 func newIntakeTestMux(app intakeApp) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
@@ -357,4 +682,26 @@ func jsonResponse(status int, value any) (*http.Response, error) {
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body:       io.NopCloser(strings.NewReader(string(payload))),
 	}, nil
+}
+
+func newIntakeMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	return db, mock, func() {
+		_ = db.Close()
+	}
+}
+
+func newIntakeMockDBWithPing(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	require.NoError(t, err)
+	return db, mock, func() {
+		_ = db.Close()
+	}
+}
+
+func messageRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "partner_id", "content_type", "transaction_type", "raw_payload", "status", "error", "downstream_status", "created_at"})
 }
