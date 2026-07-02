@@ -7,6 +7,7 @@ Docs:
 - `docs/elevator-pitch.md` — presentation-ready project summary
 - `docs/x12-workflow.md` — how ASHN maps healthcare X12 into the demo workflow
 - `docs/future-enhancements.md` — prioritized backlog, including the proposed XML EDI intake service
+- `docs/presentations/` — elevator pitch and technical deep-dive presentation decks
 
 ## Quick Start
 
@@ -53,9 +54,14 @@ The demo performs:
 5. `276 → 277` claim status
 6. `835` payment/remittance
 
+The stack also starts `tx-worker`, which asynchronously reviews queued `278` authorizations and claim adjudication jobs so statuses can change over time in the dashboard.
+
 Service logs are written under `.dev/logs/` while `make dev-stack` is running.
 
 The stack also starts `edi-intake` on `http://localhost:8083`; the public XML endpoint is available through the gateway at `POST /v1/x12/xml`.
+Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`.
+Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
+XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
 
 ## Database
 

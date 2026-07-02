@@ -133,6 +133,28 @@ func TestGetTransactionReturnsTransactionDetail(t *testing.T) {
 	assert.Equal(t, domain.Tx837, envelope.Transaction.Type)
 }
 
+func TestExportAndReplayTransaction(t *testing.T) {
+	app := newTestStore()
+	tx := domain.Transaction{ID: "tx-1", Type: domain.Tx837, Status: domain.TxStatusAccepted, SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", Payload: domain.Payload(map[string]string{"claimId": "claim-1"}), RawX12: "ST*837*tx-1~", CreatedAt: time.Now()}
+	app.transactions[tx.ID] = tx
+	mux := newPayerTestMux(app)
+
+	exportResponse := httptest.NewRecorder()
+	mux.ServeHTTP(exportResponse, httptest.NewRequest(http.MethodGet, "/transactions/tx-1/export?format=x12", nil))
+	assert.Equal(t, http.StatusOK, exportResponse.Code)
+	assert.Equal(t, "ST*837*tx-1~", exportResponse.Body.String())
+	assert.Contains(t, exportResponse.Header().Get("Content-Disposition"), ".x12")
+
+	replayResponse := httptest.NewRecorder()
+	mux.ServeHTTP(replayResponse, httptest.NewRequest(http.MethodPost, "/transactions/tx-1/replay", nil))
+	assert.Equal(t, http.StatusCreated, replayResponse.Code)
+	envelope := decodeEnvelope(t, replayResponse)
+	require.NotNil(t, envelope.Transaction)
+	assert.NotEqual(t, "tx-1", envelope.Transaction.ID)
+	assert.Equal(t, "tx-1", envelope.Transaction.RelatedID)
+	assert.Contains(t, app.transactions, envelope.Transaction.ID)
+}
+
 func TestMissingClaimReturnsErrorEnvelope(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)
@@ -246,6 +268,8 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("GET /transactions", app.listTransactions)
 	mux.HandleFunc("POST /transactions", app.recordTransaction)
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
+	mux.HandleFunc("GET /transactions/{id}/export", app.exportTransaction)
+	mux.HandleFunc("POST /transactions/{id}/replay", app.replayTransaction)
 	return mux
 }
 

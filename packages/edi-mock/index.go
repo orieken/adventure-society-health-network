@@ -3,6 +3,7 @@ package edimock
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,8 +58,15 @@ func Generate837(claim domain.Claim) domain.Transaction {
 }
 
 func Generate835(claim domain.Claim, paymentAmountCents int64) domain.Transaction {
+	if claim.PaidAmountCents > 0 || claim.Status == domain.ClaimDenied {
+		paymentAmountCents = claim.PaidAmountCents
+	}
 	return transaction(domain.Tx835, domain.TxStatusPaid, "Adventure Society", claim.ProviderID, map[string]any{
-		"x12": "835 Claim Payment / Remittance Advice", "claimId": claim.ID, "paymentAmountCents": paymentAmountCents,
+		"x12": "835 Claim Payment / Remittance Advice", "claimId": claim.ID,
+		"billedAmountCents": claim.AmountCents, "allowedAmountCents": claim.AllowedAmountCents,
+		"paymentAmountCents": paymentAmountCents, "patientResponsibilityCents": claim.PatientResponsibilityCents,
+		"adjustmentAmountCents": claim.AdjustmentAmountCents, "adjustmentReason": claim.AdjustmentReason,
+		"denialReason": claim.DenialReason, "claimStatus": claim.Status,
 		"lore": lore.ThemeTransaction(domain.Tx835, claim.ID, claim.ProviderID),
 	})
 }
@@ -141,55 +149,88 @@ func transactionSegments(tx domain.Transaction) []string {
 	case domain.Tx834:
 		return []string{
 			"BGN*00*" + element(tx.ID) + "*" + tx.CreatedAt.Format("20060102") + "~",
+			"REF*38*" + element(tx.ReceiverID) + "~",
 			"INS*Y*18*030*XN*A***FT~",
 			"NM1*IL*1*" + element(tx.SenderID) + "****MI*" + element(tx.SenderID) + "~",
+			"DMG*D8*19800101*U~",
+			"HD*030**HLT~",
+			"DTP*348*D8*" + tx.CreatedAt.Format("20060102") + "~",
 		}
 	case domain.Tx270:
 		return []string{
+			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*PR*2*" + element(tx.ReceiverID) + "*****PI*" + element(tx.ReceiverID) + "~",
+			"HL*2*1*21*1~",
 			"NM1*1P*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
+			"HL*3*2*22*0~",
+			"NM1*IL*1*" + element(payloadString(tx, "adventurerId", "adventurer")) + "****MI*" + element(payloadString(tx, "adventurerId", tx.ID)) + "~",
+			"DTP*291*D8*" + tx.CreatedAt.Format("20060102") + "~",
 			"EQ*30~",
 		}
 	case domain.Tx271:
 		return []string{
+			"TRN*2*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*PR*2*" + element(tx.SenderID) + "*****PI*" + element(tx.SenderID) + "~",
+			"HL*2*1*22*0~",
 			"NM1*IL*1*" + element(tx.ReceiverID) + "****MI*" + element(tx.ReceiverID) + "~",
 			"EB*" + eligibilityCode(tx.Status) + "**30~",
+			"DTP*291*D8*" + tx.CreatedAt.Format("20060102") + "~",
 		}
 	case domain.Tx278:
 		return []string{
+			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*1P*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
-			"UM*AR*I*2~",
+			"HL*2*1*22*0~",
+			"NM1*IL*1*" + element(payloadString(tx, "adventurerId", "adventurer")) + "****MI*" + element(payloadString(tx, "adventurerId", tx.ID)) + "~",
+			"UM*AR*I*2***" + element(payloadString(tx, "serviceType", "service")) + "~",
+			"DTP*472*D8*" + tx.CreatedAt.Format("20060102") + "~",
 			"HCR*" + authCode(tx.Status) + "~",
 		}
 	case domain.Tx837:
+		claim := claimInfo(tx)
 		return []string{
 			"HL*1**20*1~",
 			"NM1*41*2*" + element(tx.SenderID) + "*****46*" + element(tx.SenderID) + "~",
-			"CLM*" + element(tx.ID) + "***11:B:1*Y*A*Y*I~",
-			"HI*ABK:ASHN~",
+			"PER*IC*ASHN CLAIM OFFICE*TE*5550100~",
+			"NM1*85*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
+			"HL*2*1*22*0~",
+			"NM1*IL*1*" + element(claim.AdventurerID) + "****MI*" + element(claim.AdventurerID) + "~",
+			"CLM*" + element(claim.ID) + "*" + cents(claim.AmountCents) + "***11:B:1*Y*A*Y*I~",
+			"DTP*472*D8*" + tx.CreatedAt.Format("20060102") + "~",
+			"HI*ABK:" + diagnosisCode(claim.Severity) + "~",
+			"SV1*HC:ASHN1*" + cents(claim.AmountCents) + "*UN*1***1~",
 		}
 	case domain.Tx835:
+		remit := remittanceAmounts(tx)
 		return []string{
-			"BPR*I*0*C*CHK************" + tx.CreatedAt.Format("20060102") + "~",
+			"BPR*I*" + cents(remit.Paid) + "*C*CHK************" + tx.CreatedAt.Format("20060102") + "~",
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
-			"CLP*" + element(tx.ID) + "*1*0*0**MC*" + element(tx.ID) + "~",
+			"CLP*" + element(remit.ClaimID) + "*" + remit.ClaimStatusCode + "*" + cents(remit.Billed) + "*" + cents(remit.Paid) + "*" + cents(remit.PatientResponsibility) + "*MC*" + element(tx.ID) + "~",
+			"CAS*CO*45*" + cents(remit.Adjustment) + "~",
 		}
 	case domain.Tx276:
 		return []string{
+			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
+			"NM1*PR*2*" + element(tx.ReceiverID) + "*****PI*" + element(tx.ReceiverID) + "~",
+			"HL*2*1*21*1~",
 			"NM1*1P*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
-			"TRN*1*" + element(tx.ID) + "~",
-			"REF*1K*" + element(tx.ID) + "~",
+			"HL*3*2*22*0~",
+			"NM1*IL*1*" + element(payloadString(tx, "claimId", tx.ID)) + "****MI*" + element(payloadString(tx, "claimId", tx.ID)) + "~",
+			"REF*1K*" + element(payloadString(tx, "claimId", tx.ID)) + "~",
 		}
 	case domain.Tx277:
+		claimID := payloadString(tx, "claimId", tx.ID)
 		return []string{
+			"TRN*2*" + element(claimID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*PR*2*" + element(tx.SenderID) + "*****PI*" + element(tx.SenderID) + "~",
-			"TRN*2*" + element(tx.ID) + "~",
+			"HL*2*1*22*0~",
+			"NM1*IL*1*" + element(claimID) + "****MI*" + element(claimID) + "~",
+			"REF*1K*" + element(claimID) + "~",
 			"STC*A1:" + statusCode(tx.Status) + "~",
 		}
 	case domain.Tx999:
@@ -202,8 +243,11 @@ func transactionSegments(tx domain.Transaction) []string {
 		}
 	case domain.Tx277CA:
 		return []string{
+			"TRN*1*" + controlNumber(tx.RelatedID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*PR*2*" + element(tx.SenderID) + "*****PI*" + element(tx.SenderID) + "~",
+			"HL*2*1*22*0~",
+			"NM1*IL*1*" + element(payloadString(tx, "claimId", tx.RelatedID)) + "****MI*" + element(payloadString(tx, "claimId", tx.RelatedID)) + "~",
 			"TRN*2*" + controlNumber(tx.RelatedID) + "~",
 			"STC*A1:" + statusCode(tx.Status) + "*" + tx.CreatedAt.Format("20060102") + "~",
 		}
@@ -243,6 +287,119 @@ func acknowledgedTransactionType(tx domain.Transaction) domain.TransactionType {
 		return domain.Tx837
 	}
 	return domain.TransactionType(fmt.Sprint(acknowledgedType))
+}
+
+type remittance struct {
+	ClaimID               string
+	ClaimStatusCode       string
+	Billed                int64
+	Paid                  int64
+	PatientResponsibility int64
+	Adjustment            int64
+}
+
+type x12ClaimInfo struct {
+	ID           string
+	AdventurerID string
+	ProviderID   string
+	Severity     domain.IncidentSeverity
+	AmountCents  int64
+}
+
+func claimInfo(tx domain.Transaction) x12ClaimInfo {
+	var payload struct {
+		Claim domain.Claim `json:"claim"`
+	}
+	info := x12ClaimInfo{ID: tx.ID, AdventurerID: "adventurer", ProviderID: tx.SenderID, Severity: domain.SeverityNormal}
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return info
+	}
+	if payload.Claim.ID != "" {
+		info.ID = payload.Claim.ID
+	}
+	if payload.Claim.AdventurerID != "" {
+		info.AdventurerID = payload.Claim.AdventurerID
+	}
+	if payload.Claim.ProviderID != "" {
+		info.ProviderID = payload.Claim.ProviderID
+	}
+	if payload.Claim.IncidentSeverity != "" {
+		info.Severity = payload.Claim.IncidentSeverity
+	}
+	info.AmountCents = payload.Claim.AmountCents
+	return info
+}
+
+func remittanceAmounts(tx domain.Transaction) remittance {
+	var payload map[string]any
+	remit := remittance{ClaimID: tx.ID, ClaimStatusCode: "1"}
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return remit
+	}
+	remit.ClaimID = stringValue(payload, "claimId", tx.ID)
+	remit.Billed = int64Value(payload, "billedAmountCents")
+	remit.Paid = int64Value(payload, "paymentAmountCents")
+	remit.PatientResponsibility = int64Value(payload, "patientResponsibilityCents")
+	remit.Adjustment = int64Value(payload, "adjustmentAmountCents")
+	if stringValue(payload, "denialReason", "") != "" {
+		remit.ClaimStatusCode = "4"
+	}
+	return remit
+}
+
+func payloadString(tx domain.Transaction, key string, fallback string) string {
+	var payload map[string]any
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return fallback
+	}
+	return stringValue(payload, key, fallback)
+}
+
+func stringValue(payload map[string]any, key string, fallback string) string {
+	value, ok := payload[key]
+	if !ok {
+		return fallback
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" {
+		return fallback
+	}
+	return text
+}
+
+func diagnosisCode(severity domain.IncidentSeverity) string {
+	switch severity {
+	case domain.SeverityNormal:
+		return "S610"
+	case domain.SeverityAwakened:
+		return "T509"
+	case domain.SeverityDiamond:
+		return "S062X9A"
+	default:
+		return "ASHN"
+	}
+}
+
+func int64Value(payload map[string]any, key string) int64 {
+	value, ok := payload[key]
+	if !ok {
+		return 0
+	}
+	switch typed := value.(type) {
+	case float64:
+		return int64(typed)
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	default:
+		parsed, _ := strconv.ParseInt(fmt.Sprint(value), 10, 64)
+		return parsed
+	}
+}
+
+func cents(value int64) string {
+	return fmt.Sprintf("%.2f", float64(value)/100)
 }
 
 func implementationAckCode(status domain.TransactionStatus) string {

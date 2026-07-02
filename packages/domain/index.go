@@ -108,6 +108,16 @@ type Provider struct {
 	Region       Region       `json:"region"`
 }
 
+type TradingPartner struct {
+	ID                      string   `json:"id"`
+	Name                    string   `json:"name"`
+	SenderID                string   `json:"senderId"`
+	ReceiverID              string   `json:"receiverId"`
+	AllowedTransactionTypes []string `json:"allowedTransactionTypes"`
+	RouteTarget             string   `json:"routeTarget"`
+	Status                  string   `json:"status"`
+}
+
 type Transaction struct {
 	ID         string            `json:"id"`
 	Type       TransactionType   `json:"type"`
@@ -122,6 +132,7 @@ type Transaction struct {
 
 type InboundMessage struct {
 	ID               string    `json:"id"`
+	PartnerID        string    `json:"partnerId,omitempty"`
 	ContentType      string    `json:"contentType"`
 	TransactionType  string    `json:"transactionType,omitempty"`
 	RawPayload       string    `json:"rawPayload"`
@@ -132,13 +143,19 @@ type InboundMessage struct {
 }
 
 type Claim struct {
-	ID               string           `json:"id"`
-	AdventurerID     string           `json:"adventurerId"`
-	ProviderID       string           `json:"providerId"`
-	IncidentSeverity IncidentSeverity `json:"incidentSeverity"`
-	TransactionID    string           `json:"transactionId"`
-	AmountCents      int64            `json:"amountCents"`
-	Status           ClaimStatus      `json:"status"`
+	ID                         string           `json:"id"`
+	AdventurerID               string           `json:"adventurerId"`
+	ProviderID                 string           `json:"providerId"`
+	IncidentSeverity           IncidentSeverity `json:"incidentSeverity"`
+	TransactionID              string           `json:"transactionId"`
+	AmountCents                int64            `json:"amountCents"`
+	AllowedAmountCents         int64            `json:"allowedAmountCents,omitempty"`
+	PaidAmountCents            int64            `json:"paidAmountCents,omitempty"`
+	PatientResponsibilityCents int64            `json:"patientResponsibilityCents,omitempty"`
+	AdjustmentAmountCents      int64            `json:"adjustmentAmountCents,omitempty"`
+	AdjustmentReason           string           `json:"adjustmentReason,omitempty"`
+	DenialReason               string           `json:"denialReason,omitempty"`
+	Status                     ClaimStatus      `json:"status"`
 }
 
 type EnrollmentRequest struct {

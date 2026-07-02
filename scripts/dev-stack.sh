@@ -62,6 +62,7 @@ echo "[ASHN] Starting Postgres..."
 start_service payer-core env DATABASE_URL="$DATABASE_URL" GOCACHE="$ROOT_DIR/.gocache" go run ./apps/payer-core
 start_service provider-service env DATABASE_URL="$DATABASE_URL" PAYER_CORE_URL="http://localhost:8081" GOCACHE="$ROOT_DIR/.gocache" go run ./apps/provider-service
 start_service edi-intake env DATABASE_URL="$DATABASE_URL" PAYER_CORE_URL="http://localhost:8081" GOCACHE="$ROOT_DIR/.gocache" go run ./apps/edi-intake
+start_service tx-worker env DATABASE_URL="$DATABASE_URL" GOCACHE="$ROOT_DIR/.gocache" TX_WORKER_INTERVAL="1s" go run ./apps/tx-worker
 start_service api-gateway env PAYER_CORE_URL="http://localhost:8081" PROVIDER_SERVICE_URL="http://localhost:8082" EDI_INTAKE_URL="http://localhost:8083" GOCACHE="$ROOT_DIR/.gocache" go run ./apps/api-gateway
 start_service dashboard npm --prefix apps/dashboard run dev
 

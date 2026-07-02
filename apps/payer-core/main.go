@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"ashn/packages/asyncjobs"
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
 	"ashn/packages/lore"
@@ -21,6 +23,7 @@ import (
 )
 
 const societyID = "adventure-society"
+const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status`
 
 type store struct {
 	mu           sync.RWMutex
@@ -81,6 +84,8 @@ func main() {
 	mux.HandleFunc("GET /transactions", app.listTransactions)
 	mux.HandleFunc("POST /transactions", app.recordTransaction)
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
+	mux.HandleFunc("GET /transactions/{id}/export", app.exportTransaction)
+	mux.HandleFunc("POST /transactions/{id}/replay", app.replayTransaction)
 	addr := env("PAYER_CORE_ADDR", ":8081")
 	log.Printf("[ASHN] payer-core listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
@@ -167,13 +172,10 @@ func (s *store) authRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx := edimock.Generate278Request(adventurer, provider, req.ServiceType)
-	decision := domain.TxStatusPending
-	if req.IncidentSeverity == domain.SeverityDiamond && strings.Contains(strings.ToLower(req.ServiceType), "resurrection") {
-		decision = domain.TxStatusApproved
-	}
 	s.saveTransaction(tx)
-	s.saveAuthRequest(adventurer.ID, provider.ID, tx.ID, req.ServiceType, req.IncidentSeverity, string(decision))
-	data := map[string]any{"authorizationStatus": decision, "serviceType": req.ServiceType, "incidentSeverity": req.IncidentSeverity}
+	s.saveAuthRequest(adventurer.ID, provider.ID, tx.ID, req.ServiceType, req.IncidentSeverity, string(domain.TxStatusPending))
+	s.enqueueJob(asyncjobs.JobAuthReview, tx.ID, 2*time.Second)
+	data := map[string]any{"authorizationStatus": domain.TxStatusPending, "serviceType": req.ServiceType, "incidentSeverity": req.IncidentSeverity, "review": "queued"}
 	respond(w, http.StatusAccepted, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx278, adventurer.Name, provider.Name), Transaction: &tx})
 }
 
@@ -196,6 +198,7 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	s.saveTransaction(tx)
 	s.saveTransaction(ack)
 	s.saveClaim(claim)
+	s.enqueueJob(asyncjobs.JobClaimAdjudication, claim.ID, 2*time.Second)
 	respond(w, http.StatusCreated, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx837, adventurer.Name, provider.Name), Transaction: &tx, Transactions: []domain.Transaction{tx, ack}})
 }
 
@@ -226,9 +229,7 @@ func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
 
 func (s *store) getClaim(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	s.mu.RLock()
-	claim, ok := s.claims[id]
-	s.mu.RUnlock()
+	claim, ok := s.findClaim(id)
 	if !ok {
 		fail(w, http.StatusNotFound, "claim not found", "No claim scroll with that seal exists in the Society ledger.")
 		return
@@ -238,9 +239,7 @@ func (s *store) getClaim(w http.ResponseWriter, r *http.Request) {
 
 func (s *store) claimStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	s.mu.RLock()
-	claim, ok := s.claims[id]
-	s.mu.RUnlock()
+	claim, ok := s.findClaim(id)
 	if !ok {
 		fail(w, http.StatusNotFound, "claim not found", "No claim scroll with that seal exists in the Society ledger.")
 		return
@@ -258,33 +257,62 @@ func (s *store) payClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	s.mu.Lock()
-	claim, ok := s.claims[id]
-	if ok {
-		claim.Status = domain.ClaimPaid
-		s.claims[id] = claim
-	}
-	s.mu.Unlock()
+	claim, ok := s.findClaim(id)
 	if !ok {
 		fail(w, http.StatusNotFound, "claim not found", "The remittance scribe could not locate that claim.")
 		return
 	}
+	paymentAmountCents := req.PaymentAmountCents
+	if claim.PaidAmountCents > 0 || claim.Status == domain.ClaimDenied {
+		paymentAmountCents = claim.PaidAmountCents
+	}
+	claim.Status = domain.ClaimPaid
 	s.saveClaim(claim)
-	tx := edimock.Generate835(claim, req.PaymentAmountCents)
+	tx := edimock.Generate835(claim, paymentAmountCents)
 	s.saveTransaction(tx)
 	respond(w, http.StatusOK, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx835, claim.ID, claim.ProviderID), Transaction: &tx})
 }
 
 func (s *store) getTransaction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	s.mu.RLock()
-	tx, ok := s.transactions[id]
-	s.mu.RUnlock()
+	tx, ok := s.findTransaction(id)
 	if !ok {
 		fail(w, http.StatusNotFound, "transaction not found", "The transaction rune is absent from the ledger.")
 		return
 	}
 	respond(w, http.StatusOK, domain.Envelope{Data: tx, Transaction: &tx})
+}
+
+func (s *store) exportTransaction(w http.ResponseWriter, r *http.Request) {
+	tx, ok := s.findTransaction(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, "transaction not found", "The transaction rune is absent from the ledger.")
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	switch format {
+	case "x12":
+		download(w, "text/plain; charset=utf-8", fmt.Sprintf("ashn-%s-%s.x12", tx.Type, tx.ID), []byte(tx.RawX12))
+	case "xml":
+		download(w, "application/xml; charset=utf-8", fmt.Sprintf("ashn-%s-%s.xml", tx.Type, tx.ID), []byte(transactionXML(tx)))
+	default:
+		payload, _ := json.MarshalIndent(tx, "", "  ")
+		download(w, "application/json; charset=utf-8", fmt.Sprintf("ashn-%s-%s.json", tx.Type, tx.ID), payload)
+	}
+}
+
+func (s *store) replayTransaction(w http.ResponseWriter, r *http.Request) {
+	tx, ok := s.findTransaction(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, "transaction not found", "The transaction rune is absent from the ledger.")
+		return
+	}
+	tx.ID = domain.NewID()
+	tx.RelatedID = r.PathValue("id")
+	tx.CreatedAt = time.Now().UTC()
+	tx.RawX12 = strings.ReplaceAll(tx.RawX12, r.PathValue("id"), tx.ID)
+	s.saveTransaction(tx)
+	respond(w, http.StatusCreated, domain.Envelope{Data: tx, Transaction: &tx, Lore: "The Society replayed a transaction rune into the ledger."})
 }
 
 func (s *store) listTransactions(w http.ResponseWriter, r *http.Request) {
@@ -343,6 +371,79 @@ func (s *store) findAdventurerProvider(w http.ResponseWriter, adventurerID, prov
 	return adventurer, provider, true
 }
 
+func (s *store) findClaim(id string) (domain.Claim, bool) {
+	if s.db != nil {
+		var claim domain.Claim
+		err := s.db.QueryRow(`SELECT `+claimSelectColumns+` FROM claims WHERE id = $1`, id).
+			Scan(scanClaimDest(&claim)...)
+		if err == nil {
+			s.mu.Lock()
+			s.claims[claim.ID] = claim
+			s.mu.Unlock()
+			return claim, true
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[ASHN] postgres claim lookup failed; using memory: %v", err)
+		}
+	}
+	s.mu.RLock()
+	claim, ok := s.claims[id]
+	s.mu.RUnlock()
+	return claim, ok
+}
+
+func (s *store) findTransaction(id string) (domain.Transaction, bool) {
+	if s.db != nil {
+		var tx domain.Transaction
+		err := s.db.QueryRow(`SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), COALESCE(related_id, ''), created_at FROM transactions WHERE id = $1`, id).
+			Scan(&tx.ID, &tx.Type, &tx.Status, &tx.SenderID, &tx.ReceiverID, &tx.Payload, &tx.RawX12, &tx.RelatedID, &tx.CreatedAt)
+		if err == nil {
+			s.mu.Lock()
+			s.transactions[tx.ID] = tx
+			s.mu.Unlock()
+			return tx, true
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[ASHN] postgres transaction lookup failed; using memory: %v", err)
+		}
+	}
+	s.mu.RLock()
+	tx, ok := s.transactions[id]
+	s.mu.RUnlock()
+	return tx, ok
+}
+
+func (s *store) enqueueJob(jobType, entityID string, delay time.Duration) {
+	if err := asyncjobs.Enqueue(s.db, jobType, entityID, delay); err != nil {
+		log.Printf("[ASHN] async job enqueue failed type=%s entity=%s: %v", jobType, entityID, err)
+	}
+}
+
+func transactionXML(tx domain.Transaction) string {
+	payload := string(tx.Payload)
+	return fmt.Sprintf(`<AshnTransactionExport id="%s" type="%s" status="%s">
+  <Sender id="%s" />
+  <Receiver id="%s" />
+  <RelatedId>%s</RelatedId>
+  <CreatedAt>%s</CreatedAt>
+  <Payload><![CDATA[%s]]></Payload>
+  <RawX12><![CDATA[%s]]></RawX12>
+</AshnTransactionExport>
+`, xmlEscape(tx.ID), xmlEscape(string(tx.Type)), xmlEscape(string(tx.Status)), xmlEscape(tx.SenderID), xmlEscape(tx.ReceiverID), xmlEscape(tx.RelatedID), tx.CreatedAt.Format(time.RFC3339), payload, tx.RawX12)
+}
+
+func xmlEscape(value string) string {
+	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
+	return replacer.Replace(value)
+}
+
+func download(w http.ResponseWriter, contentType, filename string, payload []byte) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
+}
+
 func (s *store) saveAdventurer(adventurer domain.Adventurer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -361,8 +462,8 @@ func (s *store) saveClaim(claim domain.Claim) {
 	defer s.mu.Unlock()
 	s.claims[claim.ID] = claim
 	if s.db != nil {
-		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, amount_cents, status) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, amount_cents = EXCLUDED.amount_cents, status = EXCLUDED.status`,
-			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AmountCents, claim.Status)
+		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8, $9, $10, NULLIF($11, ''), NULLIF($12, ''), $13) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, status = EXCLUDED.status`,
+			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, claim.Status)
 		if err != nil {
 			log.Printf("[ASHN] postgres claim persistence failed: %v", err)
 		}
@@ -482,7 +583,7 @@ func loadClaims(db *sql.DB) map[string]domain.Claim {
 	if db == nil {
 		return claims
 	}
-	rows, err := db.Query(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status FROM claims`)
+	rows, err := db.Query(`SELECT ` + claimSelectColumns + ` FROM claims`)
 	if err != nil {
 		log.Printf("[ASHN] postgres claim load failed: %v", err)
 		return claims
@@ -490,7 +591,7 @@ func loadClaims(db *sql.DB) map[string]domain.Claim {
 	defer rows.Close()
 	for rows.Next() {
 		var claim domain.Claim
-		if err := rows.Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AmountCents, &claim.Status); err != nil {
+		if err := rows.Scan(scanClaimDest(&claim)...); err != nil {
 			log.Printf("[ASHN] postgres claim row skipped: %v", err)
 			continue
 		}
@@ -501,6 +602,24 @@ func loadClaims(db *sql.DB) map[string]domain.Claim {
 	}
 	log.Printf("[ASHN] loaded %d claims from Postgres", len(claims))
 	return claims
+}
+
+func scanClaimDest(claim *domain.Claim) []any {
+	return []any{
+		&claim.ID,
+		&claim.AdventurerID,
+		&claim.ProviderID,
+		&claim.IncidentSeverity,
+		&claim.TransactionID,
+		&claim.AmountCents,
+		&claim.AllowedAmountCents,
+		&claim.PaidAmountCents,
+		&claim.PatientResponsibilityCents,
+		&claim.AdjustmentAmountCents,
+		&claim.AdjustmentReason,
+		&claim.DenialReason,
+		&claim.Status,
+	}
 }
 
 func loadTransactions(db *sql.DB) map[string]domain.Transaction {
@@ -566,7 +685,7 @@ func (s *store) queryClaims(page pageRequest, filters claimFilters) ([]domain.Cl
 	addTextFilter(&clauses, &args, "adventurer_id", filters.AdventurerID)
 	addTextFilter(&clauses, &args, "incident_severity", filters.Severity)
 	addSearchFilter(&clauses, &args, filters.Q, "id", "adventurer_id", "provider_id", "incident_severity", "status")
-	query := `SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status FROM claims`
+	query := `SELECT ` + claimSelectColumns + ` FROM claims`
 	query = appendWhere(query, clauses)
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	args = append(args, page.Limit+1, page.Offset)
@@ -578,7 +697,7 @@ func (s *store) queryClaims(page pageRequest, filters claimFilters) ([]domain.Cl
 	claims := []domain.Claim{}
 	for rows.Next() {
 		var claim domain.Claim
-		if err := rows.Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AmountCents, &claim.Status); err != nil {
+		if err := rows.Scan(scanClaimDest(&claim)...); err != nil {
 			return nil, domain.PageInfo{}, err
 		}
 		claims = append(claims, claim)

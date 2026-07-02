@@ -20,6 +20,7 @@ ASHN translates those ideas into a small working system:
 - the API gateway routes requests to payer and provider services
 - the payer service creates EDI-inspired `Transaction` records
 - each transaction captures type, status, sender, receiver, JSON payload, raw X12 text, and timestamp
+- trading partner profiles validate external sender/receiver IDs and allowed transaction types
 - Postgres stores the transaction ledger for search, filtering, and replayable demos
 
 ## End-to-End Flow
@@ -67,7 +68,7 @@ sequenceDiagram
 | `820` | Premium payment | Adventurer or sponsor pays premium dues | `Accepted`; available in the mock generator |
 | `270` | Eligibility inquiry | Provider asks whether the adventurer has active coverage | `Dispatched` |
 | `271` | Eligibility response | Society confirms or denies active coverage | `Accepted` when active, otherwise `Denied` |
-| `278` | Prior authorization | Provider requests approval for high-severity care such as resurrection | `Pending` by default |
+| `278` | Prior authorization | Provider requests approval for high-severity care such as resurrection | Starts `Pending`; `tx-worker` later marks `Approved` or `Denied` |
 | `837` | Health care claim | Provider submits a claim for the encounter | `Accepted` |
 | `835` | Claim payment / remittance advice | Society pays the provider and explains the remittance | `Paid` |
 | `276` | Claim status request | Provider asks for the current state of a claim | `Dispatched` |
@@ -104,7 +105,7 @@ The `278 Prior Authorization Request` payload includes:
 - requested service type
 - lore summary
 
-The request is initially `Pending`, which gives the demo room to later grow into approval, denial, review queues, or async adjudication.
+The request is initially `Pending`. `payer-core` enqueues an `auth_review` job, and `tx-worker` later updates the authorization and the visible `278` transaction status to `Approved` or `Denied`.
 
 ### 4. Claim Submission: `837`
 
@@ -134,7 +135,16 @@ This pair is useful in demos because it shows that EDI is not just a one-way sub
 
 When a claim is paid, ASHN updates the claim status and emits an `835 Claim Payment / Remittance Advice`.
 
-The `835` represents the payer saying: “Here is what we paid, for which claim, and to whom.” In the dashboard, this is the final satisfying ledger event: the healer gets paid and the claim reaches `Paid`.
+Before payment, `tx-worker` adjudicates the claim and calculates:
+
+- billed amount
+- allowed amount
+- paid amount
+- patient responsibility
+- adjustment amount and reason
+- denial reason, when applicable
+
+The `835` represents the payer saying: “Here is what we paid, what we allowed, what was adjusted, and why.” In the dashboard, this is the final satisfying ledger event: the healer gets paid and the claim reaches `Paid`.
 
 ## ASHN Transaction Record Shape
 
@@ -176,30 +186,64 @@ The important architectural choice is that ASHN stores normalized business entit
 | `edi-intake` | XML intake, validation, and mapping into payer workflows |
 | `payer-core` | Enrollment, eligibility, authorization, claims, payments, transaction ledger |
 | `provider-service` | Provider registry and provider-facing lookup behavior |
-| `dashboard` | Visual workflow, ledger search, filters, pagination, and detail views |
+| `dashboard` | Visual workflow, trading partner visibility, ledger search, filters, pagination, and detail views |
 | `ashn-cli` | Scriptable demo workflow from the terminal |
-| `tx-worker` | Reserved for future async EDI processing |
+| `tx-worker` | Polls queued async jobs for `278` authorization review and claim adjudication status transitions |
+
+## Export and Replay
+
+ASHN supports demo-oriented export and replay tools:
+
+- transaction export as JSON, XML, or raw X12
+- XML intake audit export as raw XML or JSON
+- transaction replay, which records a new related ledger transaction
+- inbound XML replay, which resubmits the original XML through validation, routing, audit, and acknowledgment flow
+
+This lets a demo operator capture a ledger event, show it outside the UI, and replay it back through the system for testing or storytelling.
+
+## Trading Partner Routing
+
+ASHN now models external trading partner profiles for XML intake. Each profile captures:
+
+- partner name
+- sender ID
+- expected receiver ID
+- allowed X12 transaction types
+- route target, currently `payer-core`
+- active/inactive status
+
+When XML arrives, `edi-intake` first validates the XML shape and maps it to an internal payer request. Then it checks the trading partner seal:
+
+1. The `Sender id` must match a known active partner.
+2. The `Receiver id` must match that partner's expected receiver.
+3. The requested X12 type must be allowed for that partner.
+4. The route target must be supported.
+
+This gives the demo a realistic EDI boundary: not every external sender can submit every transaction type.
 
 ## What Is Real vs. Simplified
 
-ASHN intentionally keeps the EDI layer lightweight.
+ASHN intentionally keeps the EDI layer lightweight, but the generated raw X12 now uses more companion-guide-inspired segment examples.
 
 What it models well:
 
 - transaction purpose and sequencing
+- envelope and control segment structure
+- representative loops such as payer, provider, subscriber, claim, service line, acknowledgment, and remittance
 - payer/provider/member boundaries
 - request/response pairs like `270 → 271` and `276 → 277`
 - claim-to-payment lifecycle
 - durable transaction history
 - search and filtering across the ledger
+- basic claim adjudication with remittance math
 
 What it simplifies:
 
 - production-grade X12 segment generation and companion-guide compliance
-- companion-guide validation
+- full companion-guide validation
 - clearinghouse routing
-- acknowledgments such as `999` or `277CA`
-- complex adjudication, benefits, COB, and denial logic
+- full partner-specific companion-guide validation
+- full benefits, COB, and production-grade denial logic
 - PHI, HIPAA compliance, and production security concerns
 
 That distinction is important: ASHN is a teaching and architecture simulator. It gives the team a clear foundation before deciding whether to add true X12 parsing, validation, acknowledgments, or clearinghouse-style routing later.
@@ -218,10 +262,7 @@ For the prioritized implementation backlog, including the proposed XML EDI intak
 
 Good next expansions include:
 
-- add `999` acknowledgments for syntactic acceptance or rejection
-- add `277CA` claim acknowledgments after `837` submission
 - model `820` premium payment in the visible workflow
-- expand generated raw X12 segment strings toward companion-guide examples
-- introduce clearinghouse-style routing and trading partner IDs
-- add validation rules per transaction type
-- make the `278` authorization lifecycle asynchronous with approval and denial decisions
+- add full companion-guide validation profiles per trading partner
+- add retry, dead-letter, and replay controls for async job processing
+- add richer service-line and diagnosis mappings for claims

@@ -97,6 +97,8 @@ func TestAcceptXMLRoutesClaimStatusToPayerCore(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
 <AshnX12Transaction type="276">
+  <Sender id="provider-vitesse-temple" />
+  <Receiver id="Adventure Society" />
   <ClaimStatusRequest>
     <ClaimId>claim-1</ClaimId>
   </ClaimStatusRequest>
@@ -187,6 +189,48 @@ func TestAcceptXMLRejectsMissingRequiredFields(t *testing.T) {
 	assert.Contains(t, decodeEnvelope(t, response).Error, "missing field")
 }
 
+func TestAcceptXMLRejectsInvalidTransactionSpecificFields(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "invalid rank",
+			want: "invalid field Rank",
+			body: `<AshnX12Transaction type="834"><Sender id="partner-greenstone" /><Receiver id="Adventure Society" /><Enrollment><Name>Farros</Name><Rank>Mythic</Rank><Guild>Grim Foundations</Guild><Region>Greenstone</Region></Enrollment></AshnX12Transaction>`,
+		},
+		{
+			name: "invalid severity",
+			want: "invalid field IncidentSeverity",
+			body: `<AshnX12Transaction type="837"><Sender id="provider-vitesse-temple" /><Receiver id="Adventure Society" /><Claim><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><IncidentSeverity>Cosmic</IncidentSeverity><AmountCents>125000</AmountCents></Claim></AshnX12Transaction>`,
+		},
+		{
+			name: "sender mismatch",
+			want: "sender must match ProviderId",
+			body: `<AshnX12Transaction type="270"><Sender id="provider-vitesse-temple" /><Receiver id="Adventure Society" /><EligibilityInquiry><AdventurerId>adv-1</AdventurerId><ProviderId>provider-rimaros-hospital</ProviderId></EligibilityInquiry></AshnX12Transaction>`,
+		},
+		{
+			name: "oversized claim amount",
+			want: "invalid field AmountCents",
+			body: `<AshnX12Transaction type="837"><Sender id="provider-vitesse-temple" /><Receiver id="Adventure Society" /><Claim><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><IncidentSeverity>Awakened</IncidentSeverity><AmountCents>900000000</AmountCents></Claim></AshnX12Transaction>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := newIntakeTestMux(intakeApp{})
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "application/xml")
+			handler.ServeHTTP(response, request)
+
+			assert.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Equal(t, tt.want, decodeEnvelope(t, response).Error)
+		})
+	}
+}
+
 func TestAcceptXMLRejectsUnimplemented820(t *testing.T) {
 	handler := newIntakeTestMux(intakeApp{})
 
@@ -203,6 +247,68 @@ func TestAcceptXMLRejectsUnimplemented820(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotImplemented, response.Code)
 	assert.Equal(t, "transaction type 820 not implemented", decodeEnvelope(t, response).Error)
+}
+
+func TestAcceptXMLRejectsUnknownTradingPartner(t *testing.T) {
+	handler := newIntakeTestMux(intakeApp{})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="837">
+  <Sender id="unknown-provider" />
+  <Receiver id="Adventure Society" />
+  <Claim>
+    <AdventurerId>adv-1</AdventurerId>
+    <ProviderId>unknown-provider</ProviderId>
+    <IncidentSeverity>Awakened</IncidentSeverity>
+    <AmountCents>125000</AmountCents>
+  </Claim>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "unknown trading partner", decodeEnvelope(t, response).Error)
+}
+
+func TestAcceptXMLRejectsDisallowedPartnerTransaction(t *testing.T) {
+	handler := newIntakeTestMux(intakeApp{})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="837">
+  <Sender id="partner-greenstone" />
+  <Receiver id="Adventure Society" />
+  <Claim>
+    <AdventurerId>adv-1</AdventurerId>
+    <ProviderId>partner-greenstone</ProviderId>
+    <IncidentSeverity>Awakened</IncidentSeverity>
+    <AmountCents>125000</AmountCents>
+  </Claim>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "transaction type 837 not allowed for trading partner", decodeEnvelope(t, response).Error)
+}
+
+func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
+	handler := newIntakeTestMux(intakeApp{})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/x12/trading-partners", nil)
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var partners []domain.TradingPartner
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, response).Data, &partners))
+	require.NotEmpty(t, partners)
+	senderIDs := []string{}
+	for _, partner := range partners {
+		senderIDs = append(senderIDs, partner.SenderID)
+	}
+	assert.Contains(t, senderIDs, "partner-greenstone")
 }
 
 func TestListMessagesWithoutDatabaseReturnsEmptyPage(t *testing.T) {
@@ -225,6 +331,9 @@ func newIntakeTestMux(app intakeApp) http.Handler {
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
+	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
+	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
+	mux.HandleFunc("GET /x12/trading-partners", app.listTradingPartners)
 	return mux
 }
 

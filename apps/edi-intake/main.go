@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,9 +21,10 @@ import (
 )
 
 type intakeApp struct {
-	payerURL string
-	client   *http.Client
-	db       *sql.DB
+	payerURL        string
+	client          *http.Client
+	db              *sql.DB
+	tradingPartners map[string]domain.TradingPartner
 }
 
 type inboundTransaction struct {
@@ -86,11 +88,14 @@ type xmlPremiumPayment struct {
 
 func main() {
 	db := openDB()
-	app := intakeApp{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), client: http.DefaultClient, db: db}
+	app := intakeApp{payerURL: env("PAYER_CORE_URL", "http://localhost:8081"), client: http.DefaultClient, db: db, tradingPartners: loadTradingPartners(db)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
+	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
+	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
+	mux.HandleFunc("GET /x12/trading-partners", app.listTradingPartners)
 	addr := env("EDI_INTAKE_ADDR", ":8083")
 	log.Printf("[ASHN] edi-intake listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
@@ -101,21 +106,21 @@ func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		messageID := a.auditInboundMessage(contentType, "", "", "rejected", "invalid xml", http.StatusBadRequest)
+		messageID := a.auditInboundMessage(contentType, "", "", "", "rejected", "invalid xml", http.StatusBadRequest)
 		a.record999(messageID, "", "", false, "invalid xml")
 		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll faded before the scribe could read it.")
 		return
 	}
 	rawXML := string(body)
 	if !isXMLContent(contentType) {
-		messageID := a.auditInboundMessage(contentType, "", rawXML, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
+		messageID := a.auditInboundMessage(contentType, "", "", rawXML, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
 		a.record999(messageID, "", "", false, "unsupported content type")
 		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe only accepts XML scrolls.")
 		return
 	}
 	inbound, err := parseInboundXML(body)
 	if err != nil {
-		messageID := a.auditInboundMessage(contentType, "", rawXML, "rejected", "invalid xml", http.StatusBadRequest)
+		messageID := a.auditInboundMessage(contentType, "", "", rawXML, "rejected", "invalid xml", http.StatusBadRequest)
 		a.record999(messageID, "", "", false, "invalid xml")
 		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll does not match the Society intake format.")
 		return
@@ -126,18 +131,25 @@ func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "not implemented") {
 			status = http.StatusNotImplemented
 		}
-		messageID := a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", err.Error(), status)
+		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawXML, "rejected", err.Error(), status)
 		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
 		fail(w, status, err.Error(), "The intake scribe rejected the XML scroll before it entered the ledger.")
 		return
 	}
+	partner, err := a.validateTradingPartner(inbound)
+	if err != nil {
+		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawXML, "rejected", err.Error(), http.StatusBadRequest)
+		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
+		fail(w, http.StatusBadRequest, err.Error(), "The trading partner seal did not match the Society routing rules.")
+		return
+	}
 	status, forwardErr := a.forward(w, method, path, payload)
 	if forwardErr != "" {
-		messageID := a.auditInboundMessage(contentType, inbound.Type, rawXML, "rejected", forwardErr, status)
+		messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawXML, "rejected", forwardErr, status)
 		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, forwardErr)
 		return
 	}
-	messageID := a.auditInboundMessage(contentType, inbound.Type, rawXML, "accepted", "", status)
+	messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawXML, "accepted", "", status)
 	a.record999(messageID, inbound.Type, inbound.Sender.ID, true, "")
 }
 
@@ -169,6 +181,12 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		}); err != nil {
 			return "", "", nil, err
 		}
+		if !validRank(t.Enrollment.Rank) {
+			return "", "", nil, fmt.Errorf("invalid field Rank")
+		}
+		if !validRegion(t.Enrollment.Region) {
+			return "", "", nil, fmt.Errorf("invalid field Region")
+		}
 		return http.MethodPost, "/enrollments", domain.EnrollmentRequest{
 			Name: strings.TrimSpace(t.Enrollment.Name), Rank: domain.Rank(strings.TrimSpace(t.Enrollment.Rank)),
 			Guild: strings.TrimSpace(t.Enrollment.Guild), Region: domain.Region(strings.TrimSpace(t.Enrollment.Region)),
@@ -178,6 +196,9 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 			return "", "", nil, fmt.Errorf("missing eligibility inquiry")
 		}
 		if err := requireFields(map[string]string{"AdventurerId": t.EligibilityInquiry.AdventurerID, "ProviderId": t.EligibilityInquiry.ProviderID}); err != nil {
+			return "", "", nil, err
+		}
+		if err := validateProviderSender(t.Sender.ID, t.EligibilityInquiry.ProviderID); err != nil {
 			return "", "", nil, err
 		}
 		return http.MethodPost, "/eligibility/query", domain.EligibilityRequest{
@@ -196,6 +217,15 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		}); err != nil {
 			return "", "", nil, err
 		}
+		if err := validateProviderSender(t.Sender.ID, t.PriorAuthorization.ProviderID); err != nil {
+			return "", "", nil, err
+		}
+		if !validSeverity(t.PriorAuthorization.IncidentSeverity) {
+			return "", "", nil, fmt.Errorf("invalid field IncidentSeverity")
+		}
+		if !validServiceType(t.PriorAuthorization.ServiceType) {
+			return "", "", nil, fmt.Errorf("invalid field ServiceType")
+		}
 		return http.MethodPost, "/auth-requests", domain.PriorAuthRequest{
 			AdventurerID: strings.TrimSpace(t.PriorAuthorization.AdventurerID), ProviderID: strings.TrimSpace(t.PriorAuthorization.ProviderID),
 			ServiceType: strings.TrimSpace(t.PriorAuthorization.ServiceType), IncidentSeverity: domain.IncidentSeverity(strings.TrimSpace(t.PriorAuthorization.IncidentSeverity)),
@@ -212,9 +242,18 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		}); err != nil {
 			return "", "", nil, err
 		}
+		if err := validateProviderSender(t.Sender.ID, t.Claim.ProviderID); err != nil {
+			return "", "", nil, err
+		}
+		if !validSeverity(t.Claim.IncidentSeverity) {
+			return "", "", nil, fmt.Errorf("invalid field IncidentSeverity")
+		}
 		amountCents, err := parsePositiveInt64("AmountCents", t.Claim.AmountCents)
 		if err != nil {
 			return "", "", nil, err
+		}
+		if amountCents > 500000000 {
+			return "", "", nil, fmt.Errorf("invalid field AmountCents")
 		}
 		return http.MethodPost, "/claims", domain.ClaimRequest{
 			AdventurerID: strings.TrimSpace(t.Claim.AdventurerID), ProviderID: strings.TrimSpace(t.Claim.ProviderID),
@@ -238,6 +277,9 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		amountCents, err := parsePositiveInt64("PaymentAmountCents", t.Payment.PaymentAmountCents)
 		if err != nil {
 			return "", "", nil, err
+		}
+		if amountCents > 500000000 {
+			return "", "", nil, fmt.Errorf("invalid field PaymentAmountCents")
 		}
 		return http.MethodPost, "/claims/" + strings.TrimSpace(t.Payment.ClaimID) + "/payment", domain.PaymentRequest{PaymentAmountCents: amountCents}, nil
 	case domain.Tx820:
@@ -284,17 +326,79 @@ func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any)
 	return resp.StatusCode, ""
 }
 
-func (a intakeApp) auditInboundMessage(contentType, transactionType, rawPayload, status, errorText string, downstreamStatus int) string {
+func (a intakeApp) validateTradingPartner(inbound inboundTransaction) (domain.TradingPartner, error) {
+	senderID := strings.TrimSpace(inbound.Sender.ID)
+	if senderID == "" {
+		return domain.TradingPartner{}, fmt.Errorf("missing trading partner sender")
+	}
+	receiverID := strings.TrimSpace(inbound.Receiver.ID)
+	if receiverID == "" {
+		return domain.TradingPartner{}, fmt.Errorf("missing trading partner receiver")
+	}
+	partner, ok := a.partnerBySenderID(senderID)
+	if !ok {
+		return domain.TradingPartner{}, fmt.Errorf("unknown trading partner")
+	}
+	if !strings.EqualFold(partner.Status, "active") {
+		return domain.TradingPartner{}, fmt.Errorf("inactive trading partner")
+	}
+	if !strings.EqualFold(partner.ReceiverID, receiverID) {
+		return domain.TradingPartner{}, fmt.Errorf("trading partner receiver mismatch")
+	}
+	if !partnerAllows(partner, inbound.Type) {
+		return domain.TradingPartner{}, fmt.Errorf("transaction type %s not allowed for trading partner", inbound.Type)
+	}
+	if !strings.EqualFold(partner.RouteTarget, "payer-core") {
+		return domain.TradingPartner{}, fmt.Errorf("unsupported trading partner route")
+	}
+	return partner, nil
+}
+
+func (a intakeApp) partnerBySenderID(senderID string) (domain.TradingPartner, bool) {
+	partners := a.tradingPartners
+	if len(partners) == 0 {
+		partners = seedTradingPartners()
+	}
+	for _, partner := range partners {
+		if strings.EqualFold(partner.SenderID, senderID) {
+			return partner, true
+		}
+	}
+	return domain.TradingPartner{}, false
+}
+
+func partnerAllows(partner domain.TradingPartner, txType string) bool {
+	for _, allowed := range partner.AllowedTransactionTypes {
+		if strings.EqualFold(strings.TrimSpace(allowed), strings.TrimSpace(txType)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a intakeApp) auditInboundMessage(contentType, partnerID, transactionType, rawPayload, status, errorText string, downstreamStatus int) string {
 	id := domain.NewID()
 	if a.db == nil {
 		return id
 	}
-	_, err := a.db.Exec(`INSERT INTO inbound_messages (id, content_type, transaction_type, raw_payload, status, error, downstream_status) VALUES ($1, $2, NULLIF($3, ''), $4, $5, NULLIF($6, ''), $7)`,
-		id, contentType, transactionType, rawPayload, status, errorText, downstreamStatus)
+	_, err := a.db.Exec(`INSERT INTO inbound_messages (id, partner_id, content_type, transaction_type, raw_payload, status, error, downstream_status) VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), $8)`,
+		id, partnerID, contentType, transactionType, rawPayload, status, errorText, downstreamStatus)
 	if err != nil {
 		log.Printf("[ASHN] postgres inbound message audit failed: %v", err)
 	}
 	return id
+}
+
+func (a intakeApp) listTradingPartners(w http.ResponseWriter, _ *http.Request) {
+	partners := make([]domain.TradingPartner, 0, len(a.tradingPartners))
+	source := a.tradingPartners
+	if len(source) == 0 {
+		source = seedTradingPartners()
+	}
+	for _, partner := range source {
+		partners = append(partners, partner)
+	}
+	respond(w, http.StatusOK, domain.Envelope{Data: partners, Lore: "Trading partner seals and routing rules were opened for inspection."})
 }
 
 func (a intakeApp) record999(relatedID string, transactionType string, receiverID string, accepted bool, errorText string) {
@@ -343,12 +447,38 @@ func (a intakeApp) listMessages(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, domain.Envelope{Data: messages, Lore: "The XML intake archive opened its scroll case.", Page: &pageInfo})
 }
 
+func (a intakeApp) exportMessage(w http.ResponseWriter, r *http.Request) {
+	message, ok := a.findMessage(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, "message not found", "The intake archive has no scroll with that seal.")
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	switch format {
+	case "json":
+		payload, _ := json.MarshalIndent(message, "", "  ")
+		download(w, "application/json; charset=utf-8", fmt.Sprintf("ashn-xml-message-%s.json", message.ID), payload)
+	default:
+		download(w, "application/xml; charset=utf-8", fmt.Sprintf("ashn-xml-message-%s.xml", message.ID), []byte(message.RawPayload))
+	}
+}
+
+func (a intakeApp) replayMessage(w http.ResponseWriter, r *http.Request) {
+	message, ok := a.findMessage(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, "message not found", "The intake archive has no scroll with that seal.")
+		return
+	}
+	replayRequest := httptestRequest(http.MethodPost, "/x12/xml", message.ContentType, message.RawPayload)
+	a.acceptXML(w, replayRequest)
+}
+
 func (a intakeApp) queryMessages(page pageRequest, filters messageFilters) ([]domain.InboundMessage, domain.PageInfo, error) {
 	clauses, args := []string{}, []any{}
 	addTextFilter(&clauses, &args, "status", filters.Status)
 	addTextFilter(&clauses, &args, "transaction_type", filters.Type)
-	addSearchFilter(&clauses, &args, filters.Q, "id", "content_type", "COALESCE(transaction_type, '')", "raw_payload", "status", "COALESCE(error, '')")
-	query := `SELECT id, content_type, COALESCE(transaction_type, ''), raw_payload, status, COALESCE(error, ''), COALESCE(downstream_status, 0), created_at FROM inbound_messages`
+	addSearchFilter(&clauses, &args, filters.Q, "id", "COALESCE(partner_id, '')", "content_type", "COALESCE(transaction_type, '')", "raw_payload", "status", "COALESCE(error, '')")
+	query := `SELECT id, COALESCE(partner_id, ''), content_type, COALESCE(transaction_type, ''), raw_payload, status, COALESCE(error, ''), COALESCE(downstream_status, 0), created_at FROM inbound_messages`
 	query = appendWhere(query, clauses)
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	args = append(args, page.Limit+1, page.Offset)
@@ -360,7 +490,7 @@ func (a intakeApp) queryMessages(page pageRequest, filters messageFilters) ([]do
 	messages := []domain.InboundMessage{}
 	for rows.Next() {
 		var message domain.InboundMessage
-		if err := rows.Scan(&message.ID, &message.ContentType, &message.TransactionType, &message.RawPayload, &message.Status, &message.Error, &message.DownstreamStatus, &message.CreatedAt); err != nil {
+		if err := rows.Scan(&message.ID, &message.PartnerID, &message.ContentType, &message.TransactionType, &message.RawPayload, &message.Status, &message.Error, &message.DownstreamStatus, &message.CreatedAt); err != nil {
 			return nil, domain.PageInfo{}, err
 		}
 		messages = append(messages, message)
@@ -370,6 +500,22 @@ func (a intakeApp) queryMessages(page pageRequest, filters messageFilters) ([]do
 	}
 	messages, pageInfo := trimFetchedPage(messages, page)
 	return messages, pageInfo, nil
+}
+
+func (a intakeApp) findMessage(id string) (domain.InboundMessage, bool) {
+	if a.db == nil {
+		return domain.InboundMessage{}, false
+	}
+	var message domain.InboundMessage
+	err := a.db.QueryRow(`SELECT id, COALESCE(partner_id, ''), content_type, COALESCE(transaction_type, ''), raw_payload, status, COALESCE(error, ''), COALESCE(downstream_status, 0), created_at FROM inbound_messages WHERE id = $1`, id).
+		Scan(&message.ID, &message.PartnerID, &message.ContentType, &message.TransactionType, &message.RawPayload, &message.Status, &message.Error, &message.DownstreamStatus, &message.CreatedAt)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[ASHN] postgres inbound message lookup failed: %v", err)
+		}
+		return domain.InboundMessage{}, false
+	}
+	return message, true
 }
 
 type pageRequest struct {
@@ -475,9 +621,114 @@ func parsePositiveInt64(name, value string) (int64, error) {
 	return parsed, nil
 }
 
+func validateProviderSender(senderID, providerID string) error {
+	senderID = strings.TrimSpace(senderID)
+	providerID = strings.TrimSpace(providerID)
+	if senderID == "" {
+		return nil
+	}
+	if senderID != providerID {
+		return fmt.Errorf("sender must match ProviderId")
+	}
+	return nil
+}
+
+func validRank(value string) bool {
+	switch domain.Rank(strings.TrimSpace(value)) {
+	case domain.RankIron, domain.RankBronze, domain.RankSilver, domain.RankGold, domain.RankDiamond:
+		return true
+	default:
+		return false
+	}
+}
+
+func validRegion(value string) bool {
+	switch domain.Region(strings.TrimSpace(value)) {
+	case domain.RegionGreenstone, domain.RegionYaresh, domain.RegionRimaros, domain.RegionVitesse:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSeverity(value string) bool {
+	switch domain.IncidentSeverity(strings.TrimSpace(value)) {
+	case domain.SeverityNormal, domain.SeverityAwakened, domain.SeverityDiamond:
+		return true
+	default:
+		return false
+	}
+}
+
+func validServiceType(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "resurrection", "restoration", "curse-removal", "trauma-care":
+		return true
+	default:
+		return false
+	}
+}
+
 func isXMLContent(contentType string) bool {
 	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 	return contentType == "application/xml" || contentType == "text/xml"
+}
+
+func seedTradingPartners() map[string]domain.TradingPartner {
+	partners := map[string]domain.TradingPartner{}
+	for _, partner := range []domain.TradingPartner{
+		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
+		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
+		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
+	} {
+		partners[partner.ID] = partner
+	}
+	return partners
+}
+
+func loadTradingPartners(db *sql.DB) map[string]domain.TradingPartner {
+	if db == nil {
+		return seedTradingPartners()
+	}
+	rows, err := db.Query(`SELECT id, name, sender_id, receiver_id, allowed_transaction_types, route_target, status FROM trading_partners ORDER BY name`)
+	if err != nil {
+		log.Printf("[ASHN] postgres trading partner load failed; using seed partners: %v", err)
+		return seedTradingPartners()
+	}
+	defer rows.Close()
+	partners := map[string]domain.TradingPartner{}
+	for rows.Next() {
+		var partner domain.TradingPartner
+		var allowed string
+		if err := rows.Scan(&partner.ID, &partner.Name, &partner.SenderID, &partner.ReceiverID, &allowed, &partner.RouteTarget, &partner.Status); err != nil {
+			log.Printf("[ASHN] postgres trading partner row skipped: %v", err)
+			continue
+		}
+		partner.AllowedTransactionTypes = splitCSV(allowed)
+		partners[partner.ID] = partner
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ASHN] postgres trading partner rows failed; using seed partners: %v", err)
+		return seedTradingPartners()
+	}
+	if len(partners) == 0 {
+		log.Printf("[ASHN] postgres trading partner table empty; using seed partners")
+		return seedTradingPartners()
+	}
+	log.Printf("[ASHN] loaded %d trading partners from Postgres", len(partners))
+	return partners
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func (a intakeApp) httpClient() *http.Client {
@@ -491,6 +742,19 @@ func respond(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func httptestRequest(method, path, contentType, body string) *http.Request {
+	request, _ := http.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", contentType)
+	return request
+}
+
+func download(w http.ResponseWriter, contentType, filename string, payload []byte) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
 }
 
 func fail(w http.ResponseWriter, status int, message, loreText string) {

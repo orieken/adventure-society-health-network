@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"ashn/packages/asyncjobs"
 	"ashn/packages/domain"
 
 	_ "github.com/lib/pq"
@@ -58,6 +59,11 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 		IncidentSeverity: domain.SeverityDiamond,
 	})
 	require.Equal(t, http.StatusAccepted, auth.Code)
+	require.NoError(t, forceDueJobs(db))
+	processed, err := asyncjobs.ProcessDue(db, 5)
+	require.NoError(t, err)
+	assert.Equal(t, 1, processed)
+	assertTransactionStatus(t, db, domain.Tx278, domain.TxStatusApproved)
 
 	claimResponse := serveJSON(t, mux, http.MethodPost, "/claims", domain.ClaimRequest{
 		AdventurerID:     adventurer.ID,
@@ -69,6 +75,19 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	var claim domain.Claim
 	require.NoError(t, json.Unmarshal(decodeEnvelope(t, claimResponse).Data, &claim))
 
+	require.NoError(t, forceDueJobs(db))
+	processed, err = asyncjobs.ProcessDue(db, 5)
+	require.NoError(t, err)
+	assert.Equal(t, 1, processed)
+	assertClaimStatus(t, db, claim.ID, domain.ClaimPending)
+
+	require.NoError(t, forceDueJobs(db))
+	processed, err = asyncjobs.ProcessDue(db, 5)
+	require.NoError(t, err)
+	assert.Equal(t, 1, processed)
+	assertClaimStatus(t, db, claim.ID, domain.ClaimApproved)
+	assertClaimAdjudication(t, db, claim.ID, 100000, 85000, 15000, 25000, "")
+
 	payment := serveJSON(t, mux, http.MethodPost, "/claims/"+claim.ID+"/payment", domain.PaymentRequest{PaymentAmountCents: 100000})
 	require.Equal(t, http.StatusOK, payment.Code)
 
@@ -77,13 +96,14 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	assertTableCount(t, db, "claims", 1)
 	assertTableCount(t, db, "enrollments", 1)
 	assertTableCount(t, db, "auth_requests", 1)
-	assertTableCount(t, db, "transactions", 7)
+	assertTableCount(t, db, "transactions", 8)
+	assertTableCount(t, db, "transaction_jobs", 3)
 
 	reloaded := newIntegrationStore(db)
 	assert.Contains(t, reloaded.adventurers, adventurer.ID)
 	assert.Contains(t, reloaded.claims, claim.ID)
 	assert.Len(t, reloaded.providers, 6)
-	assert.Len(t, reloaded.transactions, 7)
+	assert.Len(t, reloaded.transactions, 8)
 	assert.Equal(t, domain.ClaimPaid, reloaded.claims[claim.ID].Status)
 
 	listClaims := httptest.NewRecorder()
@@ -105,8 +125,17 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	require.NoError(t, json.Unmarshal(transactionsEnvelope.Data, &transactions))
 	require.Len(t, transactions, 1)
 	assert.Equal(t, domain.Tx835, transactions[0].Type)
+	var remittance map[string]any
+	require.NoError(t, json.Unmarshal(transactions[0].Payload, &remittance))
+	assert.Equal(t, float64(125000), remittance["billedAmountCents"])
+	assert.Equal(t, float64(100000), remittance["allowedAmountCents"])
+	assert.Equal(t, float64(85000), remittance["paymentAmountCents"])
+	assert.Equal(t, float64(15000), remittance["patientResponsibilityCents"])
+	assert.Equal(t, float64(25000), remittance["adjustmentAmountCents"])
 	assert.Contains(t, transactions[0].RawX12, "ISA*")
 	assert.Contains(t, transactions[0].RawX12, "ST*835")
+	assert.Contains(t, transactions[0].RawX12, "CLP*")
+	assert.Contains(t, transactions[0].RawX12, "*1250.00*850.00*150.00*")
 	require.NotNil(t, transactionsEnvelope.Page)
 	assert.False(t, transactionsEnvelope.Page.HasMore)
 
@@ -117,6 +146,38 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	require.NoError(t, json.Unmarshal(decodeEnvelope(t, listAdventurers).Data, &adventurers))
 	require.Len(t, adventurers, 1)
 	assert.Equal(t, adventurer.ID, adventurers[0].ID)
+}
+
+func forceDueJobs(db *sql.DB) error {
+	_, err := db.Exec(`UPDATE transaction_jobs SET run_after = now() WHERE status = $1`, asyncjobs.StatusPending)
+	return err
+}
+
+func assertClaimStatus(t *testing.T, db *sql.DB, claimID string, expected domain.ClaimStatus) {
+	t.Helper()
+	var status domain.ClaimStatus
+	require.NoError(t, db.QueryRow(`SELECT status FROM claims WHERE id = $1`, claimID).Scan(&status))
+	assert.Equal(t, expected, status)
+}
+
+func assertClaimAdjudication(t *testing.T, db *sql.DB, claimID string, allowed, paid, patient, adjustment int64, denialReason string) {
+	t.Helper()
+	var actualAllowed, actualPaid, actualPatient, actualAdjustment int64
+	var actualDenialReason string
+	require.NoError(t, db.QueryRow(`SELECT allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(denial_reason, '') FROM claims WHERE id = $1`, claimID).
+		Scan(&actualAllowed, &actualPaid, &actualPatient, &actualAdjustment, &actualDenialReason))
+	assert.Equal(t, allowed, actualAllowed)
+	assert.Equal(t, paid, actualPaid)
+	assert.Equal(t, patient, actualPatient)
+	assert.Equal(t, adjustment, actualAdjustment)
+	assert.Equal(t, denialReason, actualDenialReason)
+}
+
+func assertTransactionStatus(t *testing.T, db *sql.DB, txType domain.TransactionType, expected domain.TransactionStatus) {
+	t.Helper()
+	var status domain.TransactionStatus
+	require.NoError(t, db.QueryRow(`SELECT status FROM transactions WHERE type = $1 ORDER BY created_at DESC LIMIT 1`, txType).Scan(&status))
+	assert.Equal(t, expected, status)
 }
 
 func newIntegrationStore(db *sql.DB) *store {

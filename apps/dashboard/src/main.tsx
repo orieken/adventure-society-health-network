@@ -10,6 +10,16 @@ type Provider = {
   region: string;
 };
 
+type TradingPartner = {
+  id: string;
+  name: string;
+  senderId: string;
+  receiverId: string;
+  allowedTransactionTypes: string[];
+  routeTarget: string;
+  status: string;
+};
+
 type Adventurer = {
   id: string;
   name: string;
@@ -26,6 +36,12 @@ type Claim = {
   incidentSeverity: string;
   transactionId: string;
   amountCents: number;
+  allowedAmountCents?: number;
+  paidAmountCents?: number;
+  patientResponsibilityCents?: number;
+  adjustmentAmountCents?: number;
+  adjustmentReason?: string;
+  denialReason?: string;
   status: string;
 };
 
@@ -57,6 +73,14 @@ type Transaction = {
   createdAt: string;
 };
 
+type TimelineGroup = {
+  id: string;
+  title: string;
+  subtitle: string;
+  transactions: Transaction[];
+  latestAt: number;
+};
+
 type InboundMessage = {
   id: string;
   contentType: string;
@@ -73,6 +97,7 @@ const adventurerPageSize = 10;
 const claimPageSize = 10;
 const transactionPageSize = 25;
 const auditPageSize = 10;
+const dashboardRefreshMs = 3000;
 const transactionTypes = ["All", "834", "820", "270", "271", "278", "837", "835", "276", "277", "269", "999", "277CA"];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Approved", "Denied", "Paid"];
@@ -100,6 +125,7 @@ function pageSummary(page: PageInfo) {
 function App() {
   const [health, setHealth] = useState<Envelope<Record<string, string>> | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [tradingPartners, setTradingPartners] = useState<TradingPartner[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("provider-vitesse-temple");
   const [adventurer, setAdventurer] = useState<Adventurer | null>(null);
   const [claim, setClaim] = useState<Claim | null>(null);
@@ -138,8 +164,20 @@ function App() {
     [providers]
   );
 
+  const timelineGroups = useMemo(
+    () => buildTimelineGroups(recentTransactions),
+    [recentTransactions]
+  );
+
   useEffect(() => {
     void refresh();
+  }, [adventurerOffset, auditOffset, auditStatusFilter, auditTypeFilter, claimOffset, claimStatusFilter, providerFilter, searchTerm, transactionOffset, transactionStatusFilter, transactionTypeFilter]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, dashboardRefreshMs);
+    return () => window.clearInterval(interval);
   }, [adventurerOffset, auditOffset, auditStatusFilter, auditTypeFilter, claimOffset, claimStatusFilter, providerFilter, searchTerm, transactionOffset, transactionStatusFilter, transactionTypeFilter]);
 
   async function refresh(pushProviderEvent = false) {
@@ -165,9 +203,10 @@ function App() {
       status: auditStatusFilter,
       type: auditTypeFilter
     });
-    const [healthResult, providersResult, adventurersResult, claimsResult, transactionsResult, auditResult] = await Promise.all([
+    const [healthResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult] = await Promise.all([
       request<Record<string, string>>("/v1/health"),
       request<Provider[]>("/v1/providers"),
+      request<TradingPartner[]>("/v1/x12/trading-partners"),
       request<Adventurer[]>(`/v1/adventurers?${adventurerQuery}`),
       request<Claim[]>(`/v1/claims?${claimQuery}`),
       request<Transaction[]>(`/v1/transactions?${transactionQuery}`),
@@ -175,6 +214,7 @@ function App() {
     ]);
     setHealth(healthResult);
     setProviders(providersResult.data ?? []);
+    setTradingPartners(partnersResult.data ?? []);
     setRecentAdventurers(adventurersResult.data ?? []);
     setRecentClaims(claimsResult.data ?? []);
     setRecentTransactions(transactionsResult.data ?? []);
@@ -224,6 +264,30 @@ function App() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadFromPath(path: string) {
+    const anchor = document.createElement("a");
+    anchor.href = `${apiUrl}${path}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  async function replayTransaction(transactionId: string) {
+    setBusy(true);
+    const result = await request<Transaction>(`/v1/transactions/${transactionId}/replay`, { method: "POST" });
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
+  async function replayInboundMessage(messageId: string) {
+    setBusy(true);
+    const result = await request(`/v1/x12/messages/${messageId}/replay`, { method: "POST" });
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
   }
 
   async function enroll(event: FormEvent<HTMLFormElement>) {
@@ -357,6 +421,23 @@ function App() {
         <MetricCard label="Adventurers" value={adventurerPage.count} detail={pageSummary(adventurerPage)} />
         <MetricCard label="Claims" value={claimPage.count} detail={`${recentClaims.filter((item) => item.status === "Paid").length} paid on this page`} />
         <MetricCard label="Transactions" value={transactionPage.count} detail={`${recentTransactions.length} ledger entries loaded`} />
+      </section>
+
+      <section className="panel trading-panel">
+        <div className="ledger-title">
+          <div>
+            <h2>Trading Partners</h2>
+            <p className="muted">Sender/receiver IDs, allowed X12 types, and current routing targets.</p>
+          </div>
+          <span className="muted">{tradingPartners.length} profiles</span>
+        </div>
+        <div className="partner-grid">
+          {tradingPartners.length === 0 ? (
+            <p className="muted">No trading partner profiles are loaded.</p>
+          ) : (
+            tradingPartners.map((partner) => <TradingPartnerCard key={partner.id} partner={partner} />)
+          )}
+        </div>
       </section>
 
       <section className="grid">
@@ -532,6 +613,25 @@ function App() {
         </div>
       </section>
 
+      <section className="panel timeline-panel">
+        <div className="ledger-title">
+          <div>
+            <h2>Transaction Timeline</h2>
+            <p className="muted">Grouped from the loaded ledger page by claim, adventurer, or acknowledgment relationship.</p>
+          </div>
+          <span className="muted">{timelineGroups.length} chains</span>
+        </div>
+        {timelineGroups.length === 0 ? (
+          <p className="muted">No timeline chains match the current transaction filters.</p>
+        ) : (
+          <div className="timeline-grid">
+            {timelineGroups.map((group) => (
+              <TimelineGroupCard key={group.id} group={group} onSelect={openTransactionDetail} />
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="history-grid">
         <div className="panel ledger">
           <div className="ledger-title">
@@ -608,6 +708,12 @@ function App() {
           </div>
           {selectedTransaction && (
             <div className="detail-grid">
+              <div className="detail-actions">
+                <button className="secondary" onClick={() => downloadFromPath(`/v1/transactions/${selectedTransaction.id}/export?format=json`)}>Export JSON</button>
+                <button className="secondary" onClick={() => downloadFromPath(`/v1/transactions/${selectedTransaction.id}/export?format=xml`)}>Export XML</button>
+                <button className="secondary" disabled={!selectedTransaction.rawX12} onClick={() => downloadFromPath(`/v1/transactions/${selectedTransaction.id}/export?format=x12`)}>Export X12</button>
+                <button disabled={busy} onClick={() => replayTransaction(selectedTransaction.id)}>Replay Transaction</button>
+              </div>
               <DetailItem label="Type" value={selectedTransaction.type} />
               <DetailItem label="Status" value={selectedTransaction.status} />
               <DetailItem label="Sender" value={selectedTransaction.senderId} />
@@ -634,7 +740,13 @@ function App() {
             <div className="detail-grid">
               <DetailItem label="Status" value={selectedClaim.status} />
               <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
-              <DetailItem label="Amount" value={`$${(selectedClaim.amountCents / 100).toLocaleString()}`} />
+              <DetailItem label="Billed" value={money(selectedClaim.amountCents)} />
+              <DetailItem label="Allowed" value={money(selectedClaim.allowedAmountCents)} />
+              <DetailItem label="Paid" value={money(selectedClaim.paidAmountCents)} />
+              <DetailItem label="Patient Resp." value={money(selectedClaim.patientResponsibilityCents)} />
+              <DetailItem label="Adjustment" value={money(selectedClaim.adjustmentAmountCents)} />
+              <DetailItem label="Adjustment Reason" value={selectedClaim.adjustmentReason ?? "—"} />
+              <DetailItem label="Denial Reason" value={selectedClaim.denialReason ?? "—"} />
               <DetailItem label="Adventurer" value={selectedClaim.adventurerId} />
               <DetailItem label="Provider" value={selectedClaim.providerId} />
               <DetailItem label="Transaction" value={selectedClaim.transactionId} />
@@ -643,6 +755,11 @@ function App() {
           )}
           {selectedInboundMessage && (
             <div className="detail-grid">
+              <div className="detail-actions">
+                <button className="secondary" onClick={() => downloadFromPath(`/v1/x12/messages/${selectedInboundMessage.id}/export?format=xml`)}>Export XML</button>
+                <button className="secondary" onClick={() => downloadFromPath(`/v1/x12/messages/${selectedInboundMessage.id}/export?format=json`)}>Export JSON</button>
+                <button disabled={busy} onClick={() => replayInboundMessage(selectedInboundMessage.id)}>Replay XML</button>
+              </div>
               <DetailItem label="Status" value={selectedInboundMessage.status} />
               <DetailItem label="Type" value={selectedInboundMessage.transactionType ?? "—"} />
               <DetailItem label="Downstream" value={selectedInboundMessage.downstreamStatus ? String(selectedInboundMessage.downstreamStatus) : "—"} />
@@ -670,6 +787,21 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
       <strong>{value}</strong>
       <p>{detail}</p>
     </div>
+  );
+}
+
+function TradingPartnerCard({ partner }: { partner: TradingPartner }) {
+  return (
+    <article className="partner-card">
+      <div>
+        <strong>{partner.name}</strong>
+        <span>{partner.status} · routes to {partner.routeTarget}</span>
+      </div>
+      <code>{partner.senderId} → {partner.receiverId}</code>
+      <div className="chips">
+        {partner.allowedTransactionTypes.map((type) => <span key={type}>{type}</span>)}
+      </div>
+    </article>
   );
 }
 
@@ -745,6 +877,110 @@ function DetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+function money(value?: number) {
+  return `$${((value ?? 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function TimelineGroupCard({ group, onSelect }: { group: TimelineGroup; onSelect: (transactionId: string) => void }) {
+  return (
+    <article className="timeline-card">
+      <div className="timeline-heading">
+        <div>
+          <strong>{group.title}</strong>
+          <span>{group.subtitle}</span>
+        </div>
+        <span className="timeline-count">{group.transactions.length} events</span>
+      </div>
+      <div className="timeline-chain">
+        {group.transactions.map((transaction) => (
+          <button className="timeline-step" key={transaction.id} onClick={() => onSelect(transaction.id)}>
+            <span className="timeline-dot" />
+            <strong>{transaction.type}</strong>
+            <small>{transaction.status}</small>
+            <em>{new Date(transaction.createdAt).toLocaleTimeString()}</em>
+          </button>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function buildTimelineGroups(transactions: Transaction[]) {
+  const transactionsByID = new Map(transactions.map((transaction) => [transaction.id, transaction]));
+  const groups = new Map<string, TimelineGroup>();
+
+  transactions.forEach((transaction) => {
+    const parent = transaction.relatedId ? transactionsByID.get(transaction.relatedId) : undefined;
+    const claimId = transactionClaimId(transaction) ?? (parent ? transactionClaimId(parent) : undefined);
+    const adventurerId = transactionAdventurerId(transaction) ?? (parent ? transactionAdventurerId(parent) : undefined);
+    const groupKey = claimId ? `claim:${claimId}` : adventurerId ? `adventurer:${adventurerId}` : transaction.relatedId ? `related:${transaction.relatedId}` : `transaction:${transaction.id}`;
+    const existing = groups.get(groupKey);
+
+    if (existing) {
+      existing.transactions.push(transaction);
+      existing.latestAt = Math.max(existing.latestAt, Date.parse(transaction.createdAt));
+      return;
+    }
+
+    groups.set(groupKey, {
+      id: groupKey,
+      title: timelineTitle(transaction, claimId, adventurerId),
+      subtitle: timelineSubtitle(transaction, claimId, adventurerId),
+      transactions: [transaction],
+      latestAt: Date.parse(transaction.createdAt)
+    });
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      transactions: group.transactions.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+    }))
+    .sort((left, right) => right.latestAt - left.latestAt);
+}
+
+function timelineTitle(transaction: Transaction, claimId?: string, adventurerId?: string) {
+  if (claimId) return "Claim lifecycle";
+  const adventurerName = payloadNestedString(transaction, "adventurer", "name");
+  if (adventurerName) return `Adventurer lifecycle: ${adventurerName}`;
+  if (adventurerId) return "Adventurer lifecycle";
+  if (transaction.type === "999") return "Implementation acknowledgment";
+  return "Standalone transaction";
+}
+
+function timelineSubtitle(transaction: Transaction, claimId?: string, adventurerId?: string) {
+  if (claimId) return `Claim ${claimId}`;
+  if (adventurerId) return `Adventurer ${adventurerId}`;
+  if (transaction.relatedId) return `Related to ${transaction.relatedId}`;
+  return transaction.id;
+}
+
+function transactionClaimId(transaction: Transaction) {
+  return payloadString(transaction, "claimId") ?? payloadNestedString(transaction, "claim", "id");
+}
+
+function transactionAdventurerId(transaction: Transaction) {
+  return payloadString(transaction, "adventurerId") ?? payloadNestedString(transaction, "claim", "adventurerId") ?? payloadNestedString(transaction, "adventurer", "id");
+}
+
+function payloadString(transaction: Transaction, key: string) {
+  const payload = payloadRecord(transaction.payload);
+  const value = payload?.[key];
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function payloadNestedString(transaction: Transaction, parentKey: string, childKey: string) {
+  const payload = payloadRecord(transaction.payload);
+  const parent = payloadRecord(payload?.[parentKey]);
+  const value = parent?.[childKey];
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function payloadRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
 function TransactionRow({ transaction, onSelect }: { transaction: Transaction; onSelect: (transactionId: string) => void }) {
   return (
     <article className="compact-row clickable" onClick={() => onSelect(transaction.id)}>
@@ -774,7 +1010,7 @@ function ClaimRow({ claim, onSelect }: { claim: Claim; onSelect: (claimId: strin
     <article className="compact-row clickable" onClick={() => onSelect(claim.id)}>
       <div>
         <strong>{claim.status} · {claim.incidentSeverity}</strong>
-        <span>${(claim.amountCents / 100).toLocaleString()} · provider {claim.providerId}</span>
+        <span>{money(claim.amountCents)} billed · {money(claim.paidAmountCents)} paid · provider {claim.providerId}</span>
       </div>
       <code>{claim.id}</code>
     </article>

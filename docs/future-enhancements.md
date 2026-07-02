@@ -56,7 +56,9 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Show raw X12 in the dashboard transaction detail panel.
 - [x] Add copy buttons for raw transaction payloads.
 - [x] Add download buttons for raw transaction payloads.
-- [ ] Expand segment generation toward companion-guide examples.
+- [x] Expand segment generation toward companion-guide examples.
+- [x] Add XML intake validation rules per transaction type.
+- [ ] Add full companion-guide validation profiles per trading partner.
 
 ### P1 — Acknowledgments
 
@@ -68,9 +70,9 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P1 — Asynchronous Processing
 
-- [ ] Turn `apps/tx-worker` into an active worker service.
-- [ ] Add a transaction queue table or lightweight message queue.
-- [ ] Move long-running authorization and adjudication work off the request path.
+- [x] Turn `apps/tx-worker` into an active worker service.
+- [x] Add a transaction queue table or lightweight message queue.
+- [x] Move long-running authorization and adjudication work off the request path.
 - [ ] Add retry, dead-letter, and replay behavior.
 - [ ] Show async status transitions in the dashboard.
 
@@ -84,19 +86,23 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P2 — Claim Adjudication
 
-- [ ] Add adjudication rules based on provider tier, adventurer rank, severity, and coverage status.
-- [ ] Calculate allowed amount, patient responsibility, paid amount, and denial reasons.
-- [ ] Add denial and partial-payment scenarios.
-- [ ] Expand `835` payloads with claim adjustment and remittance details.
-- [ ] Add tests for paid, denied, and partially paid claims.
+- [x] Add baseline adjudication rules based on severity and billed amount.
+- [x] Calculate allowed amount, patient responsibility, paid amount, and denial reasons.
+- [x] Add denial and partial-payment scenarios.
+- [x] Expand `835` payloads with claim adjustment and remittance details.
+- [x] Add tests for paid adjudication and remittance detail.
+- [ ] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
+- [ ] Add more tests for denied and partially paid claim variants.
 
 ### P2 — Trading Partners and Routing
 
-- [ ] Add trading partner records.
-- [ ] Add sender/receiver identifiers distinct from internal IDs.
-- [ ] Add routing rules by transaction type and partner.
-- [ ] Add partner-specific validation profiles.
-- [ ] Add dashboard pages for partner configuration.
+- [x] Add trading partner records.
+- [x] Add sender/receiver identifiers distinct from internal IDs.
+- [x] Add routing rules by transaction type and partner.
+- [x] Add partner-specific validation profiles.
+- [x] Add dashboard visibility for partner configuration.
+- [ ] Add create/update/delete partner management screens.
+- [ ] Add partner-specific companion-guide validation rules.
 
 ### P2 — Dashboard Enhancements
 
@@ -104,7 +110,10 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [ ] Add saved filters for transaction type, status, provider, and date range.
 - [ ] Add raw payload tabs: JSON, XML, and X12.
 - [x] Add XML intake audit visibility with raw XML detail.
-- [ ] Add ledger export to JSON, XML, and CSV.
+- [x] Add transaction export to JSON, XML, and X12.
+- [x] Add XML intake audit export to XML and JSON.
+- [x] Add replay controls for transactions and inbound XML messages.
+- [ ] Add ledger export to CSV.
 - [ ] Add visual links between request/response transaction pairs.
 
 ### P3 — Security and Operational Readiness
