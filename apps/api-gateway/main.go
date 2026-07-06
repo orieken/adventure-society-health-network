@@ -7,16 +7,20 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"ashn/packages/domain"
 	"ashn/packages/openapidocs"
 )
 
 type gateway struct {
-	payerURL    string
-	providerURL string
-	ediURL      string
-	client      *http.Client
+	payerURL               string
+	providerURL            string
+	ediURL                 string
+	client                 *http.Client
+	coldStartRetryAttempts int
+	coldStartRetryDelay    time.Duration
 }
 
 func main() {
@@ -24,7 +28,7 @@ func main() {
 		payerURL:    env("PAYER_CORE_URL", "http://localhost:8081"),
 		providerURL: env("PROVIDER_SERVICE_URL", "http://localhost:8082"),
 		ediURL:      env("EDI_INTAKE_URL", "http://localhost:8083"),
-		client:      http.DefaultClient,
+		client:      &http.Client{Timeout: 35 * time.Second},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN API Gateway Docs"))
@@ -88,14 +92,12 @@ func (g gateway) proxy(w http.ResponseWriter, r *http.Request, baseURL, path str
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
 	}
-	req, err := http.NewRequest(r.Method, targetURL, r.Body)
+	resp, err := g.doProxyRequest(r, targetURL)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "request creation failed", "The gateway scribe could not bind the courier spell.")
-		return
-	}
-	req.Header = r.Header.Clone()
-	resp, err := g.httpClient().Do(req)
-	if err != nil {
+		if strings.Contains(err.Error(), "request creation failed") {
+			fail(w, http.StatusInternalServerError, "request creation failed", "The gateway scribe could not bind the courier spell.")
+			return
+		}
 		fail(w, http.StatusBadGateway, "downstream unavailable", "The gateway courier vanished somewhere between towers.")
 		return
 	}
@@ -111,22 +113,87 @@ func (g gateway) proxy(w http.ResponseWriter, r *http.Request, baseURL, path str
 
 func (g gateway) health(w http.ResponseWriter) {
 	status := map[string]string{"api-gateway": "ok"}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for service, url := range map[string]string{"payer-core": g.payerURL, "provider-service": g.providerURL, "edi-intake": g.ediURL} {
 		if url == "" {
 			continue
 		}
-		status[service] = "unknown"
-		resp, err := g.httpClient().Get(url + "/health")
-		if err == nil && resp.StatusCode < 500 {
-			status[service] = "ok"
-		} else {
-			status[service] = "unavailable"
+		wg.Add(1)
+		go func(serviceName, serviceURL string) {
+			defer wg.Done()
+			serviceStatus := g.downstreamHealth(serviceURL)
+			mu.Lock()
+			status[serviceName] = serviceStatus
+			mu.Unlock()
+		}(service, url)
+	}
+	wg.Wait()
+	respond(w, http.StatusOK, domain.Envelope{Data: status, Lore: "The gateway crystal checked every downstream beacon."})
+}
+
+func (g gateway) doProxyRequest(r *http.Request, targetURL string) (*http.Response, error) {
+	attempts, delay := g.coldStartRetryPolicy()
+	if r.Method != http.MethodGet {
+		attempts = 1
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
+		req, err := http.NewRequest(r.Method, targetURL, r.Body)
+		if err != nil {
+			return nil, errRequestCreation
 		}
-		if resp != nil {
+		req.Header = r.Header.Clone()
+		resp, err := g.httpClient().Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if r.Method == http.MethodGet && retryableColdStartStatus(resp.StatusCode) && attempt < attempts {
 			_ = resp.Body.Close()
+			g.sleep(delay)
+			continue
+		}
+		return resp, nil
+	}
+	return nil, http.ErrAbortHandler
+}
+
+func (g gateway) downstreamHealth(baseURL string) string {
+	attempts, delay := g.coldStartRetryPolicy()
+	for attempt := 1; attempt <= attempts; attempt++ {
+		resp, err := g.httpClient().Get(baseURL + "/health")
+		if err != nil {
+			return "unavailable"
+		}
+		statusCode := resp.StatusCode
+		_ = resp.Body.Close()
+		if statusCode < http.StatusInternalServerError {
+			return "ok"
+		}
+		if !retryableColdStartStatus(statusCode) {
+			return "unavailable"
+		}
+		if attempt < attempts {
+			g.sleep(delay)
 		}
 	}
-	respond(w, http.StatusOK, domain.Envelope{Data: status, Lore: "The gateway crystal checked every downstream beacon."})
+	return "unavailable"
+}
+
+func (g gateway) coldStartRetryPolicy() (int, time.Duration) {
+	if g.coldStartRetryAttempts > 0 {
+		return g.coldStartRetryAttempts, g.coldStartRetryDelay
+	}
+	return 6, 5 * time.Second
+}
+
+func (g gateway) sleep(delay time.Duration) {
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+}
+
+func retryableColdStartStatus(status int) bool {
+	return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
 }
 
 func (g gateway) httpClient() *http.Client {
@@ -191,6 +258,16 @@ func respond(w http.ResponseWriter, status int, value any) {
 
 func fail(w http.ResponseWriter, status int, message, loreText string) {
 	respond(w, status, domain.ErrorEnvelope{Error: message, Lore: loreText})
+}
+
+var errRequestCreation = &gatewayError{message: "request creation failed"}
+
+type gatewayError struct {
+	message string
+}
+
+func (e *gatewayError) Error() string {
+	return e.message
 }
 
 func env(key, fallback string) string {

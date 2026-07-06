@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"ashn/packages/domain"
@@ -236,6 +237,83 @@ func TestGatewayHealthMarksUnavailableServices(t *testing.T) {
 	assert.Equal(t, "unavailable", health["payer-core"])
 	assert.Equal(t, "unavailable", health["provider-service"])
 	assert.NotContains(t, health, "edi-intake")
+}
+
+func TestGatewayHealthRetriesColdStartBadGateway(t *testing.T) {
+	attemptsByHost := map[string]int{}
+	var attemptsMu sync.Mutex
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		attemptsMu.Lock()
+		defer attemptsMu.Unlock()
+		attemptsByHost[r.URL.Host]++
+		if attemptsByHost[r.URL.Host] == 1 {
+			return jsonResponse(http.StatusBadGateway, map[string]string{"status": "starting"})
+		}
+		return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
+	})}
+
+	response := httptest.NewRecorder()
+	gateway{
+		payerURL:               "http://payer-core",
+		providerURL:            "http://provider-service",
+		ediURL:                 "http://edi-intake",
+		client:                 client,
+		coldStartRetryAttempts: 2,
+	}.health(response)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var envelope testEnvelope
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	var health map[string]string
+	require.NoError(t, json.Unmarshal(envelope.Data, &health))
+	assert.Equal(t, "ok", health["payer-core"])
+	assert.Equal(t, "ok", health["provider-service"])
+	assert.Equal(t, "ok", health["edi-intake"])
+	assert.Equal(t, 2, attemptsByHost["payer-core"])
+	assert.Equal(t, 2, attemptsByHost["provider-service"])
+	assert.Equal(t, 2, attemptsByHost["edi-intake"])
+}
+
+func TestGatewayRetriesGETProxyOnColdStartBadGateway(t *testing.T) {
+	attempts := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return jsonResponse(http.StatusBadGateway, domain.ErrorEnvelope{Error: "starting"})
+		}
+		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "Provider registry opened."})
+	})}
+
+	handler := gatewayHandler(gateway{
+		providerURL:            "http://provider-service",
+		client:                 client,
+		coldStartRetryAttempts: 2,
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/providers", nil))
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, 2, attempts)
+	assert.Equal(t, "Provider registry opened.", decodeGatewayEnvelope(t, response).Lore)
+}
+
+func TestGatewayDoesNotRetryPOSTProxyToAvoidDuplicateWrites(t *testing.T) {
+	attempts := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		attempts++
+		return jsonResponse(http.StatusBadGateway, domain.ErrorEnvelope{Error: "starting"})
+	})}
+
+	handler := gatewayHandler(gateway{
+		payerURL:               "http://payer-core",
+		client:                 client,
+		coldStartRetryAttempts: 2,
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/adventurers", strings.NewReader(`{"name":"Farros"}`)))
+
+	assert.Equal(t, http.StatusBadGateway, response.Code)
+	assert.Equal(t, 1, attempts)
 }
 
 func TestGatewayProxyHandlesRequestCreationAndDownstreamErrors(t *testing.T) {
