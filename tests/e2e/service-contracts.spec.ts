@@ -92,7 +92,7 @@ test.describe("ASHN mutating demo contracts", () => {
 
     const enrolled = (await enrollment.json()) as Envelope<{ id: string; coverageStatus: string }>;
     expect(enrolled.data?.id).toBeTruthy();
-    expect(enrolled.data?.coverageStatus).toBe("active");
+    expect(enrolled.data?.coverageStatus).toBe("Active");
     expect(enrolled.transaction?.type).toBe("834");
 
     const eligibility = await request.post(`${serviceUrls.apiGateway}/v1/eligibility`, {
@@ -176,8 +176,8 @@ test.describe("ASHN mutating demo contracts", () => {
     const xmlName = uniqueDemoName("XML Ranger");
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <AshnX12Transaction type="834">
-  <Sender id="guild-admin"/>
-  <Receiver id="adventure-society"/>
+  <Sender id="partner-greenstone"/>
+  <Receiver id="Adventure Society"/>
   <Enrollment>
     <Name>${xmlName}</Name>
     <Rank>Silver</Rank>
