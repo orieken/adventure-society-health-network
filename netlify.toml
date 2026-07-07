@@ -4,6 +4,7 @@
   publish = "dist"
 
 [build.environment]
+  NODE_VERSION = "24"
   VITE_ASHN_API_URL = "https://ashn-api-gateway.onrender.com"
 
 [[redirects]]
