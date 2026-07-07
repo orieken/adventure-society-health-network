@@ -50,6 +50,10 @@ sequenceDiagram
     Gateway->>Payer: POST /claims
     Payer->>Ledger: 837 Health Care Claim
 
+    Provider->>Gateway: Send claim attachment
+    Gateway->>Payer: POST /claims/{id}/attachments
+    Payer->>Ledger: 275 Patient Information
+
     Provider->>Gateway: Check claim status
     Gateway->>Payer: GET /claims/{id}/status
     Payer->>Ledger: 276 Claim Status Request
@@ -68,6 +72,7 @@ sequenceDiagram
 | `820` | Premium payment | Adventurer or sponsor pays premium dues | `Accepted`; available in the mock generator |
 | `270` | Eligibility inquiry | Provider asks whether the adventurer has active coverage | `Dispatched` |
 | `271` | Eligibility response | Society confirms or denies active coverage | `Accepted` when active, otherwise `Denied` |
+| `275` | Patient information / attachments | Provider sends supporting claim or prior auth documentation | `Accepted`; linked to the source claim transaction |
 | `278` | Prior authorization | Provider requests approval for high-severity care such as resurrection | Starts `Pending`; `tx-worker` later marks `Approved` or `Denied` |
 | `837` | Health care claim | Provider submits a claim for the encounter | `Accepted` |
 | `835` | Claim payment / remittance advice | Society pays the provider and explains the remittance | `Paid` |
@@ -122,7 +127,20 @@ In ASHN, the claim includes:
 
 The mock payload also adds a severity description so the fantasy event maps back to the claim type: normal wounds, awakened-tier injuries, or diamond-tier catastrophic cases.
 
-### 5. Claim Status: `276 → 277`
+### 5. Patient Information Attachments: `275`
+
+Some claims and prior authorization requests need extra supporting documentation. ASHN models this with a `275 Patient Information` transaction linked back to the claim's original `837` transaction through `relatedId`.
+
+In ASHN, a provider can submit:
+
+- attachment type
+- attachment control number
+- description
+- supporting content
+
+This is the "supporting scroll" step: operative notes, dungeon incident reports, resurrection medical necessity, or other evidence the payer needs before adjudication.
+
+### 6. Claim Status: `276 → 277`
 
 A provider can ask what happened to a claim after submission.
 
@@ -131,7 +149,7 @@ A provider can ask what happened to a claim after submission.
 
 This pair is useful in demos because it shows that EDI is not just a one-way submission path. Providers often need follow-up transactions after the original claim.
 
-### 6. Payment and Remittance: `835`
+### 7. Payment and Remittance: `835`
 
 When a claim is paid, ASHN updates the claim status and emits an `835 Claim Payment / Remittance Advice`.
 

@@ -89,6 +89,7 @@ func main() {
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
+	mux.HandleFunc("POST /claims/{id}/attachments", app.attachClaimInformation)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)
 	mux.HandleFunc("POST /transactions", app.recordTransaction)
@@ -258,6 +259,36 @@ func (s *store) claimStatus(w http.ResponseWriter, r *http.Request) {
 	s.saveTransaction(request)
 	s.saveTransaction(response)
 	respond(w, http.StatusOK, domain.Envelope{Data: map[string]any{"claimId": claim.ID, "status": claim.Status}, Lore: lore.ThemeTransaction(domain.Tx277, claim.ID, "Adventure Society"), Transactions: []domain.Transaction{request, response}})
+}
+
+func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
+	var req domain.AttachmentRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	id := r.PathValue("id")
+	claim, ok := s.findClaim(id)
+	if !ok {
+		fail(w, http.StatusNotFound, "claim not found", "The attachment scribe could not locate that claim.")
+		return
+	}
+	req.AttachmentType = strings.TrimSpace(req.AttachmentType)
+	req.AttachmentControlNumber = strings.TrimSpace(req.AttachmentControlNumber)
+	req.Description = strings.TrimSpace(req.Description)
+	req.Content = strings.TrimSpace(req.Content)
+	if req.AttachmentType == "" || req.AttachmentControlNumber == "" || req.Description == "" || req.Content == "" {
+		fail(w, http.StatusBadRequest, "invalid attachment", "The supporting scroll is missing required patient information.")
+		return
+	}
+	tx := edimock.Generate275(claim, req, claim.TransactionID)
+	s.saveTransaction(tx)
+	data := map[string]any{
+		"claimId":                 claim.ID,
+		"attachmentType":          req.AttachmentType,
+		"attachmentControlNumber": req.AttachmentControlNumber,
+		"description":             req.Description,
+	}
+	respond(w, http.StatusCreated, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"), Transaction: &tx})
 }
 
 func (s *store) payClaim(w http.ResponseWriter, r *http.Request) {
@@ -1018,6 +1049,9 @@ func payerOpenAPI() map[string]any {
 			},
 			"/claims/{id}/status": {
 				"get": {Summary: "Get claim status", Tags: []string{"claims"}},
+			},
+			"/claims/{id}/attachments": {
+				"post": {Summary: "Submit 275 patient information attachment", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true},
 			},
 			"/claims/{id}/payment": {
 				"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true},

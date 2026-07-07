@@ -113,6 +113,55 @@ func TestAcceptXMLRoutesClaimStatusToPayerCore(t *testing.T) {
 	assert.Equal(t, []string{"/claims/claim-1/status", "/transactions"}, downstreamPaths)
 }
 
+func TestAcceptXMLRoutesAttachmentToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var attachmentRequest domain.AttachmentRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims/claim-1/attachments":
+			assert.Equal(t, http.MethodPost, r.Method)
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&attachmentRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Lore:        "Patient information attachment accepted.",
+				Transaction: &domain.Transaction{Type: domain.Tx275, Status: domain.TxStatusAccepted, RelatedID: "tx-837"},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx275, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="275">
+  <Sender id="provider-vitesse-temple" />
+  <Receiver id="Adventure Society" />
+  <Attachment>
+    <ClaimId>claim-1</ClaimId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <AttachmentType>OZ</AttachmentType>
+    <AttachmentControlNumber>ATTACH-1</AttachmentControlNumber>
+    <Description>Resurrection notes</Description>
+    <Content>Patient survived a dragonfire incident.</Content>
+  </Attachment>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/claims/claim-1/attachments", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "OZ", attachmentRequest.AttachmentType)
+	assert.Equal(t, "ATTACH-1", attachmentRequest.AttachmentControlNumber)
+}
+
 func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -127,6 +176,10 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 		{
 			name: "270 eligibility", wantMethod: http.MethodPost, wantPath: "/eligibility/query",
 			body: `<AshnX12Transaction type="270"><EligibilityInquiry><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId></EligibilityInquiry></AshnX12Transaction>`,
+		},
+		{
+			name: "275 attachment", wantMethod: http.MethodPost, wantPath: "/claims/claim-1/attachments",
+			body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-1</AttachmentControlNumber><Description>notes</Description><Content>content</Content></Attachment></AshnX12Transaction>`,
 		},
 		{
 			name: "278 prior authorization", wantMethod: http.MethodPost, wantPath: "/auth-requests",
@@ -158,6 +211,7 @@ func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
 		want string
 	}{
 		{name: "unknown type", body: `<AshnX12Transaction type="999"></AshnX12Transaction>`, want: "unsupported transaction type"},
+		{name: "missing attachment", body: `<AshnX12Transaction type="275"></AshnX12Transaction>`, want: "missing attachment"},
 		{name: "invalid service type", body: `<AshnX12Transaction type="278"><PriorAuthorization><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><ServiceType>vacation</ServiceType><IncidentSeverity>Diamond</IncidentSeverity></PriorAuthorization></AshnX12Transaction>`, want: "invalid field ServiceType"},
 		{name: "invalid payment amount", body: `<AshnX12Transaction type="835"><Payment><ClaimId>claim-1</ClaimId><PaymentAmountCents>-1</PaymentAmountCents></Payment></AshnX12Transaction>`, want: "invalid field PaymentAmountCents"},
 	}
@@ -171,6 +225,15 @@ func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
 			assert.Equal(t, tt.want, err.Error())
 		})
 	}
+}
+
+func acknowledgedTypeFromPayload(t *testing.T, payload json.RawMessage) domain.TransactionType {
+	t.Helper()
+	var body struct {
+		AcknowledgedType domain.TransactionType `json:"acknowledgedType"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &body))
+	return body.AcknowledgedType
 }
 
 func TestValidateTradingPartnerAllowsMissingSenderAndRejectsReceiverMismatch(t *testing.T) {

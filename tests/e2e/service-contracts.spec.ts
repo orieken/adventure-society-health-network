@@ -122,11 +122,54 @@ test.describe("ASHN mutating demo contracts", () => {
     expect(claimEnvelope.transaction?.type).toBe("837");
     expect(claimEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["837", "277CA"]);
 
+    const attachment = await request.post(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}/attachments`, {
+      data: {
+        attachmentType: "OZ",
+        attachmentControlNumber: `ATTACH-${Date.now()}`,
+        description: "Resurrection medical necessity notes",
+        content: "Patient stabilized after dragonfire incident."
+      }
+    });
+    expect(attachment.status()).toBe(201);
+
+    const attachmentEnvelope = (await attachment.json()) as Envelope<{ claimId: string; attachmentType: string }>;
+    expect(attachmentEnvelope.data?.claimId).toBe(claimEnvelope.data?.id);
+    expect(attachmentEnvelope.transaction?.type).toBe("275");
+    expect(attachmentEnvelope.transaction?.status).toBe("Accepted");
+
+    const xmlAttachment = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="275">
+  <Sender id="provider-vitesse-temple"/>
+  <Receiver id="Adventure Society"/>
+  <Attachment>
+    <ClaimId>${claimEnvelope.data?.id}</ClaimId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <AttachmentType>OZ</AttachmentType>
+    <AttachmentControlNumber>XML-${Date.now()}</AttachmentControlNumber>
+    <Description>Resurrection operative notes</Description>
+    <Content>Dragonfire injury required restorative magic.</Content>
+  </Attachment>
+</AshnX12Transaction>`;
+
+    const xmlIntake = await request.post(`${serviceUrls.apiGateway}/v1/x12/xml`, {
+      headers: {
+        "Content-Type": "application/xml"
+      },
+      data: xmlAttachment
+    });
+    expect(xmlIntake.status()).toBe(201);
+
     const ledger = await request.get(`${serviceUrls.apiGateway}/v1/transactions?limit=5&type=837`);
     expect(ledger.ok()).toBeTruthy();
 
     const ledgerEnvelope = (await ledger.json()) as Envelope<Array<{ id: string; type: string }>>;
     expect(ledgerEnvelope.data?.some((transaction) => transaction.type === "837")).toBeTruthy();
+
+    const attachmentLedger = await request.get(`${serviceUrls.apiGateway}/v1/transactions?limit=5&type=275`);
+    expect(attachmentLedger.ok()).toBeTruthy();
+
+    const attachmentLedgerEnvelope = (await attachmentLedger.json()) as Envelope<Array<{ id: string; type: string; relatedId?: string }>>;
+    expect(attachmentLedgerEnvelope.data?.some((transaction) => transaction.type === "275")).toBeTruthy();
   });
 
   test("gateway accepts XML intake and exposes audit visibility", async ({ request }) => {

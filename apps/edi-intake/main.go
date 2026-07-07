@@ -36,6 +36,7 @@ type inboundTransaction struct {
 	Enrollment           *xmlEnrollment     `xml:"Enrollment"`
 	EligibilityInquiry   *xmlEligibility    `xml:"EligibilityInquiry"`
 	PriorAuthorization   *xmlPriorAuth      `xml:"PriorAuthorization"`
+	Attachment           *xmlAttachment     `xml:"Attachment"`
 	Claim                *xmlClaim          `xml:"Claim"`
 	ClaimStatusRequest   *xmlClaimStatus    `xml:"ClaimStatusRequest"`
 	Payment              *xmlPayment        `xml:"Payment"`
@@ -71,6 +72,15 @@ type xmlClaim struct {
 	ProviderID       string `xml:"ProviderId"`
 	IncidentSeverity string `xml:"IncidentSeverity"`
 	AmountCents      string `xml:"AmountCents"`
+}
+
+type xmlAttachment struct {
+	ClaimID                 string `xml:"ClaimId"`
+	ProviderID              string `xml:"ProviderId"`
+	AttachmentType          string `xml:"AttachmentType"`
+	AttachmentControlNumber string `xml:"AttachmentControlNumber"`
+	Description             string `xml:"Description"`
+	Content                 string `xml:"Content"`
 }
 
 type xmlClaimStatus struct {
@@ -207,6 +217,29 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		return http.MethodPost, "/eligibility/query", domain.EligibilityRequest{
 			AdventurerID: strings.TrimSpace(t.EligibilityInquiry.AdventurerID),
 			ProviderID:   strings.TrimSpace(t.EligibilityInquiry.ProviderID),
+		}, nil
+	case domain.Tx275:
+		if t.Attachment == nil {
+			return "", "", nil, fmt.Errorf("missing attachment")
+		}
+		if err := requireFields(map[string]string{
+			"ClaimId":                 t.Attachment.ClaimID,
+			"ProviderId":              t.Attachment.ProviderID,
+			"AttachmentType":          t.Attachment.AttachmentType,
+			"AttachmentControlNumber": t.Attachment.AttachmentControlNumber,
+			"Description":             t.Attachment.Description,
+			"Content":                 t.Attachment.Content,
+		}); err != nil {
+			return "", "", nil, err
+		}
+		if err := validateProviderSender(t.Sender.ID, t.Attachment.ProviderID); err != nil {
+			return "", "", nil, err
+		}
+		return http.MethodPost, "/claims/" + strings.TrimSpace(t.Attachment.ClaimID) + "/attachments", domain.AttachmentRequest{
+			AttachmentType:          strings.TrimSpace(t.Attachment.AttachmentType),
+			AttachmentControlNumber: strings.TrimSpace(t.Attachment.AttachmentControlNumber),
+			Description:             strings.TrimSpace(t.Attachment.Description),
+			Content:                 strings.TrimSpace(t.Attachment.Content),
 		}, nil
 	case domain.Tx278:
 		if t.PriorAuthorization == nil {
@@ -681,8 +714,8 @@ func seedTradingPartners() map[string]domain.TradingPartner {
 	partners := map[string]domain.TradingPartner{}
 	for _, partner := range []domain.TradingPartner{
 		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
-		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
-		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
+		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
+		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
 	} {
 		partners[partner.ID] = partner
 	}

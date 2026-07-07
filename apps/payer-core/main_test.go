@@ -172,6 +172,50 @@ func TestPayClaimMissingClaimReturnsError(t *testing.T) {
 	assert.Equal(t, "claim not found", decodeEnvelope(t, response).Error)
 }
 
+func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimSubmitted,
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-1",
+		Description:             "Resurrection notes",
+		Content:                 "Patient survived a dragonfire incident.",
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx275, envelope.Transaction.Type)
+	assert.Equal(t, "tx-837", envelope.Transaction.RelatedID)
+	assert.Contains(t, envelope.Transaction.RawX12, "ST*275")
+	assert.Contains(t, envelope.Transaction.RawX12, "PWK*OZ*EL***AC*ATTACH-1")
+}
+
+func TestAttachClaimInformationValidatesClaimAndRequiredFields(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	missingClaim := serveJSON(t, mux, http.MethodPost, "/claims/missing/attachments", domain.AttachmentRequest{
+		AttachmentType: "OZ", AttachmentControlNumber: "A1", Description: "notes", Content: "content",
+	})
+	assert.Equal(t, http.StatusNotFound, missingClaim.Code)
+
+	app.claims["claim-1"] = domain.Claim{ID: "claim-1", ProviderID: "provider-vitesse-temple"}
+	invalid := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType: "OZ",
+	})
+	assert.Equal(t, http.StatusBadRequest, invalid.Code)
+	assert.Equal(t, "invalid attachment", decodeEnvelope(t, invalid).Error)
+}
+
 func TestGetClaimReturnsClaimDetail(t *testing.T) {
 	app := newTestStore()
 	app.claims["claim-1"] = domain.Claim{ID: "claim-1", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", IncidentSeverity: domain.SeverityAwakened, AmountCents: 125000, Status: domain.ClaimSubmitted}
@@ -721,6 +765,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
+	mux.HandleFunc("POST /claims/{id}/attachments", app.attachClaimInformation)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)
 	mux.HandleFunc("POST /transactions", app.recordTransaction)

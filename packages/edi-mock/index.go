@@ -43,6 +43,24 @@ func Generate271(adventurer domain.Adventurer, eligibility bool) domain.Transact
 	})
 }
 
+func Generate275(claim domain.Claim, attachment domain.AttachmentRequest, relatedID string) domain.Transaction {
+	if relatedID == "" {
+		relatedID = claim.TransactionID
+	}
+	if relatedID == "" {
+		relatedID = claim.ID
+	}
+	tx := transaction(domain.Tx275, domain.TxStatusAccepted, claim.ProviderID, "Adventure Society", map[string]any{
+		"x12": "275 Patient Information", "claimId": claim.ID, "providerId": claim.ProviderID,
+		"adventurerId": claim.AdventurerID, "attachmentType": attachment.AttachmentType,
+		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
+		"content": attachment.Content, "lore": lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"),
+	})
+	tx.RelatedID = relatedID
+	tx.RawX12 = rawX12(tx)
+	return tx
+}
+
 func Generate278Request(adventurer domain.Adventurer, provider domain.Provider, serviceType string) domain.Transaction {
 	return transaction(domain.Tx278, domain.TxStatusPending, provider.ID, "Adventure Society", map[string]any{
 		"x12": "278 Prior Authorization Request", "adventurerId": adventurer.ID, "providerId": provider.ID,
@@ -178,6 +196,19 @@ func transactionSegments(tx domain.Transaction) []string {
 			"EB*" + eligibilityCode(tx.Status) + "**30~",
 			"DTP*291*D8*" + tx.CreatedAt.Format("20060102") + "~",
 		}
+	case domain.Tx275:
+		attachment := attachmentInfo(tx)
+		return []string{
+			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
+			"HL*1**20*1~",
+			"NM1*1P*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
+			"HL*2*1*22*0~",
+			"NM1*IL*1*" + element(attachment.AdventurerID) + "****MI*" + element(attachment.AdventurerID) + "~",
+			"REF*1K*" + element(attachment.ClaimID) + "~",
+			"PWK*" + element(attachment.AttachmentType) + "*EL***AC*" + element(attachment.ControlNumber) + "~",
+			"NTE*ADD*" + element(attachment.Description) + "~",
+			"BIN*" + strconv.Itoa(len(attachment.Content)) + "*" + element(attachment.Content) + "~",
+		}
 	case domain.Tx278:
 		return []string{
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
@@ -262,6 +293,8 @@ func implementationGuide(txType domain.TransactionType) string {
 		return "220A1"
 	case domain.Tx270, domain.Tx271:
 		return "270A1"
+	case domain.Tx275:
+		return "275A1"
 	case domain.Tx276, domain.Tx277:
 		return "276A1"
 	case domain.Tx278:
@@ -304,6 +337,40 @@ type x12ClaimInfo struct {
 	ProviderID   string
 	Severity     domain.IncidentSeverity
 	AmountCents  int64
+}
+
+type x12AttachmentInfo struct {
+	ClaimID        string
+	ProviderID     string
+	AdventurerID   string
+	AttachmentType string
+	ControlNumber  string
+	Description    string
+	Content        string
+}
+
+func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
+	var payload map[string]any
+	info := x12AttachmentInfo{
+		ClaimID:        tx.RelatedID,
+		ProviderID:     tx.SenderID,
+		AdventurerID:   "adventurer",
+		AttachmentType: "OZ",
+		ControlNumber:  controlNumber(tx.ID),
+		Description:    "ASHN patient information attachment",
+		Content:        "supporting documentation",
+	}
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return info
+	}
+	info.ClaimID = stringValue(payload, "claimId", info.ClaimID)
+	info.ProviderID = stringValue(payload, "providerId", info.ProviderID)
+	info.AdventurerID = stringValue(payload, "adventurerId", info.AdventurerID)
+	info.AttachmentType = stringValue(payload, "attachmentType", info.AttachmentType)
+	info.ControlNumber = stringValue(payload, "attachmentControlNumber", info.ControlNumber)
+	info.Description = stringValue(payload, "description", info.Description)
+	info.Content = stringValue(payload, "content", info.Content)
+	return info
 }
 
 func claimInfo(tx domain.Transaction) x12ClaimInfo {

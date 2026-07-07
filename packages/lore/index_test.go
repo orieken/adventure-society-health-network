@@ -30,6 +30,7 @@ func TestThemeTransactionUsesDefaultsAndTransactionSpecificText(t *testing.T) {
 		domain.Tx820: "Guild dues payment recorded",
 		domain.Tx270: "Eligibility verification requested",
 		domain.Tx271: "Eligibility response issued",
+		domain.Tx275: "Patient information attachment sent",
 		domain.Tx278: "Prior authorization requested",
 		domain.Tx837: "Incident claim submitted",
 		domain.Tx835: "Adventure Society remittance issued",

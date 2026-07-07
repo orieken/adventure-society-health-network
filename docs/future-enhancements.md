@@ -16,7 +16,7 @@ This keeps `payer-core` focused on business state while giving us a clean place 
 - [x] Expose `POST /x12/xml` for XML transaction submissions.
 - [x] Accept `Content-Type: application/xml` and `text/xml`.
 - [x] Parse XML into a neutral inbound envelope.
-- [x] Detect transaction type: `834`, `270`, `278`, `837`, `276`, `835`, `820`.
+- [x] Detect transaction type: `834`, `270`, `275`, `278`, `837`, `276`, `835`, `820`.
 - [x] Validate required fields per transaction type.
 - [x] Return structured validation errors for malformed or incomplete XML.
 - [x] Convert accepted XML into ASHN payer requests.
@@ -51,7 +51,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 - [x] Generate raw X12-like strings alongside the current JSON payloads.
 - [x] Add envelope segments: `ISA`, `GS`, `ST`, `BHT`, `SE`, `GE`, `IEA`.
-- [x] Add transaction-specific segment examples for `834`, `270`, `271`, `278`, `837`, `835`, `276`, and `277`.
+- [x] Add transaction-specific segment examples for `834`, `270`, `271`, `275`, `278`, `837`, `835`, `276`, and `277`.
 - [x] Store raw X12 text on each ledger transaction.
 - [x] Show raw X12 in the dashboard transaction detail panel.
 - [x] Add copy buttons for raw transaction payloads.
@@ -91,6 +91,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add denial and partial-payment scenarios.
 - [x] Expand `835` payloads with claim adjustment and remittance details.
 - [x] Add tests for paid adjudication and remittance detail.
+- [x] Add `275` patient information attachments linked to claim transactions.
 - [ ] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
 - [ ] Add more tests for denied and partially paid claim variants.
 

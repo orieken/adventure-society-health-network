@@ -223,6 +223,7 @@ func apiGatewayOpenAPI() map[string]any {
 			},
 			"/v1/claims/{id}":                       {"get": {Summary: "Get claim detail", Tags: []string{"claims"}}},
 			"/v1/claims/{id}/status":                {"get": {Summary: "Get claim status", Tags: []string{"claims"}}},
+			"/v1/claims/{id}/attachments":           {"post": {Summary: "Submit 275 patient information attachment", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
 			"/v1/claims/{id}/payment":               {"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true}},
 			"/v1/transactions":                      {"get": {Summary: "List ledger transactions", Tags: []string{"transactions"}}},
 			"/v1/transactions/{id}":                 {"get": {Summary: "Get transaction detail", Tags: []string{"transactions"}}},

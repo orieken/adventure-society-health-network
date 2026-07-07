@@ -50,6 +50,7 @@ const (
 	Tx820   TransactionType = "820"
 	Tx270   TransactionType = "270"
 	Tx271   TransactionType = "271"
+	Tx275   TransactionType = "275"
 	Tx278   TransactionType = "278"
 	Tx837   TransactionType = "837"
 	Tx835   TransactionType = "835"
@@ -182,6 +183,13 @@ type ClaimRequest struct {
 	ProviderID       string           `json:"providerId"`
 	IncidentSeverity IncidentSeverity `json:"incidentSeverity"`
 	AmountCents      int64            `json:"amountCents"`
+}
+
+type AttachmentRequest struct {
+	AttachmentType          string `json:"attachmentType"`
+	AttachmentControlNumber string `json:"attachmentControlNumber"`
+	Description             string `json:"description"`
+	Content                 string `json:"content"`
 }
 
 type PaymentRequest struct {

@@ -48,6 +48,32 @@ func TestGenerate835IncludesPaymentAndAdjustmentSegments(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "CAS*CO*45*250.00")
 }
 
+func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
+	claim := domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimSubmitted,
+	}
+
+	tx := Generate275(claim, domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-1",
+		Description:             "Resurrection medical necessity notes",
+		Content:                 "Patient stabilized after dragonfire incident.",
+	}, "")
+
+	assert.Equal(t, domain.Tx275, tx.Type)
+	assert.Equal(t, domain.TxStatusAccepted, tx.Status)
+	assert.Equal(t, "tx-837", tx.RelatedID)
+	assert.Contains(t, tx.RawX12, "ST*275")
+	assert.Contains(t, tx.RawX12, "REF*1K*claim-1")
+	assert.Contains(t, tx.RawX12, "PWK*OZ*EL***AC*ATTACH-1")
+	assert.Contains(t, tx.RawX12, "BIN*")
+	assert.Contains(t, tx.RawX12, "Patient stabilized after dragonfire incident.")
+}
+
 func TestGenerate999UsesAcknowledgedTransactionType(t *testing.T) {
 	tx := Generate999("inbound-1", domain.Tx270, "edi-intake", "provider-vitesse-temple", false, "missing field ProviderId")
 

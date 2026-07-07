@@ -153,8 +153,8 @@ ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO trading_partners (id, name, sender_id, receiver_id, allowed_transaction_types, route_target, status) VALUES
   ('tp-greenstone-guild', 'Greenstone Employer Guild', 'partner-greenstone', 'Adventure Society', '834,820', 'payer-core', 'active'),
-  ('tp-vitesse-temple', 'Temple of the Healer, Vitesse', 'provider-vitesse-temple', 'Adventure Society', '270,276,278,837', 'payer-core', 'active'),
-  ('tp-rimaros-hospital', 'Rimaros City Hospital', 'provider-rimaros-hospital', 'Adventure Society', '270,276,278,837', 'payer-core', 'active')
+  ('tp-vitesse-temple', 'Temple of the Healer, Vitesse', 'provider-vitesse-temple', 'Adventure Society', '270,275,276,278,837', 'payer-core', 'active'),
+  ('tp-rimaros-hospital', 'Rimaros City Hospital', 'provider-rimaros-hospital', 'Adventure Society', '270,275,276,278,837', 'payer-core', 'active')
 ON CONFLICT (sender_id) DO UPDATE SET
   name = EXCLUDED.name,
   receiver_id = EXCLUDED.receiver_id,
