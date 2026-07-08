@@ -78,8 +78,8 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P2 — Prior Authorization Lifecycle
 
-- [ ] Add explicit `278` approval and denial endpoints.
-- [ ] Add authorization review state: `Pending`, `Approved`, `Denied`, `Expired`.
+- [x] Add explicit `278` approval and denial endpoints.
+- [x] Add authorization review state: `Pending`, `Approved`, `Denied`.
 - [ ] Add severity and service-type rules for auto-approval.
 - [ ] Link authorization decisions to downstream claims.
 - [ ] Show authorization history in claim detail views.

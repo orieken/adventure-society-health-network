@@ -107,6 +107,32 @@ test.describe("ASHN mutating demo contracts", () => {
     expect(eligibilityEnvelope.data?.eligible).toBe(true);
     expect(eligibilityEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["270", "271"]);
 
+    const auth = await request.post(`${serviceUrls.apiGateway}/v1/auth-requests`, {
+      data: {
+        adventurerId: enrolled.data?.id,
+        providerId: "provider-vitesse-temple",
+        serviceType: "resurrection",
+        incidentSeverity: "Diamond"
+      }
+    });
+    expect(auth.status()).toBe(202);
+
+    const authEnvelope = (await auth.json()) as Envelope;
+    expect(authEnvelope.transaction?.type).toBe("278");
+    expect(authEnvelope.transaction?.status).toBe("Pending");
+
+    const decision = await request.post(`${serviceUrls.apiGateway}/v1/auth-requests/${authEnvelope.transaction?.id}/decision`, {
+      data: {
+        decision: "Approved",
+        reason: "E2E manual review approved resurrection medical necessity."
+      }
+    });
+    expect(decision.ok()).toBeTruthy();
+
+    const decisionEnvelope = (await decision.json()) as Envelope;
+    expect(decisionEnvelope.transaction?.type).toBe("278");
+    expect(decisionEnvelope.transaction?.status).toBe("Approved");
+
     const claim = await request.post(`${serviceUrls.apiGateway}/v1/claims`, {
       data: {
         adventurerId: enrolled.data?.id,

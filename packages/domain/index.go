@@ -178,6 +178,11 @@ type PriorAuthRequest struct {
 	IncidentSeverity IncidentSeverity `json:"incidentSeverity"`
 }
 
+type AuthorizationDecisionRequest struct {
+	Decision string `json:"decision"`
+	Reason   string `json:"reason,omitempty"`
+}
+
 type ClaimRequest struct {
 	AdventurerID     string           `json:"adventurerId"`
 	ProviderID       string           `json:"providerId"`

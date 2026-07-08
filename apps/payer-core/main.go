@@ -85,6 +85,7 @@ func main() {
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
+	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)
 	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
@@ -187,6 +188,46 @@ func (s *store) authRequest(w http.ResponseWriter, r *http.Request) {
 	s.enqueueJob(asyncjobs.JobAuthReview, tx.ID, 2*time.Second)
 	data := map[string]any{"authorizationStatus": domain.TxStatusPending, "serviceType": req.ServiceType, "incidentSeverity": req.IncidentSeverity, "review": "queued"}
 	respond(w, http.StatusAccepted, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx278, adventurer.Name, provider.Name), Transaction: &tx})
+}
+
+func (s *store) decideAuthorization(w http.ResponseWriter, r *http.Request) {
+	var req domain.AuthorizationDecisionRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	transactionID := r.PathValue("id")
+	decision, ok := parseAuthorizationDecision(req.Decision)
+	if !ok {
+		fail(w, http.StatusBadRequest, "invalid authorization decision", "The review council only accepts Approved or Denied decisions.")
+		return
+	}
+	tx, ok := s.findTransaction(transactionID)
+	if !ok {
+		fail(w, http.StatusNotFound, "transaction not found", "The authorization rune is absent from the ledger.")
+		return
+	}
+	if tx.Type != domain.Tx278 {
+		fail(w, http.StatusBadRequest, "invalid authorization transaction", "Only 278 prior authorization runes can be reviewed here.")
+		return
+	}
+	tx = edimock.WithStatus(tx, decision)
+	if err := s.updateAuthorizationDecision(tx, strings.TrimSpace(req.Reason)); err != nil {
+		fail(w, http.StatusInternalServerError, "authorization update failed", "The review council could not record its decision.")
+		return
+	}
+	data := map[string]any{"authorizationStatus": decision, "transactionId": tx.ID, "reason": strings.TrimSpace(req.Reason)}
+	respond(w, http.StatusOK, domain.Envelope{Data: data, Lore: fmt.Sprintf("Prior authorization %s by manual review.", strings.ToLower(string(decision))), Transaction: &tx})
+}
+
+func parseAuthorizationDecision(value string) (domain.TransactionStatus, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "approved", "approve":
+		return domain.TxStatusApproved, true
+	case "denied", "deny":
+		return domain.TxStatusDenied, true
+	default:
+		return "", false
+	}
 }
 
 func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
@@ -608,6 +649,28 @@ func (s *store) saveTransaction(tx domain.Transaction) {
 		}
 	}
 	log.Printf("[ASHN] transaction=%s type=%s status=%s lore=%s", tx.ID, tx.Type, tx.Status, lore.ThemeTransaction(tx.Type, tx.SenderID, tx.ReceiverID))
+}
+
+func (s *store) updateAuthorizationDecision(tx domain.Transaction, reason string) error {
+	s.mu.Lock()
+	s.transactions[tx.ID] = tx
+	s.mu.Unlock()
+	if s.db == nil {
+		log.Printf("[ASHN] authorization=%s decision=%s reason=%s", tx.ID, tx.Status, reason)
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`, string(tx.Status), tx.ID)
+	if err != nil {
+		log.Printf("[ASHN] postgres auth decision update failed: %v", err)
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE transactions SET status = $1, raw_x12 = $2 WHERE id = $3 AND type = $4`, string(tx.Status), tx.RawX12, tx.ID, string(domain.Tx278))
+	if err != nil {
+		log.Printf("[ASHN] postgres auth transaction update failed: %v", err)
+		return err
+	}
+	log.Printf("[ASHN] authorization=%s decision=%s reason=%s", tx.ID, tx.Status, reason)
+	return nil
 }
 
 func (s *store) saveEnrollment(adventurerID, transactionID, status string) {
@@ -1125,6 +1188,9 @@ func payerOpenAPI() map[string]any {
 			},
 			"/auth-requests": {
 				"post": {Summary: "Submit 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true},
+			},
+			"/auth-requests/{id}/decision": {
+				"post": {Summary: "Approve or deny a 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true},
 			},
 			"/claims": {
 				"get":  {Summary: "List claims", Tags: []string{"claims"}},

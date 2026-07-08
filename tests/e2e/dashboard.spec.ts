@@ -95,6 +95,22 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByText("Claim claim-e2e-275")).toBeVisible();
     await expect(page.getByRole("button", { name: /275 OZ\/B4 attachment/i })).toBeVisible();
   });
+
+  test("supports manual approval for a pending 278 authorization", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Send 834 Enrollment/i }).click();
+    await expect(page.locator(".result").filter({ hasText: "Filter Fixture Ranger" })).toBeVisible();
+
+    await page.getByRole("button", { name: /278 Resurrection Auth/i }).click();
+    const authReview = page.locator(".auth-review-card");
+    await expect(authReview.getByText("Prior Auth Review")).toBeVisible();
+    await expect(authReview.getByText("278 · Pending")).toBeVisible();
+
+    await page.getByRole("button", { name: /Approve Auth/i }).click();
+    await expect(authReview.getByText("278 · Approved")).toBeVisible();
+  });
 });
 
 async function mockDashboardApi(page: Page) {
@@ -137,6 +153,17 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
+    if (path === "/v1/adventurers" && route.request().method() === "POST") {
+      await route.fulfill({
+        status: 201,
+        json: {
+          data: { id: "adv-e2e-dashboard", name: "Filter Fixture Ranger", rank: "Gold", guild: "E2E Guild", region: "Vitesse", coverageStatus: "Active" },
+          transaction: demoTransactions.find((transaction) => transaction.type === "834")
+        }
+      });
+      return;
+    }
+
     if (path === "/v1/adventurers") {
       await route.fulfill({
         json: {
@@ -144,6 +171,35 @@ async function mockDashboardApi(page: Page) {
             { id: "adv-e2e-dashboard", name: "Filter Fixture Ranger", rank: "Gold", guild: "E2E Guild", region: "Vitesse", coverageStatus: "Active" }
           ],
           page: pageInfo(1, 10)
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/auth-requests") {
+      await route.fulfill({
+        status: 202,
+        json: {
+          data: { authorizationStatus: "Pending", serviceType: "resurrection", incidentSeverity: "Diamond", review: "queued" },
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.type === "278"),
+            id: "tx-e2e-auth-review",
+            status: "Pending"
+          }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/auth-requests/tx-e2e-auth-review/decision") {
+      await route.fulfill({
+        json: {
+          data: { authorizationStatus: "Approved", transactionId: "tx-e2e-auth-review", reason: "manual approval" },
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.type === "278"),
+            id: "tx-e2e-auth-review",
+            status: "Approved"
+          }
         }
       });
       return;

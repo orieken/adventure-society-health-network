@@ -126,9 +126,13 @@ func processJob(db *sql.DB, job Job) error {
 func processAuthReview(db *sql.DB, transactionID string) error {
 	var serviceType string
 	var severity domain.IncidentSeverity
-	err := db.QueryRow(`SELECT service_type, incident_severity FROM auth_requests WHERE transaction_id = $1`, transactionID).Scan(&serviceType, &severity)
+	var currentStatus string
+	err := db.QueryRow(`SELECT service_type, incident_severity, status FROM auth_requests WHERE transaction_id = $1`, transactionID).Scan(&serviceType, &severity, &currentStatus)
 	if err != nil {
 		return err
+	}
+	if currentStatus != string(domain.TxStatusPending) {
+		return nil
 	}
 
 	decision := domain.TxStatusDenied

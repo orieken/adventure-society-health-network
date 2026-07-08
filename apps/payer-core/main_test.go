@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"ashn/packages/domain"
+	edimock "ashn/packages/edi-mock"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -109,6 +111,38 @@ func TestAuthRequestQueuesPending278(t *testing.T) {
 	assert.Equal(t, domain.Tx278, envelope.Transaction.Type)
 	assert.Equal(t, domain.TxStatusPending, envelope.Transaction.Status)
 	assert.Contains(t, app.transactions, envelope.Transaction.ID)
+}
+
+func TestDecideAuthorizationUpdates278Status(t *testing.T) {
+	app := newTestStore()
+	tx := edimock.Generate278Request(
+		domain.Adventurer{ID: "adv-1", Name: "Farros"},
+		domain.Provider{ID: "provider-vitesse-temple", Name: "Temple"},
+		"resurrection",
+	)
+	tx.ID = "tx-278"
+	tx.RawX12 = strings.ReplaceAll(tx.RawX12, "ST*278*", "ST*278*tx-278")
+	app.transactions["tx-278"] = tx
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-278/decision", domain.AuthorizationDecisionRequest{
+		Decision: "Approved",
+		Reason:   "medical necessity confirmed",
+	})
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.TxStatusApproved, envelope.Transaction.Status)
+	assert.Contains(t, envelope.Transaction.RawX12, "HCR*A1")
+	assert.Equal(t, domain.TxStatusApproved, app.transactions["tx-278"].Status)
+
+	invalid := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-278/decision", domain.AuthorizationDecisionRequest{Decision: "Maybe"})
+	assert.Equal(t, http.StatusBadRequest, invalid.Code)
+
+	app.transactions["tx-837"] = domain.Transaction{ID: "tx-837", Type: domain.Tx837, Status: domain.TxStatusAccepted}
+	wrongType := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-837/decision", domain.AuthorizationDecisionRequest{Decision: "Denied"})
+	assert.Equal(t, http.StatusBadRequest, wrongType.Code)
 }
 
 func TestEligibilityMissingReferencesReturnErrors(t *testing.T) {
@@ -777,6 +811,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
+	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)
 	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)

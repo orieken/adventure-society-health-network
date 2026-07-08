@@ -154,6 +154,7 @@ function App() {
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [selectedInboundMessage, setSelectedInboundMessage] = useState<InboundMessage | null>(null);
+  const [authorizationTransaction, setAuthorizationTransaction] = useState<Transaction | null>(null);
   const [events, setEvents] = useState<Envelope[]>([]);
   const [busy, setBusy] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -335,7 +336,7 @@ function App() {
   async function requestAuth() {
     if (!adventurer) return;
     setBusy(true);
-    const result = await request("/v1/auth-requests", {
+    const result = await request<Record<string, string>>("/v1/auth-requests", {
       method: "POST",
       body: JSON.stringify({
         adventurerId: adventurer.id,
@@ -344,6 +345,25 @@ function App() {
         incidentSeverity: "Diamond"
       })
     });
+    setAuthorizationTransaction(result.transaction ?? null);
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
+  async function decideAuthorization(decision: "Approved" | "Denied") {
+    if (!authorizationTransaction) return;
+    setBusy(true);
+    const result = await request<Record<string, string>>(`/v1/auth-requests/${authorizationTransaction.id}/decision`, {
+      method: "POST",
+      body: JSON.stringify({
+        decision,
+        reason: decision === "Approved" ? "Manual review approved resurrection medical necessity." : "Manual review denied pending additional documentation."
+      })
+    });
+    if (result.transaction) {
+      setAuthorizationTransaction(result.transaction);
+    }
     pushEvent(result);
     await refresh();
     setBusy(false);
@@ -562,6 +582,20 @@ function App() {
             <button disabled={!adventurer || busy} onClick={submitClaim}>837 Submit Claim</button>
             <button disabled={!claim || busy} onClick={payClaim}>835 Pay Claim</button>
           </div>
+          {authorizationTransaction && (
+            <div className="auth-review-card">
+              <div>
+                <span className="eyebrow">Prior Auth Review</span>
+                <strong>278 · {authorizationTransaction.status}</strong>
+                <code>{authorizationTransaction.id}</code>
+              </div>
+              <p>Manual council review can approve or deny the pending resurrection authorization before the worker decides.</p>
+              <div className="actions compact-actions">
+                <button disabled={busy || authorizationTransaction.status !== "Pending"} onClick={() => decideAuthorization("Approved")}>Approve Auth</button>
+                <button className="danger" disabled={busy || authorizationTransaction.status !== "Pending"} onClick={() => decideAuthorization("Denied")}>Deny Auth</button>
+              </div>
+            </div>
+          )}
           {claim && (
             <div className="result">
               <strong>Claim {claim.status}</strong>

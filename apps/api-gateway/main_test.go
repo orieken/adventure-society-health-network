@@ -105,6 +105,7 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/v1/claims"},
+		{http.MethodPost, "/v1/auth-requests/tx-278/decision"},
 		{http.MethodGet, "/v1/claims/claim-1"},
 		{http.MethodGet, "/v1/claims/claim-1/status"},
 		{http.MethodPost, "/v1/claims/claim-1/attachments"},
@@ -120,6 +121,7 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"POST /claims",
+		"POST /auth-requests/tx-278/decision",
 		"GET /claims/claim-1",
 		"GET /claims/claim-1/status",
 		"POST /claims/claim-1/attachments",

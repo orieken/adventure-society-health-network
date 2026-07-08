@@ -102,9 +102,9 @@ func TestProcessJobRejectsUnsupportedJobType(t *testing.T) {
 func TestProcessJobDispatchesSupportedTypes(t *testing.T) {
 	authDB, authMock, authCleanup := newMockDB(t)
 	defer authCleanup()
-	authMock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity FROM auth_requests WHERE transaction_id = $1`)).
+	authMock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity, status FROM auth_requests WHERE transaction_id = $1`)).
 		WithArgs("tx-278").
-		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity"}).AddRow("resurrection", domain.SeverityDiamond))
+		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity", "status"}).AddRow("resurrection", domain.SeverityDiamond, domain.TxStatusPending))
 	authMock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
 		WithArgs(string(domain.TxStatusApproved), "tx-278").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -126,9 +126,9 @@ func TestProcessJobDispatchesSupportedTypes(t *testing.T) {
 func TestProcessAuthReviewApprovesDiamondResurrection(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity FROM auth_requests WHERE transaction_id = $1`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity, status FROM auth_requests WHERE transaction_id = $1`)).
 		WithArgs("tx-278").
-		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity"}).AddRow("resurrection", domain.SeverityDiamond))
+		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity", "status"}).AddRow("resurrection", domain.SeverityDiamond, domain.TxStatusPending))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
 		WithArgs(string(domain.TxStatusApproved), "tx-278").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -143,15 +143,26 @@ func TestProcessAuthReviewApprovesDiamondResurrection(t *testing.T) {
 func TestProcessAuthReviewDeniesNonResurrection(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity FROM auth_requests WHERE transaction_id = $1`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity, status FROM auth_requests WHERE transaction_id = $1`)).
 		WithArgs("tx-278").
-		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity"}).AddRow("campfire rest", domain.SeverityDiamond))
+		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity", "status"}).AddRow("campfire rest", domain.SeverityDiamond, domain.TxStatusPending))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
 		WithArgs(string(domain.TxStatusDenied), "tx-278").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1 WHERE id = $2 AND type = $3`)).
 		WithArgs(string(domain.TxStatusDenied), "tx-278", string(domain.Tx278)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, processAuthReview(db, "tx-278"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestProcessAuthReviewSkipsManualDecision(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity, status FROM auth_requests WHERE transaction_id = $1`)).
+		WithArgs("tx-278").
+		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity", "status"}).AddRow("resurrection", domain.SeverityDiamond, domain.TxStatusDenied))
 
 	require.NoError(t, processAuthReview(db, "tx-278"))
 	require.NoError(t, mock.ExpectationsWereMet())

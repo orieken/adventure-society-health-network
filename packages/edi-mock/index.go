@@ -70,6 +70,12 @@ func Generate278Request(adventurer domain.Adventurer, provider domain.Provider, 
 	})
 }
 
+func WithStatus(tx domain.Transaction, status domain.TransactionStatus) domain.Transaction {
+	tx.Status = status
+	tx.RawX12 = rawX12(tx)
+	return tx
+}
+
 func Generate837(claim domain.Claim) domain.Transaction {
 	return transaction(domain.Tx837, domain.TxStatusAccepted, claim.ProviderID, "Adventure Society", map[string]any{
 		"x12": "837 Health Care Claim", "claim": claim, "severityDescription": lore.SeverityDescription(claim.IncidentSeverity),

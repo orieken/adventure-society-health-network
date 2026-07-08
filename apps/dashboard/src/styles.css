@@ -402,10 +402,15 @@ button.secondary {
   color: #fff7eb;
 }
 
+button.danger {
+  background: linear-gradient(135deg, #ff9f9f, #ff5e7a);
+}
+
 .provider-card,
 .result,
 .event,
 .compact-row,
+.auth-review-card,
 .partner-card {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
@@ -435,6 +440,28 @@ button.secondary {
 .result {
   display: grid;
   gap: 6px;
+}
+
+.auth-review-card {
+  display: grid;
+  gap: 12px;
+  border-color: rgba(246, 185, 90, 0.36);
+  background: linear-gradient(135deg, rgba(246, 185, 90, 0.14), rgba(145, 215, 255, 0.08));
+}
+
+.auth-review-card > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-review-card p {
+  margin: 0;
+  color: #d8c8b8;
+  font-size: 13px;
+}
+
+.compact-actions {
+  gap: 8px;
 }
 
 code {

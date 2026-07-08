@@ -110,7 +110,13 @@ The `278 Prior Authorization Request` payload includes:
 - requested service type
 - lore summary
 
-The request is initially `Pending`. `payer-core` enqueues an `auth_review` job, and `tx-worker` later updates the authorization and the visible `278` transaction status to `Approved` or `Denied`.
+The request is initially `Pending`. A dashboard reviewer can manually approve or deny it through the `POST /auth-requests/{transactionId}/decision` endpoint, which updates the stored authorization row and visible `278` transaction. If nobody reviews it manually, `payer-core` enqueues an `auth_review` job and `tx-worker` later updates the authorization and visible `278` transaction status to `Approved` or `Denied`.
+
+The dashboard shows this as a small prior-auth review widget after the `278` is created:
+
+- `Approve Auth` moves the `278` to `Approved`.
+- `Deny Auth` moves the `278` to `Denied`.
+- The async worker skips already-reviewed authorizations so a manual decision is not overwritten later.
 
 ### 4. Claim Submission: `837`
 
