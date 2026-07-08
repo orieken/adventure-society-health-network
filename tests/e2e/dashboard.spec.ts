@@ -1,6 +1,39 @@
 import { expect, test } from "@orieken/saturday-playwright";
+import type { Page } from "@playwright/test";
 
 import { dashboardUrl, serviceUrls } from "./config.js";
+
+const transactionTypes = ["834", "820", "270", "271", "275", "278", "837", "835", "276", "277", "269", "999", "277CA"] as const;
+
+type DemoTransactionType = (typeof transactionTypes)[number];
+
+type DemoTransaction = {
+  id: string;
+  type: DemoTransactionType;
+  status: string;
+  senderId: string;
+  receiverId: string;
+  payload: Record<string, string>;
+  rawX12: string;
+  relatedId?: string;
+  createdAt: string;
+};
+
+const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) => ({
+  id: `tx-e2e-${type.toLowerCase()}`,
+  type,
+  status: type === "999" ? "Accepted" : "Dispatched",
+  senderId: type === "834" || type === "820" || type === "999" || type === "277CA" ? "Adventure Society" : "provider-vitesse-temple",
+  receiverId: type === "834" || type === "820" || type === "999" || type === "277CA" ? "provider-vitesse-temple" : "Adventure Society",
+  payload: {
+    x12: `${type} dashboard display fixture`,
+    claimId: `claim-e2e-${type.toLowerCase()}`,
+    adventurerId: "adv-e2e-dashboard"
+  },
+  rawX12: `ISA*00*          *00*          *ZZ*ASHN           *ZZ*PARTNER        *260708*1200*^*00501*${String(index + 1).padStart(9, "0")}*0*T*:~ST*${type}*0001~SE*2*0001~`,
+  relatedId: index > 0 ? "tx-e2e-834" : undefined,
+  createdAt: new Date(Date.UTC(2026, 6, 8, 12, index, 0)).toISOString()
+}));
 
 test.describe("ASHN dashboard smoke", () => {
   test.skip(!dashboardUrl, "Set ASHN_DASHBOARD_URL to run dashboard browser smoke tests.");
@@ -27,4 +60,130 @@ test.describe("ASHN dashboard smoke", () => {
 
     expect(consoleLogger.getLogs()).toEqual(expect.any(Array));
   });
+
+  test("displays data for every supported transaction type filter", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+
+    for (const type of transactionTypes) {
+      const transaction = demoTransactions.find((item) => item.type === type);
+      expect(transaction).toBeTruthy();
+
+      await page.getByLabel("Transaction type").selectOption(type);
+      await expect(page.getByText(transaction!.id)).toBeVisible();
+      await expect(page.getByText(`${type} · ${transaction!.status}`)).toBeVisible();
+
+      await page.getByText(transaction!.id).click();
+      await expect(page.getByRole("heading", { name: /Transaction Detail/i })).toBeVisible();
+      await expect(page.getByText(transaction!.rawX12)).toBeVisible();
+      await expect(page.getByText(`${type} dashboard display fixture`)).toBeVisible();
+      await page.getByRole("button", { name: "Close" }).click();
+    }
+  });
 });
+
+async function mockDashboardApi(page: Page) {
+  await page.route("**/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+
+    if (path === "/v1/health") {
+      await route.fulfill({ json: { data: { "api-gateway": "ok", "payer-core": "ok", "provider-service": "ok", "edi-intake": "ok" } } });
+      return;
+    }
+
+    if (path === "/v1/providers") {
+      await route.fulfill({
+        json: {
+          data: [
+            { id: "provider-vitesse-temple", name: "Temple of the Healer, Vitesse", providerType: "temple", tierRank: "gold", region: "Vitesse" }
+          ]
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/x12/trading-partners") {
+      await route.fulfill({
+        json: {
+          data: [
+            {
+              id: "tp-vitesse-temple",
+              name: "Temple of the Healer, Vitesse",
+              senderId: "provider-vitesse-temple",
+              receiverId: "Adventure Society",
+              allowedTransactionTypes: [...transactionTypes],
+              routeTarget: "payer-core",
+              status: "active"
+            }
+          ]
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/adventurers") {
+      await route.fulfill({
+        json: {
+          data: [
+            { id: "adv-e2e-dashboard", name: "Filter Fixture Ranger", rank: "Gold", guild: "E2E Guild", region: "Vitesse", coverageStatus: "Active" }
+          ],
+          page: pageInfo(1, 10)
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/claims") {
+      await route.fulfill({
+        json: {
+          data: [
+            {
+              id: "claim-e2e-dashboard",
+              adventurerId: "adv-e2e-dashboard",
+              providerId: "provider-vitesse-temple",
+              incidentSeverity: "fixture",
+              transactionId: "tx-e2e-837",
+              amountCents: 12500,
+              status: "Submitted"
+            }
+          ],
+          page: pageInfo(1, 10)
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/transactions") {
+      const type = url.searchParams.get("type");
+      const data = type ? demoTransactions.filter((transaction) => transaction.type === type) : demoTransactions;
+      await route.fulfill({ json: { data, page: pageInfo(data.length, 25) } });
+      return;
+    }
+
+    const transactionMatch = path.match(/^\/v1\/transactions\/([^/]+)$/);
+    if (transactionMatch) {
+      const transaction = demoTransactions.find((item) => item.id === transactionMatch[1]);
+      await route.fulfill({ status: transaction ? 200 : 404, json: transaction ? { data: transaction } : { error: "transaction not found" } });
+      return;
+    }
+
+    if (path === "/v1/x12/messages") {
+      await route.fulfill({ json: { data: [], page: pageInfo(0, 10) } });
+      return;
+    }
+
+    await route.fulfill({ status: 404, json: { error: `unmocked route ${path}` } });
+  });
+}
+
+function pageInfo(count: number, limit: number) {
+  return {
+    limit,
+    offset: 0,
+    count,
+    hasMore: false
+  };
+}
