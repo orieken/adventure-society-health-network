@@ -33,7 +33,7 @@ ASHN supports both **business-state APIs** and an **EDI-style transaction ledger
 | Eligibility | `270 → 271` | `POST /v1/eligibility`, XML `270` | Workflow card, ledger, timeline | Returns active/inactive coverage. |
 | Prior authorization | `278` | `POST /v1/auth-requests`, `POST /v1/auth-requests/{id}/decision`, XML `278` | Workflow card, manual review widget, ledger, timeline | Starts pending; manual approve/deny or async worker decision. |
 | Claim submission | `837 → 277CA` | `POST /v1/claims`, XML `837` | Workflow card, claims panel, ledger, timeline | Emits claim and claim acknowledgment. |
-| Claim attachment | `275` | `POST /v1/claims/{id}/attachments`, XML `275` | Ledger, timeline attachment label, raw X12 detail | Validates payer-specific attachment metadata. |
+| Claim attachment | `277 → 275` | `POST /v1/claims/{id}/documentation-request`, `POST /v1/claims/{id}/attachments`, XML `275` | Claim detail action, ledger, timeline attachment label, raw X12 detail | Payer can request documentation; 275 clears the hold. |
 | Claim status | `276 → 277` | `GET /v1/claims/{id}/status`, XML `276` | Ledger, timeline | Creates request/response status pair. |
 | Payment/remittance | `835` | `POST /v1/claims/{id}/payment`, XML `835` | Workflow card, claims panel, ledger, detail drawer | Includes allowed, paid, adjustment, denial fields. |
 | XML intake audit | `999` plus routed transaction | `POST /v1/x12/xml` | XML Intake tab, export/replay | Accepted/rejected XML submissions create audit records and acknowledgments. |
@@ -176,6 +176,7 @@ sequenceDiagram
     Payer->>Payer: Validate payer-specific metadata
     alt Metadata valid
         Payer->>Ledger: Emit 275 Accepted linked to claim/837
+        Payer->>Payer: Clear Pending Documentation hold
         Payer-->>Provider: Attachment accepted
     else Metadata invalid
         Payer-->>Provider: 400 invalid attachment
@@ -197,6 +198,8 @@ flowchart TD
 **Current behavior**
 
 - `275` is currently claim-linked through `claimId` and `relatedId`.
+- Payers can mark a claim `Pending Documentation` and emit a related `277` documentation request.
+- A valid `275` clears the documentation hold back to `Pending` so adjudication can continue.
 - Raw X12 includes `REF*1K`, `REF*6R`, `PWK`, `LQ*AT`, `K3`, and `BIN`.
 - The timeline labels 275 steps using attachment/report metadata.
 
@@ -302,7 +305,7 @@ sequenceDiagram
     Payer->>Ledger: Claim adjudication resumes
 ```
 
-Add a payer-driven “we need more info” state where a claim moves to `Pending Documentation`, emits a `277` or dashboard alert, then accepts a `275` that clears the hold.
+Baseline support now exists: a claim can move to `Pending Documentation`, emit a `277`, and accept a `275` that clears the hold. The next iteration should make the request reason/code more structured and show the request as a first-class attachment task.
 
 ### 2. Prior Authorization Attachment
 

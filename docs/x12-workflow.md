@@ -139,6 +139,8 @@ The mock payload also adds a severity description so the fantasy event maps back
 
 Some claims and prior authorization requests need extra supporting documentation. ASHN models this with a `275 Patient Information` transaction linked back to the claim's original `837` transaction through `relatedId`.
 
+The payer can also solicit documentation by marking a claim `Pending Documentation` through `POST /claims/{id}/documentation-request`. That emits a related `277` status response with a documentation request payload. When a valid `275` arrives, ASHN clears the hold back to `Pending` and queues claim finalization again.
+
 In ASHN, a provider can submit:
 
 - attachment type

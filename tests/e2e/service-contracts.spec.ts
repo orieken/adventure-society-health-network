@@ -148,6 +148,14 @@ test.describe("ASHN mutating demo contracts", () => {
     expect(claimEnvelope.transaction?.type).toBe("837");
     expect(claimEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["837", "277CA"]);
 
+    const documentationRequest = await request.post(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}/documentation-request`);
+    expect(documentationRequest.status()).toBe(202);
+
+    const documentationEnvelope = (await documentationRequest.json()) as Envelope<{ claimId: string; status: string; requestedTransaction: string }>;
+    expect(documentationEnvelope.data?.status).toBe("Pending Documentation");
+    expect(documentationEnvelope.data?.requestedTransaction).toBe("275");
+    expect(documentationEnvelope.transaction?.type).toBe("277");
+
     const attachment = await request.post(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}/attachments`, {
       data: {
         attachmentType: "OZ",
@@ -163,6 +171,7 @@ test.describe("ASHN mutating demo contracts", () => {
 
     const attachmentEnvelope = (await attachment.json()) as Envelope<{ claimId: string; attachmentType: string }>;
     expect(attachmentEnvelope.data?.claimId).toBe(claimEnvelope.data?.id);
+    expect((attachmentEnvelope.data as { claimStatus?: string } | undefined)?.claimStatus).toBe("Pending");
     expect(attachmentEnvelope.transaction?.type).toBe("275");
     expect(attachmentEnvelope.transaction?.status).toBe("Accepted");
 

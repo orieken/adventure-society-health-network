@@ -237,6 +237,32 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	assert.Contains(t, envelope.Transaction.RawX12, "LQ*AT*OZ")
 }
 
+func TestAttachClaimInformationClearsDocumentationHold(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimPendingDocumentation,
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Resurrection notes",
+		Content:                 "Patient survived a dragonfire incident.",
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, domain.ClaimPending, app.claims["claim-1"].Status)
+	assert.Contains(t, string(decodeEnvelope(t, response).Data), string(domain.ClaimPending))
+}
+
 func TestAttachClaimInformationValidatesClaimAndRequiredFields(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)
@@ -415,6 +441,57 @@ func TestClaimStatusReturns276And277Pair(t *testing.T) {
 	require.Len(t, envelope.Transactions, 2)
 	assert.Equal(t, domain.Tx276, envelope.Transactions[0].Type)
 	assert.Equal(t, domain.Tx277, envelope.Transactions[1].Type)
+}
+
+func TestRequestClaimDocumentationMarksClaimAndEmits277(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{ID: "claim-1", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", TransactionID: "tx-837", Status: domain.ClaimPending}
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/claims/claim-1/documentation-request", nil))
+
+	assert.Equal(t, http.StatusAccepted, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx277, envelope.Transaction.Type)
+	assert.Equal(t, "tx-837", envelope.Transaction.RelatedID)
+	assert.Equal(t, domain.ClaimPendingDocumentation, app.claims["claim-1"].Status)
+	assert.Contains(t, string(envelope.Transaction.Payload), "documentationRequest")
+}
+
+func TestRequestClaimDocumentationMissingClaim(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/claims/missing/documentation-request", nil))
+
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.Equal(t, "claim not found", decodeEnvelope(t, response).Error)
+}
+
+func TestRequestClaimDocumentationPersistsWithDatabase(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	app := &store{db: db, claims: map[string]domain.Claim{}, transactions: map[string]domain.Transaction{}}
+	mux := newPayerTestMux(app)
+
+	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
+		WithArgs("claim-1").
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-vitesse-temple", domain.SeverityAwakened, "tx-837", int64(125000), int64(0), int64(0), int64(0), int64(0), "", "", domain.ClaimPending))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1 WHERE id = $2`)).
+		WithArgs(string(domain.ClaimPendingDocumentation), "claim-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO transactions").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/claims/claim-1/documentation-request", nil))
+
+	assert.Equal(t, http.StatusAccepted, response.Code)
+	assert.Equal(t, domain.ClaimPendingDocumentation, app.claims["claim-1"].Status)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestPayerRejectsInvalidJSON(t *testing.T) {
@@ -773,6 +850,25 @@ func TestPayerFindAndSaveDatabasePaths(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUpdateClaimStatusDatabasePaths(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	app := &store{db: db, claims: map[string]domain.Claim{}, transactions: map[string]domain.Transaction{}}
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1 WHERE id = $2`)).
+		WithArgs(string(domain.ClaimPendingDocumentation), "claim-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, app.updateClaimStatus(domain.Claim{ID: "claim-1", Status: domain.ClaimPendingDocumentation}))
+	assert.Equal(t, domain.ClaimPendingDocumentation, app.claims["claim-1"].Status)
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1 WHERE id = $2`)).
+		WithArgs(string(domain.ClaimPending), "claim-1").
+		WillReturnError(assert.AnError)
+	require.Error(t, app.updateClaimStatus(domain.Claim{ID: "claim-1", Status: domain.ClaimPending}))
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestPayerFindDatabaseMissesFallBackToMemory(t *testing.T) {
 	db, mock, cleanup := newPayerMockDB(t)
 	defer cleanup()
@@ -816,6 +912,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
+	mux.HandleFunc("POST /claims/{id}/documentation-request", app.requestClaimDocumentation)
 	mux.HandleFunc("POST /claims/{id}/attachments", app.attachClaimInformation)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)

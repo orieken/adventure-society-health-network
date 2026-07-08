@@ -102,7 +102,7 @@ const auditPageSize = 10;
 const dashboardRefreshMs = 3000;
 const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837", "835", "276", "277", "269", "999", "277CA"];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
-const claimStatuses = ["All", "Submitted", "Pending", "Approved", "Denied", "Paid"];
+const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
 const dashboardTabs: { id: DashboardTab; label: string; detail: string }[] = [
   { id: "workflow", label: "Workflow", detail: "Run the demo flow" },
@@ -396,6 +396,19 @@ function App() {
     });
     setClaim(result.data ?? null);
     pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
+  async function requestClaimDocumentation() {
+    if (!selectedClaim) return;
+    setBusy(true);
+    const result = await request<Record<string, string>>(`/v1/claims/${selectedClaim.id}/documentation-request`, { method: "POST" });
+    pushEvent(result);
+    const refreshed = await request<Claim>(`/v1/claims/${selectedClaim.id}`);
+    if (refreshed.data) {
+      setSelectedClaim(refreshed.data);
+    }
     await refresh();
     setBusy(false);
   }
@@ -837,6 +850,9 @@ function App() {
           )}
           {selectedClaim && (
             <div className="detail-grid">
+              <div className="detail-actions">
+                <button disabled={busy || selectedClaim.status === "Pending Documentation"} onClick={requestClaimDocumentation}>Request 275 Docs</button>
+              </div>
               <DetailItem label="Status" value={selectedClaim.status} />
               <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
               <DetailItem label="Billed" value={money(selectedClaim.amountCents)} />

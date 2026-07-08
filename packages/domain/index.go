@@ -85,11 +85,12 @@ const (
 type ClaimStatus string
 
 const (
-	ClaimSubmitted ClaimStatus = "Submitted"
-	ClaimPending   ClaimStatus = "Pending"
-	ClaimApproved  ClaimStatus = "Approved"
-	ClaimDenied    ClaimStatus = "Denied"
-	ClaimPaid      ClaimStatus = "Paid"
+	ClaimSubmitted            ClaimStatus = "Submitted"
+	ClaimPending              ClaimStatus = "Pending"
+	ClaimPendingDocumentation ClaimStatus = "Pending Documentation"
+	ClaimApproved             ClaimStatus = "Approved"
+	ClaimDenied               ClaimStatus = "Denied"
+	ClaimPaid                 ClaimStatus = "Paid"
 )
 
 type Adventurer struct {

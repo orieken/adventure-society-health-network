@@ -111,9 +111,24 @@ test.describe("ASHN dashboard smoke", () => {
     await page.getByRole("button", { name: /Approve Auth/i }).click();
     await expect(authReview.getByText("278 · Approved")).toBeVisible();
   });
+
+  test("requests 275 documentation from claim detail", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    await page.getByText("claim-e2e-dashboard").click();
+    const drawer = page.getByLabel("Selected record details");
+    await expect(drawer.getByRole("heading", { name: /Claim Detail/i })).toBeVisible();
+    await expect(drawer.getByText("Submitted")).toBeVisible();
+
+    await page.getByRole("button", { name: /Request 275 Docs/i }).click();
+    await expect(drawer.getByText("Pending Documentation")).toBeVisible();
+  });
 });
 
 async function mockDashboardApi(page: Page) {
+  let claimStatus = "Submitted";
   await page.route("**/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -216,10 +231,43 @@ async function mockDashboardApi(page: Page) {
               incidentSeverity: "fixture",
               transactionId: "tx-e2e-837",
               amountCents: 12500,
-              status: "Submitted"
+              status: claimStatus
             }
           ],
           page: pageInfo(1, 10)
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/claims/claim-e2e-dashboard") {
+      await route.fulfill({
+        json: {
+          data: {
+            id: "claim-e2e-dashboard",
+            adventurerId: "adv-e2e-dashboard",
+            providerId: "provider-vitesse-temple",
+            incidentSeverity: "fixture",
+            transactionId: "tx-e2e-837",
+            amountCents: 12500,
+            status: claimStatus
+          }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/claims/claim-e2e-dashboard/documentation-request") {
+      claimStatus = "Pending Documentation";
+      await route.fulfill({
+        status: 202,
+        json: {
+          data: { claimId: "claim-e2e-dashboard", status: claimStatus, requestedTransaction: "275" },
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.type === "277"),
+            id: "tx-e2e-doc-request",
+            relatedId: "tx-e2e-837"
+          }
         }
       });
       return;

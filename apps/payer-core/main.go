@@ -90,6 +90,7 @@ func main() {
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
 	mux.HandleFunc("GET /claims/{id}/status", app.claimStatus)
+	mux.HandleFunc("POST /claims/{id}/documentation-request", app.requestClaimDocumentation)
 	mux.HandleFunc("POST /claims/{id}/attachments", app.attachClaimInformation)
 	mux.HandleFunc("POST /claims/{id}/payment", app.payClaim)
 	mux.HandleFunc("GET /transactions", app.listTransactions)
@@ -302,6 +303,33 @@ func (s *store) claimStatus(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, domain.Envelope{Data: map[string]any{"claimId": claim.ID, "status": claim.Status}, Lore: lore.ThemeTransaction(domain.Tx277, claim.ID, "Adventure Society"), Transactions: []domain.Transaction{request, response}})
 }
 
+func (s *store) requestClaimDocumentation(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	claim, ok := s.findClaim(id)
+	if !ok {
+		fail(w, http.StatusNotFound, "claim not found", "No claim scroll with that seal exists in the Society ledger.")
+		return
+	}
+	claim.Status = domain.ClaimPendingDocumentation
+	if err := s.updateClaimStatus(claim); err != nil {
+		fail(w, http.StatusInternalServerError, "claim update failed", "The Society could not mark this claim for documentation.")
+		return
+	}
+	request := edimock.Generate277(claim.ID, claim.Status)
+	request.RelatedID = claim.TransactionID
+	request.Payload = domain.Payload(map[string]any{
+		"x12": "277 Claim Status Response", "claimId": claim.ID, "claimStatus": claim.Status,
+		"documentationRequest": map[string]any{
+			"reason":              "Additional supporting documentation required before adjudication.",
+			"expectedTransaction": domain.Tx275,
+		},
+		"relatedId": claim.TransactionID,
+	})
+	s.saveTransaction(request)
+	data := map[string]any{"claimId": claim.ID, "status": claim.Status, "requestedTransaction": domain.Tx275}
+	respond(w, http.StatusAccepted, domain.Envelope{Data: data, Lore: "The Society requested supporting documentation before adjudication.", Transaction: &request})
+}
+
 func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 	var req domain.AttachmentRequest
 	if !decode(w, r, &req) {
@@ -330,8 +358,19 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 	}
 	tx := edimock.Generate275(claim, req, claim.TransactionID)
 	s.saveTransaction(tx)
+	claimStatus := claim.Status
+	if claim.Status == domain.ClaimPendingDocumentation {
+		claim.Status = domain.ClaimPending
+		if err := s.updateClaimStatus(claim); err != nil {
+			fail(w, http.StatusInternalServerError, "claim update failed", "The Society could not clear the documentation hold.")
+			return
+		}
+		claimStatus = claim.Status
+		s.enqueueJob(asyncjobs.JobClaimFinalization, claim.ID, 2*time.Second)
+	}
 	data := map[string]any{
 		"claimId":                 claim.ID,
+		"claimStatus":             claimStatus,
 		"attachmentType":          req.AttachmentType,
 		"attachmentControlNumber": req.AttachmentControlNumber,
 		"reportTypeCode":          req.ReportTypeCode,
@@ -670,6 +709,23 @@ func (s *store) updateAuthorizationDecision(tx domain.Transaction, reason string
 		return err
 	}
 	log.Printf("[ASHN] authorization=%s decision=%s reason=%s", tx.ID, tx.Status, reason)
+	return nil
+}
+
+func (s *store) updateClaimStatus(claim domain.Claim) error {
+	s.mu.Lock()
+	s.claims[claim.ID] = claim
+	s.mu.Unlock()
+	if s.db == nil {
+		log.Printf("[ASHN] claim=%s status=%s", claim.ID, claim.Status)
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE claims SET status = $1 WHERE id = $2`, string(claim.Status), claim.ID)
+	if err != nil {
+		log.Printf("[ASHN] postgres claim status update failed: %v", err)
+		return err
+	}
+	log.Printf("[ASHN] claim=%s status=%s", claim.ID, claim.Status)
 	return nil
 }
 
@@ -1201,6 +1257,9 @@ func payerOpenAPI() map[string]any {
 			},
 			"/claims/{id}/status": {
 				"get": {Summary: "Get claim status", Tags: []string{"claims"}},
+			},
+			"/claims/{id}/documentation-request": {
+				"post": {Summary: "Request 275 supporting documentation", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true},
 			},
 			"/claims/{id}/attachments": {
 				"post": {Summary: "Submit 275 patient information attachment", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true},
