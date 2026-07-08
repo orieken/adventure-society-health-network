@@ -23,6 +23,8 @@ ASHN translates those ideas into a small working system:
 - trading partner profiles validate external sender/receiver IDs and allowed transaction types
 - Postgres stores the transaction ledger for search, filtering, and replayable demos
 
+For a diagram-first view of the currently supported workflows, see [`supported-workflows.md`](supported-workflows.md).
+
 ## End-to-End Flow
 
 ```mermaid

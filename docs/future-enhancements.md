@@ -93,6 +93,12 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add tests for paid adjudication and remittance detail.
 - [x] Add `275` patient information attachments linked to claim transactions.
 - [x] Add payer-specific `275` companion-guide validation and timeline attachment labels.
+- [ ] Add solicited claim attachment requests that move claims into `Pending Documentation`.
+- [ ] Allow `275` attachments to link to pending `278` prior authorization reviews.
+- [ ] Add attachment review outcomes distinct from transaction acceptance.
+- [ ] Support external document references for large PDFs/images instead of embedded `BIN` content.
+- [ ] Support multi-attachment packets grouped under a claim or authorization.
+- [ ] Move payer-specific `275` validation rules into trading partner profile data.
 - [ ] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
 - [ ] Add more tests for denied and partially paid claim variants.
 
