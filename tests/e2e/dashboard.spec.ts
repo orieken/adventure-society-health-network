@@ -18,6 +18,10 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByRole("button", { name: /XML Intake/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Partners/i })).toBeVisible();
 
+    await expect(page.getByLabel("Transaction type")).toContainText("275");
+    await page.getByLabel("Transaction type").selectOption("275");
+    await expect(page.getByLabel("Transaction type")).toHaveValue("275");
+
     await page.getByRole("button", { name: /Partners/i }).click();
     await expect(page.getByRole("heading", { name: /Trading Partners/i })).toBeVisible();
 
