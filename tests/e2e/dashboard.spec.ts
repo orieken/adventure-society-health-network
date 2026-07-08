@@ -28,7 +28,8 @@ const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) =
   payload: {
     x12: `${type} dashboard display fixture`,
     claimId: `claim-e2e-${type.toLowerCase()}`,
-    adventurerId: "adv-e2e-dashboard"
+    adventurerId: "adv-e2e-dashboard",
+    ...(type === "275" ? { attachmentType: "OZ", reportTypeCode: "B4" } : {})
   },
   rawX12: `ISA*00*          *00*          *ZZ*ASHN           *ZZ*PARTNER        *260708*1200*^*00501*${String(index + 1).padStart(9, "0")}*0*T*:~ST*${type}*0001~SE*2*0001~`,
   relatedId: index > 0 ? "tx-e2e-834" : undefined,
@@ -81,6 +82,18 @@ test.describe("ASHN dashboard smoke", () => {
       await expect(page.getByText(`${type} dashboard display fixture`)).toBeVisible();
       await page.getByRole("button", { name: "Close" }).click();
     }
+  });
+
+  test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Timeline/i }).click();
+    await page.getByLabel("Transaction type").selectOption("275");
+
+    await expect(page.getByText("Claim lifecycle")).toBeVisible();
+    await expect(page.getByText("Claim claim-e2e-275")).toBeVisible();
+    await expect(page.getByRole("button", { name: /275 OZ\/B4 attachment/i })).toBeVisible();
   });
 });
 

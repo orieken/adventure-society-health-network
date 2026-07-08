@@ -54,7 +54,9 @@ func Generate275(claim domain.Claim, attachment domain.AttachmentRequest, relate
 		"x12": "275 Patient Information", "claimId": claim.ID, "providerId": claim.ProviderID,
 		"adventurerId": claim.AdventurerID, "attachmentType": attachment.AttachmentType,
 		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
-		"content": attachment.Content, "lore": lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"),
+		"reportTypeCode": attachment.ReportTypeCode, "transmissionCode": attachment.TransmissionCode,
+		"contentType": attachment.ContentType,
+		"content":     attachment.Content, "lore": lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"),
 	})
 	tx.RelatedID = relatedID
 	tx.RawX12 = rawX12(tx)
@@ -205,7 +207,10 @@ func transactionSegments(tx domain.Transaction) []string {
 			"HL*2*1*22*0~",
 			"NM1*IL*1*" + element(attachment.AdventurerID) + "****MI*" + element(attachment.AdventurerID) + "~",
 			"REF*1K*" + element(attachment.ClaimID) + "~",
-			"PWK*" + element(attachment.AttachmentType) + "*EL***AC*" + element(attachment.ControlNumber) + "~",
+			"REF*6R*" + element(attachment.ControlNumber) + "~",
+			"PWK*" + element(attachment.ReportTypeCode) + "*" + element(attachment.TransmissionCode) + "***AC*" + element(attachment.ControlNumber) + "~",
+			"LQ*AT*" + element(attachment.AttachmentType) + "~",
+			"K3*Content-Type: " + element(attachment.ContentType) + "~",
 			"NTE*ADD*" + element(attachment.Description) + "~",
 			"BIN*" + strconv.Itoa(len(attachment.Content)) + "*" + element(attachment.Content) + "~",
 		}
@@ -340,25 +345,31 @@ type x12ClaimInfo struct {
 }
 
 type x12AttachmentInfo struct {
-	ClaimID        string
-	ProviderID     string
-	AdventurerID   string
-	AttachmentType string
-	ControlNumber  string
-	Description    string
-	Content        string
+	ClaimID          string
+	ProviderID       string
+	AdventurerID     string
+	AttachmentType   string
+	ControlNumber    string
+	ReportTypeCode   string
+	TransmissionCode string
+	ContentType      string
+	Description      string
+	Content          string
 }
 
 func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
 	var payload map[string]any
 	info := x12AttachmentInfo{
-		ClaimID:        tx.RelatedID,
-		ProviderID:     tx.SenderID,
-		AdventurerID:   "adventurer",
-		AttachmentType: "OZ",
-		ControlNumber:  controlNumber(tx.ID),
-		Description:    "ASHN patient information attachment",
-		Content:        "supporting documentation",
+		ClaimID:          tx.RelatedID,
+		ProviderID:       tx.SenderID,
+		AdventurerID:     "adventurer",
+		AttachmentType:   "OZ",
+		ControlNumber:    controlNumber(tx.ID),
+		ReportTypeCode:   "B4",
+		TransmissionCode: "EL",
+		ContentType:      "text/plain",
+		Description:      "ASHN patient information attachment",
+		Content:          "supporting documentation",
 	}
 	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
 		return info
@@ -368,6 +379,9 @@ func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
 	info.AdventurerID = stringValue(payload, "adventurerId", info.AdventurerID)
 	info.AttachmentType = stringValue(payload, "attachmentType", info.AttachmentType)
 	info.ControlNumber = stringValue(payload, "attachmentControlNumber", info.ControlNumber)
+	info.ReportTypeCode = stringValue(payload, "reportTypeCode", info.ReportTypeCode)
+	info.TransmissionCode = stringValue(payload, "transmissionCode", info.TransmissionCode)
+	info.ContentType = stringValue(payload, "contentType", info.ContentType)
 	info.Description = stringValue(payload, "description", info.Description)
 	info.Content = stringValue(payload, "content", info.Content)
 	return info

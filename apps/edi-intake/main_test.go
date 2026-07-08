@@ -149,6 +149,9 @@ func TestAcceptXMLRoutesAttachmentToPayerCore(t *testing.T) {
     <ProviderId>provider-vitesse-temple</ProviderId>
     <AttachmentType>OZ</AttachmentType>
     <AttachmentControlNumber>ATTACH-1</AttachmentControlNumber>
+    <ReportTypeCode>B4</ReportTypeCode>
+    <TransmissionCode>EL</TransmissionCode>
+    <ContentType>text/plain</ContentType>
     <Description>Resurrection notes</Description>
     <Content>Patient survived a dragonfire incident.</Content>
   </Attachment>
@@ -160,6 +163,9 @@ func TestAcceptXMLRoutesAttachmentToPayerCore(t *testing.T) {
 	assert.Equal(t, []string{"/claims/claim-1/attachments", "/transactions"}, downstreamPaths)
 	assert.Equal(t, "OZ", attachmentRequest.AttachmentType)
 	assert.Equal(t, "ATTACH-1", attachmentRequest.AttachmentControlNumber)
+	assert.Equal(t, "B4", attachmentRequest.ReportTypeCode)
+	assert.Equal(t, "EL", attachmentRequest.TransmissionCode)
+	assert.Equal(t, "text/plain", attachmentRequest.ContentType)
 }
 
 func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
@@ -179,7 +185,7 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 		},
 		{
 			name: "275 attachment", wantMethod: http.MethodPost, wantPath: "/claims/claim-1/attachments",
-			body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-1</AttachmentControlNumber><Description>notes</Description><Content>content</Content></Attachment></AshnX12Transaction>`,
+			body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-1</AttachmentControlNumber><ReportTypeCode>B4</ReportTypeCode><TransmissionCode>EL</TransmissionCode><ContentType>text/plain</ContentType><Description>notes</Description><Content>content</Content></Attachment></AshnX12Transaction>`,
 		},
 		{
 			name: "278 prior authorization", wantMethod: http.MethodPost, wantPath: "/auth-requests",

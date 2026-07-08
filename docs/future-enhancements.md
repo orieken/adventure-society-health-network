@@ -92,6 +92,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Expand `835` payloads with claim adjustment and remittance details.
 - [x] Add tests for paid adjudication and remittance detail.
 - [x] Add `275` patient information attachments linked to claim transactions.
+- [x] Add payer-specific `275` companion-guide validation and timeline attachment labels.
 - [ ] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
 - [ ] Add more tests for denied and partially paid claim variants.
 

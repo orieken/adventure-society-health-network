@@ -126,6 +126,9 @@ test.describe("ASHN mutating demo contracts", () => {
       data: {
         attachmentType: "OZ",
         attachmentControlNumber: `ATTACH-${Date.now()}`,
+        reportTypeCode: "B4",
+        transmissionCode: "EL",
+        contentType: "text/plain",
         description: "Resurrection medical necessity notes",
         content: "Patient stabilized after dragonfire incident."
       }
@@ -146,6 +149,9 @@ test.describe("ASHN mutating demo contracts", () => {
     <ProviderId>provider-vitesse-temple</ProviderId>
     <AttachmentType>OZ</AttachmentType>
     <AttachmentControlNumber>XML-${Date.now()}</AttachmentControlNumber>
+    <ReportTypeCode>B4</ReportTypeCode>
+    <TransmissionCode>EL</TransmissionCode>
+    <ContentType>text/plain</ContentType>
     <Description>Resurrection operative notes</Description>
     <Content>Dragonfire injury required restorative magic.</Content>
   </Attachment>

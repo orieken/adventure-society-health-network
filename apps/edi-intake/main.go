@@ -79,6 +79,9 @@ type xmlAttachment struct {
 	ProviderID              string `xml:"ProviderId"`
 	AttachmentType          string `xml:"AttachmentType"`
 	AttachmentControlNumber string `xml:"AttachmentControlNumber"`
+	ReportTypeCode          string `xml:"ReportTypeCode"`
+	TransmissionCode        string `xml:"TransmissionCode"`
+	ContentType             string `xml:"ContentType"`
 	Description             string `xml:"Description"`
 	Content                 string `xml:"Content"`
 }
@@ -227,6 +230,9 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 			"ProviderId":              t.Attachment.ProviderID,
 			"AttachmentType":          t.Attachment.AttachmentType,
 			"AttachmentControlNumber": t.Attachment.AttachmentControlNumber,
+			"ReportTypeCode":          t.Attachment.ReportTypeCode,
+			"TransmissionCode":        t.Attachment.TransmissionCode,
+			"ContentType":             t.Attachment.ContentType,
 			"Description":             t.Attachment.Description,
 			"Content":                 t.Attachment.Content,
 		}); err != nil {
@@ -238,6 +244,9 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		return http.MethodPost, "/claims/" + strings.TrimSpace(t.Attachment.ClaimID) + "/attachments", domain.AttachmentRequest{
 			AttachmentType:          strings.TrimSpace(t.Attachment.AttachmentType),
 			AttachmentControlNumber: strings.TrimSpace(t.Attachment.AttachmentControlNumber),
+			ReportTypeCode:          strings.TrimSpace(t.Attachment.ReportTypeCode),
+			TransmissionCode:        strings.TrimSpace(t.Attachment.TransmissionCode),
+			ContentType:             strings.TrimSpace(t.Attachment.ContentType),
 			Description:             strings.TrimSpace(t.Attachment.Description),
 			Content:                 strings.TrimSpace(t.Attachment.Content),
 		}, nil

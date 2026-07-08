@@ -188,6 +188,9 @@ type ClaimRequest struct {
 type AttachmentRequest struct {
 	AttachmentType          string `json:"attachmentType"`
 	AttachmentControlNumber string `json:"attachmentControlNumber"`
+	ReportTypeCode          string `json:"reportTypeCode"`
+	TransmissionCode        string `json:"transmissionCode"`
+	ContentType             string `json:"contentType"`
 	Description             string `json:"description"`
 	Content                 string `json:"content"`
 }

@@ -186,6 +186,9 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
 		AttachmentType:          "OZ",
 		AttachmentControlNumber: "ATTACH-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
 		Description:             "Resurrection notes",
 		Content:                 "Patient survived a dragonfire incident.",
 	})
@@ -196,7 +199,8 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	assert.Equal(t, domain.Tx275, envelope.Transaction.Type)
 	assert.Equal(t, "tx-837", envelope.Transaction.RelatedID)
 	assert.Contains(t, envelope.Transaction.RawX12, "ST*275")
-	assert.Contains(t, envelope.Transaction.RawX12, "PWK*OZ*EL***AC*ATTACH-1")
+	assert.Contains(t, envelope.Transaction.RawX12, "PWK*B4*EL***AC*ATTACH-1")
+	assert.Contains(t, envelope.Transaction.RawX12, "LQ*AT*OZ")
 }
 
 func TestAttachClaimInformationValidatesClaimAndRequiredFields(t *testing.T) {
@@ -204,7 +208,7 @@ func TestAttachClaimInformationValidatesClaimAndRequiredFields(t *testing.T) {
 	mux := newPayerTestMux(app)
 
 	missingClaim := serveJSON(t, mux, http.MethodPost, "/claims/missing/attachments", domain.AttachmentRequest{
-		AttachmentType: "OZ", AttachmentControlNumber: "A1", Description: "notes", Content: "content",
+		AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "notes", Content: "content",
 	})
 	assert.Equal(t, http.StatusNotFound, missingClaim.Code)
 
@@ -214,6 +218,18 @@ func TestAttachClaimInformationValidatesClaimAndRequiredFields(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, invalid.Code)
 	assert.Equal(t, "invalid attachment", decodeEnvelope(t, invalid).Error)
+
+	disallowed := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType:          "PN",
+		AttachmentControlNumber: "BAD-1",
+		ReportTypeCode:          "03",
+		TransmissionCode:        "EL",
+		ContentType:             "application/pdf",
+		Description:             "notes",
+		Content:                 "content",
+	})
+	assert.Equal(t, http.StatusBadRequest, disallowed.Code)
+	assert.Contains(t, decodeEnvelope(t, disallowed).Lore, "attachment type PN is not allowed")
 }
 
 func TestGetClaimReturnsClaimDetail(t *testing.T) {

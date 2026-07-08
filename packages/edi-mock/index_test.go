@@ -60,6 +60,9 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	tx := Generate275(claim, domain.AttachmentRequest{
 		AttachmentType:          "OZ",
 		AttachmentControlNumber: "ATTACH-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
 		Description:             "Resurrection medical necessity notes",
 		Content:                 "Patient stabilized after dragonfire incident.",
 	}, "")
@@ -69,7 +72,10 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	assert.Equal(t, "tx-837", tx.RelatedID)
 	assert.Contains(t, tx.RawX12, "ST*275")
 	assert.Contains(t, tx.RawX12, "REF*1K*claim-1")
-	assert.Contains(t, tx.RawX12, "PWK*OZ*EL***AC*ATTACH-1")
+	assert.Contains(t, tx.RawX12, "REF*6R*ATTACH-1")
+	assert.Contains(t, tx.RawX12, "PWK*B4*EL***AC*ATTACH-1")
+	assert.Contains(t, tx.RawX12, "LQ*AT*OZ")
+	assert.Contains(t, tx.RawX12, "K3*Content-Type: text/plain")
 	assert.Contains(t, tx.RawX12, "BIN*")
 	assert.Contains(t, tx.RawX12, "Patient stabilized after dragonfire incident.")
 }

@@ -274,10 +274,17 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 	}
 	req.AttachmentType = strings.TrimSpace(req.AttachmentType)
 	req.AttachmentControlNumber = strings.TrimSpace(req.AttachmentControlNumber)
+	req.ReportTypeCode = strings.TrimSpace(req.ReportTypeCode)
+	req.TransmissionCode = strings.TrimSpace(req.TransmissionCode)
+	req.ContentType = strings.TrimSpace(req.ContentType)
 	req.Description = strings.TrimSpace(req.Description)
 	req.Content = strings.TrimSpace(req.Content)
-	if req.AttachmentType == "" || req.AttachmentControlNumber == "" || req.Description == "" || req.Content == "" {
+	if req.AttachmentType == "" || req.AttachmentControlNumber == "" || req.ReportTypeCode == "" || req.TransmissionCode == "" || req.ContentType == "" || req.Description == "" || req.Content == "" {
 		fail(w, http.StatusBadRequest, "invalid attachment", "The supporting scroll is missing required patient information.")
+		return
+	}
+	if err := validateAttachmentForProvider(claim.ProviderID, req); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 		return
 	}
 	tx := edimock.Generate275(claim, req, claim.TransactionID)
@@ -286,9 +293,88 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		"claimId":                 claim.ID,
 		"attachmentType":          req.AttachmentType,
 		"attachmentControlNumber": req.AttachmentControlNumber,
+		"reportTypeCode":          req.ReportTypeCode,
+		"transmissionCode":        req.TransmissionCode,
+		"contentType":             req.ContentType,
 		"description":             req.Description,
 	}
 	respond(w, http.StatusCreated, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"), Transaction: &tx})
+}
+
+type attachmentCompanionRule struct {
+	ProviderID           string
+	AllowedTypes         []string
+	AllowedReportTypes   []string
+	AllowedTransmissions []string
+	AllowedContentTypes  []string
+	ControlPrefixes      []string
+	MaxContentBytes      int
+}
+
+func validateAttachmentForProvider(providerID string, req domain.AttachmentRequest) error {
+	rule := companionRuleForProvider(providerID)
+	if !containsCode(rule.AllowedTypes, req.AttachmentType) {
+		return fmt.Errorf("attachment type %s is not allowed for provider %s; allowed: %s", req.AttachmentType, providerID, strings.Join(rule.AllowedTypes, ", "))
+	}
+	if !containsCode(rule.AllowedReportTypes, req.ReportTypeCode) {
+		return fmt.Errorf("report type %s is not allowed for provider %s; allowed: %s", req.ReportTypeCode, providerID, strings.Join(rule.AllowedReportTypes, ", "))
+	}
+	if !containsCode(rule.AllowedTransmissions, req.TransmissionCode) {
+		return fmt.Errorf("transmission code %s is not allowed for provider %s; allowed: %s", req.TransmissionCode, providerID, strings.Join(rule.AllowedTransmissions, ", "))
+	}
+	if !containsCode(rule.AllowedContentTypes, req.ContentType) {
+		return fmt.Errorf("content type %s is not allowed for provider %s; allowed: %s", req.ContentType, providerID, strings.Join(rule.AllowedContentTypes, ", "))
+	}
+	if !hasPrefix(req.AttachmentControlNumber, rule.ControlPrefixes) {
+		return fmt.Errorf("attachment control number must start with one of: %s", strings.Join(rule.ControlPrefixes, ", "))
+	}
+	if len([]byte(req.Content)) > rule.MaxContentBytes {
+		return fmt.Errorf("attachment content exceeds %d byte limit for provider %s", rule.MaxContentBytes, providerID)
+	}
+	return nil
+}
+
+func companionRuleForProvider(providerID string) attachmentCompanionRule {
+	switch providerID {
+	case "provider-rimaros-hospital":
+		return attachmentCompanionRule{
+			ProviderID:           providerID,
+			AllowedTypes:         []string{"OZ", "PN"},
+			AllowedReportTypes:   []string{"03", "B4"},
+			AllowedTransmissions: []string{"EL"},
+			AllowedContentTypes:  []string{"text/plain", "application/pdf"},
+			ControlPrefixes:      []string{"RIM-", "ATTACH-", "XML-"},
+			MaxContentBytes:      8192,
+		}
+	default:
+		return attachmentCompanionRule{
+			ProviderID:           providerID,
+			AllowedTypes:         []string{"OZ"},
+			AllowedReportTypes:   []string{"B4"},
+			AllowedTransmissions: []string{"EL"},
+			AllowedContentTypes:  []string{"text/plain"},
+			ControlPrefixes:      []string{"TEMPLE-", "ATTACH-", "XML-"},
+			MaxContentBytes:      4096,
+		}
+	}
+}
+
+func containsCode(values []string, candidate string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPrefix(value string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(strings.ToUpper(value), strings.ToUpper(prefix)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *store) payClaim(w http.ResponseWriter, r *http.Request) {

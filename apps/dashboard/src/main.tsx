@@ -962,7 +962,7 @@ function TimelineGroupCard({ group, onSelect }: { group: TimelineGroup; onSelect
           <button className="timeline-step" key={transaction.id} onClick={() => onSelect(transaction.id)}>
             <span className="timeline-dot" />
             <strong>{transaction.type}</strong>
-            <small>{transaction.status}</small>
+            <small>{timelineStepDetail(transaction)}</small>
             <em>{new Date(transaction.createdAt).toLocaleTimeString()}</em>
           </button>
         ))}
@@ -1019,6 +1019,16 @@ function timelineSubtitle(transaction: Transaction, claimId?: string, adventurer
   if (adventurerId) return `Adventurer ${adventurerId}`;
   if (transaction.relatedId) return `Related to ${transaction.relatedId}`;
   return transaction.id;
+}
+
+function timelineStepDetail(transaction: Transaction) {
+  if (transaction.type === "275") {
+    const attachmentType = payloadString(transaction, "attachmentType");
+    const reportTypeCode = payloadString(transaction, "reportTypeCode");
+    const attachmentLabel = [attachmentType, reportTypeCode].filter(Boolean).join("/");
+    return attachmentLabel ? `${attachmentLabel} attachment · ${transaction.status}` : `Attachment · ${transaction.status}`;
+  }
+  return transaction.status;
 }
 
 function transactionClaimId(transaction: Transaction) {

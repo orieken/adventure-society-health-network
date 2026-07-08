@@ -135,10 +135,22 @@ In ASHN, a provider can submit:
 
 - attachment type
 - attachment control number
+- report type code
+- transmission code
+- content type
 - description
 - supporting content
 
 This is the "supporting scroll" step: operative notes, dungeon incident reports, resurrection medical necessity, or other evidence the payer needs before adjudication.
+
+ASHN also models payer-specific companion-guide rules. These are intentionally small but teach the real-world shape of `275` validation:
+
+| Provider | Allowed attachment types | Allowed report types | Transmission | Content types | Control prefixes | Size limit |
+| --- | --- | --- | --- | --- | --- | --- |
+| `provider-vitesse-temple` | `OZ` | `B4` | `EL` | `text/plain` | `TEMPLE-`, `ATTACH-`, `XML-` | 4 KB |
+| `provider-rimaros-hospital` | `OZ`, `PN` | `03`, `B4` | `EL` | `text/plain`, `application/pdf` | `RIM-`, `ATTACH-`, `XML-` | 8 KB |
+
+Generated raw X12 includes `REF*1K` for claim correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type, and `BIN` for the payload.
 
 ### 6. Claim Status: `276 → 277`
 
