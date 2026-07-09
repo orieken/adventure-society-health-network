@@ -106,6 +106,7 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 	}{
 		{http.MethodPost, "/v1/claims"},
 		{http.MethodPost, "/v1/auth-requests/tx-278/decision"},
+		{http.MethodPost, "/v1/auth-requests/tx-278/attachments"},
 		{http.MethodGet, "/v1/claims/claim-1"},
 		{http.MethodGet, "/v1/claims/claim-1/status"},
 		{http.MethodPost, "/v1/claims/claim-1/documentation-request"},
@@ -114,6 +115,9 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 		{http.MethodGet, "/v1/transactions/tx-1"},
 		{http.MethodGet, "/v1/transactions/tx-1/export?format=x12"},
 		{http.MethodPost, "/v1/transactions/tx-1/replay"},
+		{http.MethodPost, "/v1/transactions/tx-275/attachment-review"},
+		{http.MethodGet, "/v1/jobs?limit=8"},
+		{http.MethodPost, "/v1/jobs/job-1/replay"},
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(item.method, item.path, nil))
@@ -123,6 +127,7 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 	assert.Equal(t, []string{
 		"POST /claims",
 		"POST /auth-requests/tx-278/decision",
+		"POST /auth-requests/tx-278/attachments",
 		"GET /claims/claim-1",
 		"GET /claims/claim-1/status",
 		"POST /claims/claim-1/documentation-request",
@@ -131,17 +136,20 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 		"GET /transactions/tx-1",
 		"GET /transactions/tx-1/export?format=x12",
 		"POST /transactions/tx-1/replay",
+		"POST /transactions/tx-275/attachment-review",
+		"GET /jobs?limit=8",
+		"POST /jobs/job-1/replay",
 	}, paths)
 }
 
 func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
-	var downstreamPath string
-	var downstreamContentType string
+	downstreamPaths := []string{}
+	downstreamContentTypes := []string{}
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		downstreamPath = r.URL.Path
-		downstreamContentType = r.Header.Get("Content-Type")
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		downstreamContentTypes = append(downstreamContentTypes, r.Header.Get("Content-Type"))
 		assert.Equal(t, http.MethodPost, r.Method)
-		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "XML accepted."})
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "Intake accepted."})
 	})}
 
 	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", ediURL: "http://edi-intake", client: client})
@@ -151,9 +159,16 @@ func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusCreated, response.Code)
-	assert.Equal(t, "/x12/xml", downstreamPath)
-	assert.Equal(t, "application/xml", downstreamContentType)
-	assert.Equal(t, "XML accepted.", decodeGatewayEnvelope(t, response).Lore)
+	assert.Equal(t, "Intake accepted.", decodeGatewayEnvelope(t, response).Lore)
+
+	jsonResponseRecorder := httptest.NewRecorder()
+	jsonRequest := httptest.NewRequest(http.MethodPost, "/v1/x12/transactions", strings.NewReader(`{"type":"837"}`))
+	jsonRequest.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(jsonResponseRecorder, jsonRequest)
+
+	assert.Equal(t, http.StatusCreated, jsonResponseRecorder.Code)
+	assert.Equal(t, []string{"/x12/xml", "/x12/transactions"}, downstreamPaths)
+	assert.Equal(t, []string{"application/xml", "application/json"}, downstreamContentTypes)
 }
 
 func TestGatewayRoutesXMLAuditMessagesToEDIIntake(t *testing.T) {

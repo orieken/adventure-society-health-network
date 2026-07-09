@@ -23,10 +23,13 @@ CREATE TABLE IF NOT EXISTS trading_partners (
   sender_id TEXT NOT NULL UNIQUE,
   receiver_id TEXT NOT NULL,
   allowed_transaction_types TEXT NOT NULL,
+  validation_profile JSONB NOT NULL DEFAULT '{}'::jsonb,
   route_target TEXT NOT NULL DEFAULT 'payer-core',
   status TEXT NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE trading_partners ADD COLUMN IF NOT EXISTS validation_profile JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,
@@ -49,6 +52,9 @@ CREATE TABLE IF NOT EXISTS claims (
   provider_id TEXT NOT NULL REFERENCES providers(id),
   incident_severity TEXT NOT NULL,
   transaction_id TEXT REFERENCES transactions(id),
+  authorization_transaction_id TEXT REFERENCES transactions(id),
+  authorization_status TEXT,
+  authorization_reason TEXT,
   amount_cents BIGINT NOT NULL,
   allowed_amount_cents BIGINT NOT NULL DEFAULT 0,
   paid_amount_cents BIGINT NOT NULL DEFAULT 0,
@@ -66,6 +72,9 @@ ALTER TABLE claims ADD COLUMN IF NOT EXISTS patient_responsibility_cents BIGINT 
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS adjustment_amount_cents BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS adjustment_reason TEXT;
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS denial_reason TEXT;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS authorization_transaction_id TEXT REFERENCES transactions(id);
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS authorization_status TEXT;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS authorization_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS enrollments (
   id TEXT PRIMARY KEY,
@@ -132,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_related_id ON transactions(related_i
 CREATE INDEX IF NOT EXISTS idx_claims_adventurer_id ON claims(adventurer_id);
 CREATE INDEX IF NOT EXISTS idx_claims_provider_id ON claims(provider_id);
 CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
+CREATE INDEX IF NOT EXISTS idx_claims_authorization_transaction_id ON claims(authorization_transaction_id);
 CREATE INDEX IF NOT EXISTS idx_enrollments_adventurer_id ON enrollments(adventurer_id);
 CREATE INDEX IF NOT EXISTS idx_premium_payments_adventurer_id ON premium_payments(adventurer_id);
 CREATE INDEX IF NOT EXISTS idx_auth_requests_adventurer_id ON auth_requests(adventurer_id);
@@ -151,13 +161,14 @@ INSERT INTO providers (id, name, provider_type, tier_rank, region) VALUES
   ('provider-vitesse-temple', 'Temple of the Healer, Vitesse', 'Temple', 'Diamond', 'Vitesse')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO trading_partners (id, name, sender_id, receiver_id, allowed_transaction_types, route_target, status) VALUES
-  ('tp-greenstone-guild', 'Greenstone Employer Guild', 'partner-greenstone', 'Adventure Society', '834,820', 'payer-core', 'active'),
-  ('tp-vitesse-temple', 'Temple of the Healer, Vitesse', 'provider-vitesse-temple', 'Adventure Society', '270,275,276,278,837', 'payer-core', 'active'),
-  ('tp-rimaros-hospital', 'Rimaros City Hospital', 'provider-rimaros-hospital', 'Adventure Society', '270,275,276,278,837', 'payer-core', 'active')
+INSERT INTO trading_partners (id, name, sender_id, receiver_id, allowed_transaction_types, validation_profile, route_target, status) VALUES
+  ('tp-greenstone-guild', 'Greenstone Employer Guild', 'partner-greenstone', 'Adventure Society', '834,820', '{}'::jsonb, 'payer-core', 'active'),
+  ('tp-vitesse-temple', 'Temple of the Healer, Vitesse', 'provider-vitesse-temple', 'Adventure Society', '270,275,276,278,837', '{"attachmentTypes":["OZ"],"reportTypeCodes":["B4"],"transmissionCodes":["EL"],"contentTypes":["text/plain"],"controlNumberPrefixes":["TEMPLE-","ATTACH-","XML-"],"maxEmbeddedContentBytes":4096,"serviceTypes":["resurrection","restoration","curse-removal","trauma-care"],"incidentSeverities":["Normal","Awakened","Diamond"]}'::jsonb, 'payer-core', 'active'),
+  ('tp-rimaros-hospital', 'Rimaros City Hospital', 'provider-rimaros-hospital', 'Adventure Society', '270,275,276,278,837', '{"attachmentTypes":["OZ","PN"],"reportTypeCodes":["03","B4"],"transmissionCodes":["EL"],"contentTypes":["text/plain","application/pdf"],"controlNumberPrefixes":["RIM-","ATTACH-","XML-"],"maxEmbeddedContentBytes":8192,"serviceTypes":["resurrection","restoration","curse-removal","trauma-care"],"incidentSeverities":["Normal","Awakened","Diamond"]}'::jsonb, 'payer-core', 'active')
 ON CONFLICT (sender_id) DO UPDATE SET
   name = EXCLUDED.name,
   receiver_id = EXCLUDED.receiver_id,
   allowed_transaction_types = EXCLUDED.allowed_transaction_types,
+  validation_profile = EXCLUDED.validation_profile,
   route_target = EXCLUDED.route_target,
   status = EXCLUDED.status;

@@ -145,6 +145,58 @@ func TestDecideAuthorizationUpdates278Status(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, wrongType.Code)
 }
 
+func TestAttachAuthorizationInformationEmitsRelated275(t *testing.T) {
+	app := newTestStore()
+	tx := edimock.Generate278Request(
+		domain.Adventurer{ID: "adv-1", Name: "Farros"},
+		domain.Provider{ID: "provider-vitesse-temple", Name: "Temple"},
+		"resurrection",
+	)
+	tx.ID = "tx-278"
+	app.transactions[tx.ID] = tx
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-278/attachments", domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-AUTH-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Medical necessity notes",
+		Content:                 "Resurrection encounter notes and healer attestation.",
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx275, envelope.Transaction.Type)
+	assert.Equal(t, "tx-278", envelope.Transaction.RelatedID)
+	assert.Contains(t, envelope.Transaction.RawX12, "REF*G1*tx-278")
+	assert.Contains(t, envelope.Transaction.RawX12, "PWK*B4*EL***AC*ATTACH-AUTH-1")
+	assert.Contains(t, string(envelope.Data), "authorizationTransactionId")
+}
+
+func TestAttachAuthorizationInformationValidatesTargetAndAttachment(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	missing := serveJSON(t, mux, http.MethodPost, "/auth-requests/missing/attachments", domain.AttachmentRequest{
+		AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "notes", Content: "content",
+	})
+	assert.Equal(t, http.StatusNotFound, missing.Code)
+
+	app.transactions["tx-837"] = domain.Transaction{ID: "tx-837", Type: domain.Tx837, Status: domain.TxStatusAccepted, SenderID: "provider-vitesse-temple"}
+	wrongType := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-837/attachments", domain.AttachmentRequest{
+		AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "notes", Content: "content",
+	})
+	assert.Equal(t, http.StatusBadRequest, wrongType.Code)
+
+	app.transactions["tx-278"] = domain.Transaction{ID: "tx-278", Type: domain.Tx278, Status: domain.TxStatusPending, SenderID: "provider-vitesse-temple", Payload: []byte(`{"providerId":"provider-vitesse-temple"}`)}
+	invalid := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-278/attachments", domain.AttachmentRequest{AttachmentType: "OZ"})
+	assert.Equal(t, http.StatusBadRequest, invalid.Code)
+	assert.Equal(t, "invalid attachment", decodeEnvelope(t, invalid).Error)
+}
+
 func TestEligibilityMissingReferencesReturnErrors(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)
@@ -196,6 +248,62 @@ func TestClaimPaymentUpdatesClaimAndEmits835(t *testing.T) {
 	assert.Equal(t, domain.ClaimPaid, app.claims[claim.ID].Status)
 }
 
+func TestSubmitClaimLinksApprovedAuthorization(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
+	app.transactions["tx-278-approved"] = domain.Transaction{
+		ID:     "tx-278-approved",
+		Type:   domain.Tx278,
+		Status: domain.TxStatusApproved,
+		Payload: domain.Payload(map[string]string{
+			"adventurerId": "adv-1",
+			"providerId":   "provider-vitesse-temple",
+		}),
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims", domain.ClaimRequest{
+		AdventurerID:               "adv-1",
+		ProviderID:                 "provider-vitesse-temple",
+		IncidentSeverity:           domain.SeverityDiamond,
+		AmountCents:                250000,
+		AuthorizationTransactionID: "tx-278-approved",
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	var claim domain.Claim
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, response).Data, &claim))
+	assert.Equal(t, "tx-278-approved", claim.AuthorizationTransactionID)
+	assert.Equal(t, string(domain.TxStatusApproved), claim.AuthorizationStatus)
+	assert.Equal(t, "tx-278-approved", app.claims[claim.ID].AuthorizationTransactionID)
+}
+
+func TestSubmitClaimRejectsMismatchedAuthorization(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
+	app.transactions["tx-278-other"] = domain.Transaction{
+		ID:     "tx-278-other",
+		Type:   domain.Tx278,
+		Status: domain.TxStatusApproved,
+		Payload: domain.Payload(map[string]string{
+			"adventurerId": "someone-else",
+			"providerId":   "provider-vitesse-temple",
+		}),
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims", domain.ClaimRequest{
+		AdventurerID:               "adv-1",
+		ProviderID:                 "provider-vitesse-temple",
+		IncidentSeverity:           domain.SeverityDiamond,
+		AmountCents:                250000,
+		AuthorizationTransactionID: "tx-278-other",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "invalid authorization link", decodeEnvelope(t, response).Error)
+}
+
 func TestPayClaimMissingClaimReturnsError(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)
@@ -235,6 +343,116 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	assert.Contains(t, envelope.Transaction.RawX12, "ST*275")
 	assert.Contains(t, envelope.Transaction.RawX12, "PWK*B4*EL***AC*ATTACH-1")
 	assert.Contains(t, envelope.Transaction.RawX12, "LQ*AT*OZ")
+}
+
+func TestAttachClaimInformationAcceptsExternalDocumentReference(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-rimaros-hospital",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimSubmitted,
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType:          "PN",
+		AttachmentControlNumber: "RIM-REF-1",
+		ReportTypeCode:          "03",
+		TransmissionCode:        "EL",
+		ContentType:             "application/pdf",
+		Description:             "External operative notes",
+		DocumentReferenceID:     "doc-rim-001",
+		DocumentReferenceURL:    "https://docs.example.test/rim/doc-rim-001.pdf",
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx275, envelope.Transaction.Type)
+	assert.Contains(t, envelope.Transaction.RawX12, "K3*Document-Reference: https://docs.example.test/rim/doc-rim-001.pdf")
+	assert.NotContains(t, envelope.Transaction.RawX12, "BIN*")
+	assert.Contains(t, string(envelope.Data), "doc-rim-001")
+}
+
+func TestAttachClaimInformationAcceptsAttachmentPacket(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimSubmitted,
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentPacketRequest{
+		PacketID: "packet-claim-1",
+		Attachments: []domain.AttachmentRequest{
+			{
+				AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-PKT-1", ReportTypeCode: "B4", TransmissionCode: "EL",
+				ContentType: "text/plain", Description: "First note", Content: "first supporting note",
+			},
+			{
+				AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-PKT-2", ReportTypeCode: "B4", TransmissionCode: "EL",
+				ContentType: "text/plain", Description: "Second note", DocumentReferenceURL: "https://docs.example.test/claim-1/note-2.txt",
+			},
+		},
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.Len(t, envelope.Transactions, 2)
+	assert.Equal(t, "packet-claim-1", payloadStringForTest(t, envelope.Transactions[0].Payload, "packetId"))
+	assert.Equal(t, float64(1), payloadValueForTest(t, envelope.Transactions[0].Payload, "packetSequence"))
+	assert.Equal(t, float64(2), payloadValueForTest(t, envelope.Transactions[1].Payload, "packetSequence"))
+	assert.Contains(t, envelope.Transactions[1].RawX12, "REF*F8*packet-claim-1-2-OF-2")
+	assert.Contains(t, string(envelope.Data), `"attachmentCount":2`)
+}
+
+func TestReviewAttachmentUpdatesPayloadWithoutChangingTransactionAcceptance(t *testing.T) {
+	app := newTestStore()
+	app.transactions["tx-275"] = domain.Transaction{
+		ID:         "tx-275",
+		Type:       domain.Tx275,
+		Status:     domain.TxStatusAccepted,
+		SenderID:   "provider-vitesse-temple",
+		ReceiverID: "Adventure Society",
+		Payload:    domain.Payload(map[string]any{"x12": "275 Patient Information", "attachmentReviewStatus": "Received"}),
+		RawX12:     "ST*275*0001~",
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/transactions/tx-275/attachment-review", domain.AttachmentReviewRequest{
+		Status: "Rejected",
+		Reason: "Insufficient resurrection medical necessity detail.",
+	})
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.TxStatusAccepted, envelope.Transaction.Status)
+	assert.Contains(t, string(envelope.Transaction.Payload), `"attachmentReviewStatus":"Rejected"`)
+	assert.Contains(t, string(envelope.Transaction.Payload), "Insufficient resurrection medical necessity detail.")
+	assert.Equal(t, domain.TxStatusAccepted, app.transactions["tx-275"].Status)
+	assert.Contains(t, string(app.transactions["tx-275"].Payload), `"attachmentReviewStatus":"Rejected"`)
+}
+
+func TestReviewAttachmentValidatesTransactionAndStatus(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	missing := serveJSON(t, mux, http.MethodPost, "/transactions/missing/attachment-review", domain.AttachmentReviewRequest{Status: "Accepted"})
+	assert.Equal(t, http.StatusNotFound, missing.Code)
+
+	app.transactions["tx-278"] = domain.Transaction{ID: "tx-278", Type: domain.Tx278, Status: domain.TxStatusPending}
+	wrongType := serveJSON(t, mux, http.MethodPost, "/transactions/tx-278/attachment-review", domain.AttachmentReviewRequest{Status: "Accepted"})
+	assert.Equal(t, http.StatusBadRequest, wrongType.Code)
+
+	app.transactions["tx-275"] = domain.Transaction{ID: "tx-275", Type: domain.Tx275, Status: domain.TxStatusAccepted, Payload: domain.Payload(map[string]any{})}
+	invalid := serveJSON(t, mux, http.MethodPost, "/transactions/tx-275/attachment-review", domain.AttachmentReviewRequest{Status: "Maybe"})
+	assert.Equal(t, http.StatusBadRequest, invalid.Code)
 }
 
 func TestAttachClaimInformationClearsDocumentationHold(t *testing.T) {
@@ -278,6 +496,12 @@ func TestAttachClaimInformationValidatesClaimAndRequiredFields(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, invalid.Code)
 	assert.Equal(t, "invalid attachment", decodeEnvelope(t, invalid).Error)
+
+	invalidReference := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "notes", DocumentReferenceURL: "ftp://docs.example.test/doc.txt",
+	})
+	assert.Equal(t, http.StatusBadRequest, invalidReference.Code)
+	assert.Contains(t, decodeEnvelope(t, invalidReference).Lore, "document reference URL")
 
 	disallowed := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
 		AttachmentType:          "PN",
@@ -479,7 +703,7 @@ func TestRequestClaimDocumentationPersistsWithDatabase(t *testing.T) {
 
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
 		WithArgs("claim-1").
-		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-vitesse-temple", domain.SeverityAwakened, "tx-837", int64(125000), int64(0), int64(0), int64(0), int64(0), "", "", domain.ClaimPending))
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-vitesse-temple", domain.SeverityAwakened, "tx-837", "", "", "", int64(125000), int64(0), int64(0), int64(0), int64(0), "", "", domain.ClaimPending))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1 WHERE id = $2`)).
 		WithArgs(string(domain.ClaimPendingDocumentation), "claim-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -715,7 +939,7 @@ func TestPayerLoadersReadFromDatabase(t *testing.T) {
 	assert.Equal(t, "Farros", adventurers["adv-1"].Name)
 
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
-		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved))
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved))
 	claims := loadClaims(db)
 	require.Len(t, claims, 1)
 	assert.Equal(t, domain.ClaimApproved, claims["claim-1"].Status)
@@ -782,7 +1006,7 @@ func TestPayerDatabaseQueriesReturnPagedResults(t *testing.T) {
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
 		WithArgs("Paid", "provider-1", "%claim%", 2, 0).
 		WillReturnRows(claimRows().
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimPaid))
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimPaid))
 	claims, claimPage, err := app.queryClaims(pageRequest{Limit: 1, Offset: 0}, claimFilters{Q: "claim", Status: "Paid", ProviderID: "provider-1"})
 	require.NoError(t, err)
 	assert.Len(t, claims, 1)
@@ -808,7 +1032,7 @@ func TestPayerFindAndSaveDatabasePaths(t *testing.T) {
 
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
 		WithArgs("claim-1").
-		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved))
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved))
 	claim, ok := app.findClaim("claim-1")
 	require.True(t, ok)
 	assert.Equal(t, domain.ClaimApproved, claim.Status)
@@ -908,6 +1132,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)
+	mux.HandleFunc("POST /auth-requests/{id}/attachments", app.attachAuthorizationInformation)
 	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
@@ -920,6 +1145,9 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	mux.HandleFunc("GET /transactions/{id}/export", app.exportTransaction)
 	mux.HandleFunc("POST /transactions/{id}/replay", app.replayTransaction)
+	mux.HandleFunc("POST /transactions/{id}/attachment-review", app.reviewAttachment)
+	mux.HandleFunc("GET /jobs", app.listJobs)
+	mux.HandleFunc("POST /jobs/{id}/replay", app.replayJob)
 	return mux
 }
 
@@ -939,6 +1167,20 @@ func decodeEnvelope(t *testing.T, response *httptest.ResponseRecorder) testEnvel
 	var envelope testEnvelope
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
 	return envelope
+}
+
+func payloadStringForTest(t *testing.T, payload json.RawMessage, key string) string {
+	t.Helper()
+	value, ok := payloadValueForTest(t, payload, key).(string)
+	require.True(t, ok)
+	return value
+}
+
+func payloadValueForTest(t *testing.T, payload json.RawMessage, key string) any {
+	t.Helper()
+	var values map[string]any
+	require.NoError(t, json.Unmarshal(payload, &values))
+	return values[key]
 }
 
 func newPayerMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
@@ -961,7 +1203,7 @@ func newPayerMockDBWithPing(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
 
 func claimRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "amount_cents",
+		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents",
 		"allowed_amount_cents", "paid_amount_cents", "patient_responsibility_cents", "adjustment_amount_cents",
 		"adjustment_reason", "denial_reason", "status",
 	})

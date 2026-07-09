@@ -4,7 +4,7 @@ This backlog captures the next useful build paths for ASHN after the current JSO
 
 ## Recommended Next Milestone
 
-Build an **EDI intake service** that accepts XML payloads, validates them, converts them into ASHN's internal transaction model, and forwards accepted work to `payer-core`.
+Build an **EDI intake service** that accepts XML payloads, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
 
 This keeps `payer-core` focused on business state while giving us a clean place to experiment with external data formats.
 
@@ -33,8 +33,8 @@ flowchart LR
     External["External Partner / Demo XML"] --> Gateway["api-gateway"]
     Gateway --> Intake["edi-intake"]
     Intake --> Validation["XML validation + mapping"]
-    Validation --> Payer["payer-core"]
-    Validation --> Audit["raw inbound XML store"]
+    Intake --> Audit["inbound_messages audit"]
+    Validation --> Payer["payer-core HTTP endpoints"]
     Payer --> Ledger["transaction ledger"]
 ```
 
@@ -44,8 +44,17 @@ Why this deserves a new service:
 - External payload validation should not clutter `payer-core`.
 - It gives us a realistic integration boundary for partner submissions.
 - It can later support raw X12, XML, JSON, file drops, and async queues.
+- `payer-core` remains the source of truth for business rules, state transitions, transaction generation, and async jobs.
 
 Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. For ASHN, XML is a good next step because it is easier to inspect, validate, demo, and map into our domain model before we add raw X12 segment parsing.
+
+## XML Intake Architecture Decisions
+
+- **Routing:** Public submissions go through `api-gateway` at `POST /v1/x12/transactions` for content-negotiated XML/JSON intake. `POST /v1/x12/xml` remains as an XML compatibility route.
+- **Business ownership:** `edi-intake` does not write payer transactions directly. It validates, maps, audits, and calls existing `payer-core` endpoints so one service owns business behavior.
+- **Canonical contract:** Start with one canonical ASHN transaction envelope. XML uses `<AshnX12Transaction type="837">`; JSON uses the same shape with `type`, `sender`, `receiver`, and transaction-specific payload objects. Transaction-specific or partner-specific schemas can layer on later.
+- **Audit policy:** Accepted and rejected XML submissions both create `inbound_messages` audit records. Rejections keep raw payload, error, transaction type when detectable, and downstream status when applicable.
+- **Representation model:** Treat XML and JSON like Rails-style representations at the API edge: the gateway exposes one public workflow surface while intake services translate content types into canonical domain requests.
 
 ### P1 — Raw X12 Generation
 
@@ -58,7 +67,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add download buttons for raw transaction payloads.
 - [x] Expand segment generation toward companion-guide examples.
 - [x] Add XML intake validation rules per transaction type.
-- [ ] Add full companion-guide validation profiles per trading partner.
+- [x] Add full companion-guide validation profiles per trading partner.
 
 ### P1 — Acknowledgments
 
@@ -73,16 +82,16 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Turn `apps/tx-worker` into an active worker service.
 - [x] Add a transaction queue table or lightweight message queue.
 - [x] Move long-running authorization and adjudication work off the request path.
-- [ ] Add retry, dead-letter, and replay behavior.
-- [ ] Show async status transitions in the dashboard.
+- [x] Add retry, dead-letter, and replay behavior.
+- [x] Show async status transitions in the dashboard.
 
 ### P2 — Prior Authorization Lifecycle
 
 - [x] Add explicit `278` approval and denial endpoints.
 - [x] Add authorization review state: `Pending`, `Approved`, `Denied`.
-- [ ] Add severity and service-type rules for auto-approval.
-- [ ] Link authorization decisions to downstream claims.
-- [ ] Show authorization history in claim detail views.
+- [x] Add severity and service-type rules for auto-approval.
+- [x] Link authorization decisions to downstream claims.
+- [x] Show authorization history in claim detail views.
 
 ### P2 — Claim Adjudication
 
@@ -94,11 +103,11 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add `275` patient information attachments linked to claim transactions.
 - [x] Add payer-specific `275` companion-guide validation and timeline attachment labels.
 - [x] Add solicited claim attachment requests that move claims into `Pending Documentation`.
-- [ ] Allow `275` attachments to link to pending `278` prior authorization reviews.
-- [ ] Add attachment review outcomes distinct from transaction acceptance.
-- [ ] Support external document references for large PDFs/images instead of embedded `BIN` content.
-- [ ] Support multi-attachment packets grouped under a claim or authorization.
-- [ ] Move payer-specific `275` validation rules into trading partner profile data.
+- [x] Allow `275` attachments to link to pending `278` prior authorization reviews.
+- [x] Add attachment review outcomes distinct from transaction acceptance.
+- [x] Support external document references for large PDFs/images instead of embedded `BIN` content.
+- [x] Support multi-attachment packets grouped under a claim or authorization.
+- [x] Move payer-specific `275` validation rules into trading partner profile data.
 - [ ] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
 - [ ] Add more tests for denied and partially paid claim variants.
 
@@ -110,7 +119,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add partner-specific validation profiles.
 - [x] Add dashboard visibility for partner configuration.
 - [ ] Add create/update/delete partner management screens.
-- [ ] Add partner-specific companion-guide validation rules.
+- [x] Add partner-specific companion-guide validation rules.
 
 ### P2 — Dashboard Enhancements
 
@@ -177,15 +186,8 @@ Example `270` eligibility inquiry:
 7. Add dashboard XML payload display.
 8. Add raw X12 generation after XML intake is stable.
 
-## Open Architecture Questions
+## Decision Summary
 
-- Should XML intake call existing `payer-core` endpoints or write transactions directly through a shared package?
-- Should `api-gateway` expose `/v1/x12/xml`, or should partner endpoints live directly on `edi-intake`?
-- Do we want canonical ASHN XML first, or transaction-specific XML documents per X12 type?
-- Should rejected XML submissions still create audit records?
-
-## Decision Recommendation
-
-Start with canonical ASHN XML through a new `edi-intake` service. Keep the XML contract small, strongly validated, and easy to demo. Once that works, add raw X12 segment generation and acknowledgments.
+Start with canonical ASHN XML through the public gateway and a dedicated `edi-intake` service. Keep the XML contract small, strongly validated, fully audited, and easy to demo. Forward accepted work into existing `payer-core` endpoints instead of bypassing business rules. Once that works, add raw X12 segment parsing, partner-specific XML variants, and richer content negotiation.
 
 That path gets us closer to real enterprise EDI without burying the project in full X12 implementation complexity too early.

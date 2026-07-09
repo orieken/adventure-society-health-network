@@ -22,14 +22,25 @@ type DemoTransaction = {
 const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) => ({
   id: `tx-e2e-${type.toLowerCase()}`,
   type,
-  status: type === "999" ? "Accepted" : "Dispatched",
+  status: type === "999" || type === "275" ? "Accepted" : "Dispatched",
   senderId: type === "834" || type === "820" || type === "999" || type === "277CA" ? "Adventure Society" : "provider-vitesse-temple",
   receiverId: type === "834" || type === "820" || type === "999" || type === "277CA" ? "provider-vitesse-temple" : "Adventure Society",
   payload: {
     x12: `${type} dashboard display fixture`,
     claimId: `claim-e2e-${type.toLowerCase()}`,
     adventurerId: "adv-e2e-dashboard",
-    ...(type === "275" ? { attachmentType: "OZ", reportTypeCode: "B4" } : {})
+    ...(type === "275"
+      ? {
+          attachmentType: "OZ",
+          reportTypeCode: "B4",
+          packetId: "packet-e2e-275",
+          packetSequence: "1",
+          packetCount: "2",
+          attachmentReviewStatus: "Received",
+          documentReferenceId: "doc-e2e-275",
+          documentReferenceUrl: "https://docs.example.test/doc-e2e-275.pdf"
+        }
+      : {})
   },
   rawX12: `ISA*00*          *00*          *ZZ*ASHN           *ZZ*PARTNER        *260708*1200*^*00501*${String(index + 1).padStart(9, "0")}*0*T*:~ST*${type}*0001~SE*2*0001~`,
   relatedId: index > 0 ? "tx-e2e-834" : undefined,
@@ -94,6 +105,7 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByText("Claim lifecycle")).toBeVisible();
     await expect(page.getByText("Claim claim-e2e-275")).toBeVisible();
     await expect(page.getByRole("button", { name: /275 OZ\/B4 attachment/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /packet-e2e-275 \(1\/2\)/i })).toBeVisible();
   });
 
   test("supports manual approval for a pending 278 authorization", async ({ page }) => {
@@ -112,6 +124,33 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(authReview.getByText("278 · Approved")).toBeVisible();
   });
 
+  test("shows async worker queue status transitions", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    const queue = page.locator(".panel").filter({ has: page.getByRole("heading", { name: /Async Worker Queue/i }) });
+    await expect(queue.getByText("auth_review · pending")).toBeVisible();
+    await expect(queue.getByText("claim_finalization · failed · Dead Letter")).toBeVisible();
+    await expect(queue.getByRole("button", { name: /Replay/i })).toBeVisible();
+  });
+
+  test("sends 275 documentation for a pending 278 authorization", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Send 834 Enrollment/i }).click();
+    await page.getByRole("button", { name: /278 Resurrection Auth/i }).click();
+
+    const authReview = page.locator(".auth-review-card");
+    await expect(authReview.getByText("278 · Pending")).toBeVisible();
+
+    await authReview.getByRole("button", { name: /Send 275 Auth Docs/i }).click();
+    const latestEvent = page.locator(".event").first();
+    await expect(latestEvent.getByText("275 · Accepted")).toBeVisible();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("authorizationTransactionId")).toBeVisible();
+  });
+
   test("requests 275 documentation from claim detail", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -121,9 +160,32 @@ test.describe("ASHN dashboard smoke", () => {
     const drawer = page.getByLabel("Selected record details");
     await expect(drawer.getByRole("heading", { name: /Claim Detail/i })).toBeVisible();
     await expect(drawer.getByText("Submitted")).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Prior Auth" }).getByText("tx-e2e-auth-review")).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Auth Status" }).getByText("Approved")).toBeVisible();
 
     await page.getByRole("button", { name: /Request 275 Docs/i }).click();
     await expect(drawer.getByText("Pending Documentation")).toBeVisible();
+  });
+
+  test("reviews 275 attachment outcomes separately from EDI acceptance", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    await page.getByLabel("Transaction type").selectOption("275");
+    await page.getByText("tx-e2e-275").click();
+
+    const drawer = page.getByLabel("Selected record details");
+    await expect(drawer.getByRole("heading", { name: /Transaction Detail/i })).toBeVisible();
+    const reviewRow = drawer.locator(".detail-item").filter({ hasText: "Attachment Review" });
+    await expect(reviewRow.getByText("Received", { exact: true })).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Document Ref" }).getByText("doc-e2e-275")).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Document URL" }).getByText("https://docs.example.test/doc-e2e-275.pdf")).toBeVisible();
+
+    await drawer.getByRole("button", { name: /Reject Attachment/i }).click();
+    await expect(reviewRow.getByText("Rejected", { exact: true })).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Review Reason" }).getByText("Supporting documentation is insufficient for business review.")).toBeVisible();
+    await expect(drawer.getByText("Accepted")).toBeVisible();
   });
 });
 
@@ -220,6 +282,30 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
+    if (path === "/v1/auth-requests/tx-e2e-auth-review/attachments") {
+      await route.fulfill({
+        status: 201,
+        json: {
+          data: { authorizationTransactionId: "tx-e2e-auth-review", attachmentType: "OZ", attachmentControlNumber: "ATTACH-TX-E2E" },
+          lore: "Patient information attachment accepted for prior authorization.",
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.type === "275"),
+            id: "tx-e2e-auth-275",
+            status: "Accepted",
+            relatedId: "tx-e2e-auth-review",
+            payload: {
+              x12: "275 dashboard auth attachment fixture",
+              authorizationTransactionId: "tx-e2e-auth-review",
+              adventurerId: "adv-e2e-dashboard",
+              attachmentType: "OZ",
+              reportTypeCode: "B4"
+            }
+          }
+        }
+      });
+      return;
+    }
+
     if (path === "/v1/claims") {
       await route.fulfill({
         json: {
@@ -230,6 +316,9 @@ async function mockDashboardApi(page: Page) {
               providerId: "provider-vitesse-temple",
               incidentSeverity: "fixture",
               transactionId: "tx-e2e-837",
+              authorizationTransactionId: "tx-e2e-auth-review",
+              authorizationStatus: "Approved",
+              authorizationReason: "Manual review approved resurrection medical necessity.",
               amountCents: 12500,
               status: claimStatus
             }
@@ -249,6 +338,9 @@ async function mockDashboardApi(page: Page) {
             providerId: "provider-vitesse-temple",
             incidentSeverity: "fixture",
             transactionId: "tx-e2e-837",
+            authorizationTransactionId: "tx-e2e-auth-review",
+            authorizationStatus: "Approved",
+            authorizationReason: "Manual review approved resurrection medical necessity.",
             amountCents: 12500,
             status: claimStatus
           }
@@ -273,10 +365,81 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
+    if (path === "/v1/transactions/tx-e2e-275/attachment-review") {
+      await route.fulfill({
+        json: {
+          data: { transactionId: "tx-e2e-275", attachmentReviewStatus: "Rejected", reason: "Supporting documentation is insufficient for business review." },
+          lore: "Attachment review marked rejected.",
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.id === "tx-e2e-275"),
+            payload: {
+              ...demoTransactions.find((transaction) => transaction.id === "tx-e2e-275")?.payload,
+              attachmentReviewStatus: "Rejected",
+              attachmentReviewReason: "Supporting documentation is insufficient for business review."
+            }
+          }
+        }
+      });
+      return;
+    }
+
     if (path === "/v1/transactions") {
       const type = url.searchParams.get("type");
       const data = type ? demoTransactions.filter((transaction) => transaction.type === type) : demoTransactions;
       await route.fulfill({ json: { data, page: pageInfo(data.length, 25) } });
+      return;
+    }
+
+    if (path === "/v1/jobs") {
+      await route.fulfill({
+        json: {
+          data: [
+            {
+              id: "job-e2e-auth",
+              type: "auth_review",
+              entityId: "tx-e2e-auth-review",
+              status: "pending",
+              attempts: 0,
+              runAfter: "2026-07-09T15:00:00Z",
+              deadLetter: false,
+              createdAt: "2026-07-09T15:00:00Z",
+              updatedAt: "2026-07-09T15:00:00Z"
+            },
+            {
+              id: "job-e2e-dead",
+              type: "claim_finalization",
+              entityId: "claim-e2e-dashboard",
+              status: "failed",
+              attempts: 3,
+              runAfter: "2026-07-09T15:01:00Z",
+              lastError: "{\"error\":\"simulated adjudication failure\"}",
+              deadLetter: true,
+              createdAt: "2026-07-09T15:00:00Z",
+              updatedAt: "2026-07-09T15:01:00Z"
+            }
+          ]
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/jobs/job-e2e-dead/replay") {
+      await route.fulfill({
+        status: 202,
+        json: {
+          data: {
+            id: "job-e2e-dead",
+            type: "claim_finalization",
+            entityId: "claim-e2e-dashboard",
+            status: "pending",
+            attempts: 0,
+            runAfter: "2026-07-09T15:02:00Z",
+            deadLetter: false,
+            createdAt: "2026-07-09T15:00:00Z",
+            updatedAt: "2026-07-09T15:02:00Z"
+          }
+        }
+      });
       return;
     }
 

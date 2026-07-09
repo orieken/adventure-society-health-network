@@ -59,7 +59,7 @@ The stack also starts `tx-worker`, which asynchronously reviews queued `278` aut
 
 Service logs are written under `.dev/logs/` while `make dev-stack` is running.
 
-The stack also starts `edi-intake` on `http://localhost:8083`; the public XML endpoint is available through the gateway at `POST /v1/x12/xml`.
+The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSON intake is available through the gateway at `POST /v1/x12/transactions`, with `POST /v1/x12/xml` kept as the XML compatibility route.
 Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`.
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -24,7 +25,7 @@ import (
 )
 
 const societyID = "adventure-society"
-const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status`
+const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status`
 
 type store struct {
 	mu           sync.RWMutex
@@ -86,6 +87,7 @@ func main() {
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)
+	mux.HandleFunc("POST /auth-requests/{id}/attachments", app.attachAuthorizationInformation)
 	mux.HandleFunc("GET /claims", app.listClaims)
 	mux.HandleFunc("POST /claims", app.submitClaim)
 	mux.HandleFunc("GET /claims/{id}", app.getClaim)
@@ -98,6 +100,9 @@ func main() {
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	mux.HandleFunc("GET /transactions/{id}/export", app.exportTransaction)
 	mux.HandleFunc("POST /transactions/{id}/replay", app.replayTransaction)
+	mux.HandleFunc("POST /transactions/{id}/attachment-review", app.reviewAttachment)
+	mux.HandleFunc("GET /jobs", app.listJobs)
+	mux.HandleFunc("POST /jobs/{id}/replay", app.replayJob)
 	addr := env("PAYER_CORE_ADDR", ":8081")
 	log.Printf("[ASHN] payer-core listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
@@ -220,6 +225,50 @@ func (s *store) decideAuthorization(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, domain.Envelope{Data: data, Lore: fmt.Sprintf("Prior authorization %s by manual review.", strings.ToLower(string(decision))), Transaction: &tx})
 }
 
+func (s *store) attachAuthorizationInformation(w http.ResponseWriter, r *http.Request) {
+	requests, ok := decodeAttachmentRequests(w, r)
+	if !ok {
+		return
+	}
+	transactionID := r.PathValue("id")
+	auth, ok := s.findTransaction(transactionID)
+	if !ok {
+		fail(w, http.StatusNotFound, "transaction not found", "The attachment scribe could not locate that authorization rune.")
+		return
+	}
+	if auth.Type != domain.Tx278 {
+		fail(w, http.StatusBadRequest, "invalid authorization transaction", "Only 278 prior authorization runes can receive 275 attachments here.")
+		return
+	}
+	providerID := transactionPayloadString(auth, "providerId")
+	if providerID == "" {
+		providerID = auth.SenderID
+	}
+	txs := make([]domain.Transaction, 0, len(requests))
+	for _, req := range requests {
+		req = normalizeAttachmentRequest(req)
+		if err := validateAttachmentRequest(req); err != nil {
+			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			return
+		}
+		if err := validateAttachmentForProvider(providerID, req); err != nil {
+			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			return
+		}
+		tx := edimock.Generate275ForAuthorization(auth, req)
+		s.saveTransaction(tx)
+		txs = append(txs, tx)
+	}
+	firstTx := firstTransaction(txs)
+	data := map[string]any{
+		"authorizationTransactionId": auth.ID,
+		"packetId":                   packetIDFor(requests),
+		"attachmentCount":            len(requests),
+	}
+	addAttachmentSummary(data, requests)
+	respond(w, http.StatusCreated, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx275, providerID, "Adventure Society"), Transaction: firstTx, Transactions: txs})
+}
+
 func parseAuthorizationDecision(value string) (domain.TransactionStatus, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "approved", "approve":
@@ -243,6 +292,16 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	claim := domain.Claim{
 		ID: domain.NewID(), AdventurerID: adventurer.ID, ProviderID: provider.ID,
 		IncidentSeverity: req.IncidentSeverity, AmountCents: req.AmountCents, Status: domain.ClaimSubmitted,
+	}
+	if strings.TrimSpace(req.AuthorizationTransactionID) != "" {
+		authStatus, authReason, ok := s.authorizationForClaim(req.AuthorizationTransactionID, adventurer.ID, provider.ID)
+		if !ok {
+			fail(w, http.StatusBadRequest, "invalid authorization link", "The claim references a prior authorization that does not match this adventurer and provider.")
+			return
+		}
+		claim.AuthorizationTransactionID = strings.TrimSpace(req.AuthorizationTransactionID)
+		claim.AuthorizationStatus = authStatus
+		claim.AuthorizationReason = authReason
 	}
 	tx := edimock.Generate837(claim)
 	claim.TransactionID = tx.ID
@@ -331,8 +390,8 @@ func (s *store) requestClaimDocumentation(w http.ResponseWriter, r *http.Request
 }
 
 func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
-	var req domain.AttachmentRequest
-	if !decode(w, r, &req) {
+	requests, ok := decodeAttachmentRequests(w, r)
+	if !ok {
 		return
 	}
 	id := r.PathValue("id")
@@ -341,23 +400,21 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "claim not found", "The attachment scribe could not locate that claim.")
 		return
 	}
-	req.AttachmentType = strings.TrimSpace(req.AttachmentType)
-	req.AttachmentControlNumber = strings.TrimSpace(req.AttachmentControlNumber)
-	req.ReportTypeCode = strings.TrimSpace(req.ReportTypeCode)
-	req.TransmissionCode = strings.TrimSpace(req.TransmissionCode)
-	req.ContentType = strings.TrimSpace(req.ContentType)
-	req.Description = strings.TrimSpace(req.Description)
-	req.Content = strings.TrimSpace(req.Content)
-	if req.AttachmentType == "" || req.AttachmentControlNumber == "" || req.ReportTypeCode == "" || req.TransmissionCode == "" || req.ContentType == "" || req.Description == "" || req.Content == "" {
-		fail(w, http.StatusBadRequest, "invalid attachment", "The supporting scroll is missing required patient information.")
-		return
+	txs := make([]domain.Transaction, 0, len(requests))
+	for _, req := range requests {
+		req = normalizeAttachmentRequest(req)
+		if err := validateAttachmentRequest(req); err != nil {
+			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			return
+		}
+		if err := validateAttachmentForProvider(claim.ProviderID, req); err != nil {
+			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			return
+		}
+		tx := edimock.Generate275(claim, req, claim.TransactionID)
+		s.saveTransaction(tx)
+		txs = append(txs, tx)
 	}
-	if err := validateAttachmentForProvider(claim.ProviderID, req); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
-		return
-	}
-	tx := edimock.Generate275(claim, req, claim.TransactionID)
-	s.saveTransaction(tx)
 	claimStatus := claim.Status
 	if claim.Status == domain.ClaimPendingDocumentation {
 		claim.Status = domain.ClaimPending
@@ -369,16 +426,128 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		s.enqueueJob(asyncjobs.JobClaimFinalization, claim.ID, 2*time.Second)
 	}
 	data := map[string]any{
-		"claimId":                 claim.ID,
-		"claimStatus":             claimStatus,
-		"attachmentType":          req.AttachmentType,
-		"attachmentControlNumber": req.AttachmentControlNumber,
-		"reportTypeCode":          req.ReportTypeCode,
-		"transmissionCode":        req.TransmissionCode,
-		"contentType":             req.ContentType,
-		"description":             req.Description,
+		"claimId":         claim.ID,
+		"claimStatus":     claimStatus,
+		"packetId":        packetIDFor(requests),
+		"attachmentCount": len(requests),
 	}
-	respond(w, http.StatusCreated, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"), Transaction: &tx})
+	addAttachmentSummary(data, requests)
+	respond(w, http.StatusCreated, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"), Transaction: firstTransaction(txs), Transactions: txs})
+}
+
+func normalizeAttachmentRequest(req domain.AttachmentRequest) domain.AttachmentRequest {
+	req.PacketID = strings.TrimSpace(req.PacketID)
+	req.AttachmentType = strings.TrimSpace(req.AttachmentType)
+	req.AttachmentControlNumber = strings.TrimSpace(req.AttachmentControlNumber)
+	req.ReportTypeCode = strings.TrimSpace(req.ReportTypeCode)
+	req.TransmissionCode = strings.TrimSpace(req.TransmissionCode)
+	req.ContentType = strings.TrimSpace(req.ContentType)
+	req.Description = strings.TrimSpace(req.Description)
+	req.Content = strings.TrimSpace(req.Content)
+	req.DocumentReferenceID = strings.TrimSpace(req.DocumentReferenceID)
+	req.DocumentReferenceURL = strings.TrimSpace(req.DocumentReferenceURL)
+	return req
+}
+
+func decodeAttachmentRequests(w http.ResponseWriter, r *http.Request) ([]domain.AttachmentRequest, bool) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		fail(w, http.StatusBadRequest, "invalid json", "The submitted scroll could not be read by the Society scribe.")
+		return nil, false
+	}
+	var packet domain.AttachmentPacketRequest
+	if err := json.Unmarshal(body, &packet); err == nil && len(packet.Attachments) > 0 {
+		return normalizeAttachmentPacket(packet), true
+	}
+	var req domain.AttachmentRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		fail(w, http.StatusBadRequest, "invalid json", "The submitted scroll could not be read by the Society scribe.")
+		return nil, false
+	}
+	return normalizeAttachmentPacket(domain.AttachmentPacketRequest{PacketID: req.PacketID, Attachments: []domain.AttachmentRequest{req}}), true
+}
+
+func normalizeAttachmentPacket(packet domain.AttachmentPacketRequest) []domain.AttachmentRequest {
+	requests := packet.Attachments
+	if len(requests) == 0 {
+		return nil
+	}
+	packetID := strings.TrimSpace(packet.PacketID)
+	if packetID == "" {
+		packetID = strings.TrimSpace(requests[0].PacketID)
+	}
+	if packetID == "" && len(requests) > 1 {
+		packetID = "packet-" + domain.NewID()
+	}
+	for index := range requests {
+		if requests[index].PacketID == "" {
+			requests[index].PacketID = packetID
+		}
+		if len(requests) > 1 {
+			if requests[index].PacketSequence == 0 {
+				requests[index].PacketSequence = index + 1
+			}
+			if requests[index].PacketCount == 0 {
+				requests[index].PacketCount = len(requests)
+			}
+		}
+	}
+	return requests
+}
+
+func packetIDFor(requests []domain.AttachmentRequest) string {
+	if len(requests) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(requests[0].PacketID)
+}
+
+func firstTransaction(txs []domain.Transaction) *domain.Transaction {
+	if len(txs) == 0 {
+		return nil
+	}
+	return &txs[0]
+}
+
+func addAttachmentSummary(data map[string]any, requests []domain.AttachmentRequest) {
+	if len(requests) == 0 {
+		return
+	}
+	req := requests[0]
+	data["attachmentType"] = req.AttachmentType
+	data["attachmentControlNumber"] = req.AttachmentControlNumber
+	data["reportTypeCode"] = req.ReportTypeCode
+	data["transmissionCode"] = req.TransmissionCode
+	data["contentType"] = req.ContentType
+	data["description"] = req.Description
+	data["documentReferenceId"] = req.DocumentReferenceID
+	data["documentReferenceUrl"] = req.DocumentReferenceURL
+}
+
+func validateAttachmentRequest(req domain.AttachmentRequest) error {
+	if req.AttachmentType == "" || req.AttachmentControlNumber == "" || req.ReportTypeCode == "" || req.TransmissionCode == "" || req.ContentType == "" || req.Description == "" {
+		return fmt.Errorf("The supporting scroll is missing required patient information.")
+	}
+	if req.Content == "" && req.DocumentReferenceURL == "" {
+		return fmt.Errorf("The supporting scroll needs embedded content or an external document reference URL.")
+	}
+	if req.DocumentReferenceURL != "" && !(strings.HasPrefix(req.DocumentReferenceURL, "https://") || strings.HasPrefix(req.DocumentReferenceURL, "s3://") || strings.HasPrefix(req.DocumentReferenceURL, "gs://")) {
+		return fmt.Errorf("document reference URL must start with https://, s3://, or gs://")
+	}
+	return nil
+}
+
+func transactionPayloadString(tx domain.Transaction, key string) string {
+	var payload map[string]any
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return ""
+	}
+	value, ok := payload[key]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
 }
 
 type attachmentCompanionRule struct {
@@ -561,6 +730,81 @@ func (s *store) recordTransaction(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusCreated, domain.Envelope{Data: tx, Transaction: &tx, Lore: "The Society ledger recorded an externally generated EDI rune."})
 }
 
+func (s *store) reviewAttachment(w http.ResponseWriter, r *http.Request) {
+	var req domain.AttachmentReviewRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	tx, ok := s.findTransaction(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, "transaction not found", "No attachment rune with that seal exists in the ledger.")
+		return
+	}
+	if tx.Type != domain.Tx275 {
+		fail(w, http.StatusBadRequest, "invalid attachment transaction", "Only 275 patient information runes can receive attachment review outcomes.")
+		return
+	}
+	reviewStatus, ok := parseAttachmentReviewStatus(req.Status)
+	if !ok {
+		fail(w, http.StatusBadRequest, "invalid attachment review status", "Attachment review accepts In Review, Accepted, or Rejected.")
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	tx.Payload = mergePayload(tx.Payload, map[string]any{
+		"attachmentReviewStatus": reviewStatus,
+		"attachmentReviewReason": reason,
+		"attachmentReviewedAt":   time.Now().UTC().Format(time.RFC3339),
+	})
+	if err := s.updateTransaction(tx); err != nil {
+		fail(w, http.StatusInternalServerError, "attachment review update failed", "The review council could not record the attachment outcome.")
+		return
+	}
+	data := map[string]any{"transactionId": tx.ID, "attachmentReviewStatus": reviewStatus, "reason": reason}
+	respond(w, http.StatusOK, domain.Envelope{Data: data, Lore: fmt.Sprintf("Attachment review marked %s.", strings.ToLower(reviewStatus)), Transaction: &tx})
+}
+
+func (s *store) listJobs(w http.ResponseWriter, r *http.Request) {
+	jobs, err := asyncjobs.List(s.db, parseLimit(r, 25))
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "job list failed", "The worker ledger could not be opened.")
+		return
+	}
+	respond(w, http.StatusOK, domain.Envelope{Data: jobs, Lore: "The Society inspected its async worker queue."})
+}
+
+func (s *store) replayJob(w http.ResponseWriter, r *http.Request) {
+	job, err := asyncjobs.Replay(s.db, r.PathValue("id"))
+	if err != nil {
+		fail(w, http.StatusNotFound, "job not replayable", "Only dead-lettered worker jobs can be replayed.")
+		return
+	}
+	respond(w, http.StatusAccepted, domain.Envelope{Data: job, Lore: "The Society returned a dead-letter job to the pending queue."})
+}
+
+func parseAttachmentReviewStatus(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "in review", "in_review", "review", "reviewing":
+		return "In Review", true
+	case "accepted", "accept", "approved", "approve":
+		return "Accepted", true
+	case "rejected", "reject", "denied", "deny":
+		return "Rejected", true
+	default:
+		return "", false
+	}
+}
+
+func mergePayload(payload json.RawMessage, updates map[string]any) json.RawMessage {
+	merged := map[string]any{}
+	if err := json.Unmarshal(payload, &merged); err != nil {
+		merged = map[string]any{}
+	}
+	for key, value := range updates {
+		merged[key] = value
+	}
+	return domain.Payload(merged)
+}
+
 func (s *store) findAdventurerProvider(w http.ResponseWriter, adventurerID, providerID string) (domain.Adventurer, domain.Provider, bool) {
 	s.mu.RLock()
 	adventurer, adventurerOK := s.adventurers[adventurerID]
@@ -619,6 +863,38 @@ func (s *store) findTransaction(id string) (domain.Transaction, bool) {
 	return tx, ok
 }
 
+func (s *store) authorizationForClaim(transactionID, adventurerID, providerID string) (string, string, bool) {
+	transactionID = strings.TrimSpace(transactionID)
+	if transactionID == "" {
+		return "", "", false
+	}
+	tx, ok := s.findTransaction(transactionID)
+	if !ok || tx.Type != domain.Tx278 {
+		return "", "", false
+	}
+	if payloadAdventurer := transactionPayloadString(tx, "adventurerId"); payloadAdventurer != "" && payloadAdventurer != adventurerID {
+		return "", "", false
+	}
+	if payloadProvider := transactionPayloadString(tx, "providerId"); payloadProvider != "" && payloadProvider != providerID {
+		return "", "", false
+	}
+	reason := transactionPayloadString(tx, "authorizationReason")
+	if s.db != nil {
+		var status string
+		err := s.db.QueryRow(
+			`SELECT status FROM auth_requests WHERE transaction_id = $1 AND adventurer_id = $2 AND provider_id = $3`,
+			transactionID, adventurerID, providerID,
+		).Scan(&status)
+		if err == nil {
+			return status, reason, true
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[ASHN] postgres auth lookup failed; using transaction status: %v", err)
+		}
+	}
+	return string(tx.Status), reason, true
+}
+
 func (s *store) enqueueJob(jobType, entityID string, delay time.Duration) {
 	if err := asyncjobs.Enqueue(s.db, jobType, entityID, delay); err != nil {
 		log.Printf("[ASHN] async job enqueue failed type=%s entity=%s: %v", jobType, entityID, err)
@@ -668,8 +944,8 @@ func (s *store) saveClaim(claim domain.Claim) {
 	defer s.mu.Unlock()
 	s.claims[claim.ID] = claim
 	if s.db != nil {
-		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, $8, $9, $10, NULLIF($11, ''), NULLIF($12, ''), $13) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, status = EXCLUDED.status`,
-			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, claim.Status)
+		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, status = EXCLUDED.status`,
+			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, claim.Status)
 		if err != nil {
 			log.Printf("[ASHN] postgres claim persistence failed: %v", err)
 		}
@@ -690,9 +966,32 @@ func (s *store) saveTransaction(tx domain.Transaction) {
 	log.Printf("[ASHN] transaction=%s type=%s status=%s lore=%s", tx.ID, tx.Type, tx.Status, lore.ThemeTransaction(tx.Type, tx.SenderID, tx.ReceiverID))
 }
 
+func (s *store) updateTransaction(tx domain.Transaction) error {
+	s.mu.Lock()
+	s.transactions[tx.ID] = tx
+	s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE transactions SET status = $1, payload = $2, raw_x12 = $3, related_id = NULLIF($4, '') WHERE id = $5`,
+		tx.Status, []byte(tx.Payload), tx.RawX12, tx.RelatedID, tx.ID)
+	if err != nil {
+		log.Printf("[ASHN] postgres transaction update failed: %v", err)
+		return err
+	}
+	return nil
+}
+
 func (s *store) updateAuthorizationDecision(tx domain.Transaction, reason string) error {
 	s.mu.Lock()
 	s.transactions[tx.ID] = tx
+	for id, claim := range s.claims {
+		if claim.AuthorizationTransactionID == tx.ID {
+			claim.AuthorizationStatus = string(tx.Status)
+			claim.AuthorizationReason = reason
+			s.claims[id] = claim
+		}
+	}
 	s.mu.Unlock()
 	if s.db == nil {
 		log.Printf("[ASHN] authorization=%s decision=%s reason=%s", tx.ID, tx.Status, reason)
@@ -706,6 +1005,10 @@ func (s *store) updateAuthorizationDecision(tx domain.Transaction, reason string
 	_, err = s.db.Exec(`UPDATE transactions SET status = $1, raw_x12 = $2 WHERE id = $3 AND type = $4`, string(tx.Status), tx.RawX12, tx.ID, string(domain.Tx278))
 	if err != nil {
 		log.Printf("[ASHN] postgres auth transaction update failed: %v", err)
+		return err
+	}
+	if _, err = s.db.Exec(`UPDATE claims SET authorization_status = $1, authorization_reason = NULLIF($2, '') WHERE authorization_transaction_id = $3`, string(tx.Status), reason, tx.ID); err != nil {
+		log.Printf("[ASHN] postgres linked claim auth update failed: %v", err)
 		return err
 	}
 	log.Printf("[ASHN] authorization=%s decision=%s reason=%s", tx.ID, tx.Status, reason)
@@ -890,6 +1193,9 @@ func scanClaimDest(claim *domain.Claim) []any {
 		&claim.ProviderID,
 		&claim.IncidentSeverity,
 		&claim.TransactionID,
+		&claim.AuthorizationTransactionID,
+		&claim.AuthorizationStatus,
+		&claim.AuthorizationReason,
 		&claim.AmountCents,
 		&claim.AllowedAmountCents,
 		&claim.PaidAmountCents,
@@ -1248,6 +1554,9 @@ func payerOpenAPI() map[string]any {
 			"/auth-requests/{id}/decision": {
 				"post": {Summary: "Approve or deny a 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true},
 			},
+			"/auth-requests/{id}/attachments": {
+				"post": {Summary: "Submit one 275 attachment or a packet for a 278 authorization", Tags: []string{"authorizations", "attachments", "x12"}, RequestBody: true},
+			},
 			"/claims": {
 				"get":  {Summary: "List claims", Tags: []string{"claims"}},
 				"post": {Summary: "Submit 837 claim", Tags: []string{"claims", "x12"}, RequestBody: true},
@@ -1262,7 +1571,7 @@ func payerOpenAPI() map[string]any {
 				"post": {Summary: "Request 275 supporting documentation", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true},
 			},
 			"/claims/{id}/attachments": {
-				"post": {Summary: "Submit 275 patient information attachment", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true},
+				"post": {Summary: "Submit one 275 patient information attachment or a packet", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true},
 			},
 			"/claims/{id}/payment": {
 				"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true},
@@ -1279,6 +1588,15 @@ func payerOpenAPI() map[string]any {
 			},
 			"/transactions/{id}/replay": {
 				"post": {Summary: "Replay transaction", Tags: []string{"transactions", "replay"}},
+			},
+			"/transactions/{id}/attachment-review": {
+				"post": {Summary: "Record 275 attachment review outcome", Tags: []string{"transactions", "attachments"}, RequestBody: true},
+			},
+			"/jobs": {
+				"get": {Summary: "List async transaction jobs", Tags: []string{"async jobs"}},
+			},
+			"/jobs/{id}/replay": {
+				"post": {Summary: "Replay a dead-lettered async job", Tags: []string{"async jobs", "replay"}},
 			},
 		},
 	})

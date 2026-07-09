@@ -16,11 +16,13 @@ type Envelope<T = unknown> = {
     id: string;
     type: string;
     status: string;
+    relatedId?: string;
   };
   transactions?: Array<{
     id: string;
     type: string;
     status: string;
+    relatedId?: string;
   }>;
 };
 
@@ -121,6 +123,38 @@ test.describe("ASHN mutating demo contracts", () => {
     expect(authEnvelope.transaction?.type).toBe("278");
     expect(authEnvelope.transaction?.status).toBe("Pending");
 
+    const authAttachment = await request.post(`${serviceUrls.apiGateway}/v1/auth-requests/${authEnvelope.transaction?.id}/attachments`, {
+      data: {
+        attachmentType: "OZ",
+        attachmentControlNumber: `ATTACH-AUTH-${Date.now()}`,
+        reportTypeCode: "B4",
+        transmissionCode: "EL",
+        contentType: "text/plain",
+        description: "Prior authorization medical necessity notes",
+        content: "Authorization includes encounter notes and healer attestation.",
+        documentReferenceId: `doc-auth-${Date.now()}`,
+        documentReferenceUrl: "https://docs.example.test/ashn/auth-notes.pdf"
+      }
+    });
+    expect(authAttachment.status()).toBe(201);
+
+    const authAttachmentEnvelope = (await authAttachment.json()) as Envelope<{ authorizationTransactionId: string; attachmentType: string }>;
+    expect(authAttachmentEnvelope.data?.authorizationTransactionId).toBe(authEnvelope.transaction?.id);
+    expect(authAttachmentEnvelope.transaction?.type).toBe("275");
+    expect(authAttachmentEnvelope.transaction?.relatedId).toBe(authEnvelope.transaction?.id);
+
+    const attachmentReview = await request.post(`${serviceUrls.apiGateway}/v1/transactions/${authAttachmentEnvelope.transaction?.id}/attachment-review`, {
+      data: {
+        status: "Accepted",
+        reason: "E2E attachment review accepted supporting documentation."
+      }
+    });
+    expect(attachmentReview.ok()).toBeTruthy();
+
+    const attachmentReviewEnvelope = (await attachmentReview.json()) as Envelope<{ attachmentReviewStatus: string }>;
+    expect(attachmentReviewEnvelope.data?.attachmentReviewStatus).toBe("Accepted");
+    expect(attachmentReviewEnvelope.transaction?.status).toBe("Accepted");
+
     const decision = await request.post(`${serviceUrls.apiGateway}/v1/auth-requests/${authEnvelope.transaction?.id}/decision`, {
       data: {
         decision: "Approved",
@@ -174,6 +208,38 @@ test.describe("ASHN mutating demo contracts", () => {
     expect((attachmentEnvelope.data as { claimStatus?: string } | undefined)?.claimStatus).toBe("Pending");
     expect(attachmentEnvelope.transaction?.type).toBe("275");
     expect(attachmentEnvelope.transaction?.status).toBe("Accepted");
+
+    const packetId = `packet-${Date.now()}`;
+    const attachmentPacket = await request.post(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}/attachments`, {
+      data: {
+        packetId,
+        attachments: [
+          {
+            attachmentType: "OZ",
+            attachmentControlNumber: `ATTACH-PKT-${Date.now()}-1`,
+            reportTypeCode: "B4",
+            transmissionCode: "EL",
+            contentType: "text/plain",
+            description: "Packet note one",
+            content: "First packeted support note."
+          },
+          {
+            attachmentType: "OZ",
+            attachmentControlNumber: `ATTACH-PKT-${Date.now()}-2`,
+            reportTypeCode: "B4",
+            transmissionCode: "EL",
+            contentType: "text/plain",
+            description: "Packet note two",
+            documentReferenceUrl: "https://docs.example.test/packet-note-two.txt"
+          }
+        ]
+      }
+    });
+    expect(attachmentPacket.status()).toBe(201);
+    const attachmentPacketEnvelope = (await attachmentPacket.json()) as Envelope<{ claimId: string; packetId: string; attachmentCount: number }>;
+    expect(attachmentPacketEnvelope.data?.packetId).toBe(packetId);
+    expect(attachmentPacketEnvelope.data?.attachmentCount).toBe(2);
+    expect(attachmentPacketEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["275", "275"]);
 
     const xmlAttachment = `<?xml version="1.0" encoding="UTF-8"?>
 <AshnX12Transaction type="275">
@@ -240,5 +306,32 @@ test.describe("ASHN mutating demo contracts", () => {
 
     const envelope = (await messages.json()) as Envelope<Array<{ id: string; transactionType: string; status: string }>>;
     expect(envelope.data?.some((message) => message.transactionType === "834" && message.status === "accepted")).toBeTruthy();
+  });
+
+  test("gateway accepts canonical JSON intake through representation route", async ({ request }) => {
+    const jsonName = uniqueDemoName("JSON Ranger");
+    const intake = await request.post(`${serviceUrls.apiGateway}/v1/x12/transactions`, {
+      headers: {
+        "Content-Type": "application/vnd.ashn+x12+json"
+      },
+      data: {
+        type: "834",
+        sender: { id: "partner-greenstone" },
+        receiver: { id: "Adventure Society" },
+        enrollment: {
+          name: jsonName,
+          rank: "Silver",
+          guild: "JSON Demo Guild",
+          region: "Greenstone"
+        }
+      }
+    });
+    expect(intake.status()).toBe(201);
+
+    const messages = await request.get(`${serviceUrls.apiGateway}/v1/x12/messages?limit=5&type=834&q=${encodeURIComponent(jsonName)}`);
+    expect(messages.ok()).toBeTruthy();
+
+    const envelope = (await messages.json()) as Envelope<Array<{ contentType: string; transactionType: string; status: string }>>;
+    expect(envelope.data?.some((message) => message.contentType.includes("json") && message.transactionType === "834" && message.status === "accepted")).toBeTruthy();
   });
 });

@@ -108,6 +108,9 @@ func TestProcessJobDispatchesSupportedTypes(t *testing.T) {
 	authMock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
 		WithArgs(string(domain.TxStatusApproved), "tx-278").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	authMock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET authorization_status = $1, authorization_reason = $2 WHERE authorization_transaction_id = $3`)).
+		WithArgs(string(domain.TxStatusApproved), "Auto-approved by severity and service-type rule.", "tx-278").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	authMock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1 WHERE id = $2 AND type = $3`)).
 		WithArgs(string(domain.TxStatusApproved), "tx-278", string(domain.Tx278)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -132,6 +135,9 @@ func TestProcessAuthReviewApprovesDiamondResurrection(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
 		WithArgs(string(domain.TxStatusApproved), "tx-278").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET authorization_status = $1, authorization_reason = $2 WHERE authorization_transaction_id = $3`)).
+		WithArgs(string(domain.TxStatusApproved), "Auto-approved by severity and service-type rule.", "tx-278").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1 WHERE id = $2 AND type = $3`)).
 		WithArgs(string(domain.TxStatusApproved), "tx-278", string(domain.Tx278)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -148,6 +154,9 @@ func TestProcessAuthReviewDeniesNonResurrection(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity", "status"}).AddRow("campfire rest", domain.SeverityDiamond, domain.TxStatusPending))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
 		WithArgs(string(domain.TxStatusDenied), "tx-278").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET authorization_status = $1, authorization_reason = $2 WHERE authorization_transaction_id = $3`)).
+		WithArgs(string(domain.TxStatusDenied), "Auto-denied by severity and service-type rule.", "tx-278").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1 WHERE id = $2 AND type = $3`)).
 		WithArgs(string(domain.TxStatusDenied), "tx-278", string(domain.Tx278)).
@@ -197,11 +206,11 @@ func TestProcessClaimAdjudicationNoopsWhenClaimAlreadyMoved(t *testing.T) {
 func TestProcessClaimFinalizationUpdatesClaimAndRecords277(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, status
 		 FROM claims WHERE id = $1`)).
 		WithArgs("claim-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "amount_cents", "status"}).
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", int64(100000), domain.ClaimPending))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "status"}).
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), domain.ClaimPending))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1, allowed_amount_cents = $2, paid_amount_cents = $3, patient_responsibility_cents = $4, adjustment_amount_cents = $5, adjustment_reason = NULLIF($6, ''), denial_reason = NULLIF($7, '') WHERE id = $8`)).
 		WithArgs(string(domain.ClaimApproved), int64(80000), int64(68000), int64(12000), int64(20000), "ASHN contractual allowance", "", "claim-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -218,11 +227,11 @@ func TestProcessClaimFinalizationUpdatesClaimAndRecords277(t *testing.T) {
 func TestProcessClaimFinalizationSkipsCompletedClaims(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, status
 		 FROM claims WHERE id = $1`)).
 		WithArgs("claim-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "amount_cents", "status"}).
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", int64(100000), domain.ClaimPaid))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "status"}).
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", "", "", "", int64(100000), domain.ClaimPaid))
 
 	require.NoError(t, processClaimFinalization(db, "claim-1"))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -268,6 +277,25 @@ func TestAdjudicateClaimDeniesCatastrophicClaims(t *testing.T) {
 		assert.Equal(t, "Non-covered catastrophic encounter", claim.AdjustmentReason)
 		assert.Equal(t, "Prior authorization or benefit exception required", claim.DenialReason)
 	}
+}
+
+func TestAdjudicateClaimHonorsApprovedPriorAuthorization(t *testing.T) {
+	claim := domain.Claim{
+		IncidentSeverity:           domain.SeverityDiamond,
+		AmountCents:                250000,
+		AuthorizationTransactionID: "tx-278-approved",
+		AuthorizationStatus:        string(domain.TxStatusApproved),
+	}
+
+	adjudicateClaim(&claim)
+
+	assert.Equal(t, domain.ClaimApproved, claim.Status)
+	assert.Equal(t, int64(200000), claim.AllowedAmountCents)
+	assert.Equal(t, int64(170000), claim.PaidAmountCents)
+	assert.Equal(t, int64(30000), claim.PatientResponsibilityCents)
+	assert.Equal(t, int64(50000), claim.AdjustmentAmountCents)
+	assert.Contains(t, claim.AdjustmentReason, "approved prior authorization")
+	assert.Empty(t, claim.DenialReason)
 }
 
 func TestPercentageUsesIntegerMath(t *testing.T) {

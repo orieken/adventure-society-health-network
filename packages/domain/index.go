@@ -111,13 +111,25 @@ type Provider struct {
 }
 
 type TradingPartner struct {
-	ID                      string   `json:"id"`
-	Name                    string   `json:"name"`
-	SenderID                string   `json:"senderId"`
-	ReceiverID              string   `json:"receiverId"`
-	AllowedTransactionTypes []string `json:"allowedTransactionTypes"`
-	RouteTarget             string   `json:"routeTarget"`
-	Status                  string   `json:"status"`
+	ID                      string                   `json:"id"`
+	Name                    string                   `json:"name"`
+	SenderID                string                   `json:"senderId"`
+	ReceiverID              string                   `json:"receiverId"`
+	AllowedTransactionTypes []string                 `json:"allowedTransactionTypes"`
+	RouteTarget             string                   `json:"routeTarget"`
+	Status                  string                   `json:"status"`
+	ValidationProfile       PartnerValidationProfile `json:"validationProfile,omitempty"`
+}
+
+type PartnerValidationProfile struct {
+	AttachmentTypes         []string `json:"attachmentTypes,omitempty"`
+	ReportTypeCodes         []string `json:"reportTypeCodes,omitempty"`
+	TransmissionCodes       []string `json:"transmissionCodes,omitempty"`
+	ContentTypes            []string `json:"contentTypes,omitempty"`
+	ControlNumberPrefixes   []string `json:"controlNumberPrefixes,omitempty"`
+	MaxEmbeddedContentBytes int      `json:"maxEmbeddedContentBytes,omitempty"`
+	ServiceTypes            []string `json:"serviceTypes,omitempty"`
+	IncidentSeverities      []string `json:"incidentSeverities,omitempty"`
 }
 
 type Transaction struct {
@@ -150,6 +162,9 @@ type Claim struct {
 	ProviderID                 string           `json:"providerId"`
 	IncidentSeverity           IncidentSeverity `json:"incidentSeverity"`
 	TransactionID              string           `json:"transactionId"`
+	AuthorizationTransactionID string           `json:"authorizationTransactionId,omitempty"`
+	AuthorizationStatus        string           `json:"authorizationStatus,omitempty"`
+	AuthorizationReason        string           `json:"authorizationReason,omitempty"`
 	AmountCents                int64            `json:"amountCents"`
 	AllowedAmountCents         int64            `json:"allowedAmountCents,omitempty"`
 	PaidAmountCents            int64            `json:"paidAmountCents,omitempty"`
@@ -185,13 +200,17 @@ type AuthorizationDecisionRequest struct {
 }
 
 type ClaimRequest struct {
-	AdventurerID     string           `json:"adventurerId"`
-	ProviderID       string           `json:"providerId"`
-	IncidentSeverity IncidentSeverity `json:"incidentSeverity"`
-	AmountCents      int64            `json:"amountCents"`
+	AdventurerID               string           `json:"adventurerId"`
+	ProviderID                 string           `json:"providerId"`
+	IncidentSeverity           IncidentSeverity `json:"incidentSeverity"`
+	AmountCents                int64            `json:"amountCents"`
+	AuthorizationTransactionID string           `json:"authorizationTransactionId,omitempty"`
 }
 
 type AttachmentRequest struct {
+	PacketID                string `json:"packetId,omitempty"`
+	PacketSequence          int    `json:"packetSequence,omitempty"`
+	PacketCount             int    `json:"packetCount,omitempty"`
 	AttachmentType          string `json:"attachmentType"`
 	AttachmentControlNumber string `json:"attachmentControlNumber"`
 	ReportTypeCode          string `json:"reportTypeCode"`
@@ -199,6 +218,18 @@ type AttachmentRequest struct {
 	ContentType             string `json:"contentType"`
 	Description             string `json:"description"`
 	Content                 string `json:"content"`
+	DocumentReferenceID     string `json:"documentReferenceId,omitempty"`
+	DocumentReferenceURL    string `json:"documentReferenceUrl,omitempty"`
+}
+
+type AttachmentPacketRequest struct {
+	PacketID    string              `json:"packetId,omitempty"`
+	Attachments []AttachmentRequest `json:"attachments"`
+}
+
+type AttachmentReviewRequest struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type PaymentRequest struct {
@@ -210,6 +241,19 @@ type PageInfo struct {
 	Offset  int  `json:"offset"`
 	Count   int  `json:"count"`
 	HasMore bool `json:"hasMore"`
+}
+
+type TransactionJob struct {
+	ID         string    `json:"id"`
+	Type       string    `json:"type"`
+	EntityID   string    `json:"entityId"`
+	Status     string    `json:"status"`
+	Attempts   int       `json:"attempts"`
+	RunAfter   time.Time `json:"runAfter"`
+	LastError  string    `json:"lastError,omitempty"`
+	DeadLetter bool      `json:"deadLetter"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 type Envelope struct {

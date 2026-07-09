@@ -77,6 +77,58 @@ func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
 	assert.Equal(t, "Incident claim submitted.", envelope.Lore)
 }
 
+func TestAcceptTransactionRoutesCanonicalJSONClaimToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var claimRequest domain.ClaimRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims":
+			assert.Equal(t, http.MethodPost, r.Method)
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&claimRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Data:        domain.Claim{ID: "claim-json-1", AdventurerID: claimRequest.AdventurerID, ProviderID: claimRequest.ProviderID, Status: domain.ClaimSubmitted},
+				Lore:        "JSON claim submitted.",
+				Transaction: &domain.Transaction{Type: domain.Tx837, Status: domain.TxStatusAccepted},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.TxStatusAccepted, ack.Status)
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/transactions", strings.NewReader(`{
+  "type": "837",
+  "sender": { "id": "provider-vitesse-temple" },
+  "receiver": { "id": "Adventure Society" },
+  "claim": {
+    "adventurerId": "adv-json-1",
+    "providerId": "provider-vitesse-temple",
+    "incidentSeverity": "Diamond",
+    "amountCents": "250000",
+    "authorizationTransactionId": "tx-278-approved"
+  }
+}`))
+	request.Header.Set("Content-Type", "application/vnd.ashn+x12+json")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/claims", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "adv-json-1", claimRequest.AdventurerID)
+	assert.Equal(t, domain.SeverityDiamond, claimRequest.IncidentSeverity)
+	assert.Equal(t, int64(250000), claimRequest.AmountCents)
+	assert.Equal(t, "tx-278-approved", claimRequest.AuthorizationTransactionID)
+	assert.Equal(t, "JSON claim submitted.", decodeEnvelope(t, response).Lore)
+}
+
 func TestAcceptXMLRoutesClaimStatusToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -154,6 +206,8 @@ func TestAcceptXMLRoutesAttachmentToPayerCore(t *testing.T) {
     <ContentType>text/plain</ContentType>
     <Description>Resurrection notes</Description>
     <Content>Patient survived a dragonfire incident.</Content>
+    <DocumentReferenceId>doc-xml-001</DocumentReferenceId>
+    <DocumentReferenceUrl>https://docs.example.test/doc-xml-001.txt</DocumentReferenceUrl>
   </Attachment>
 </AshnX12Transaction>`))
 	request.Header.Set("Content-Type", "application/xml")
@@ -166,6 +220,74 @@ func TestAcceptXMLRoutesAttachmentToPayerCore(t *testing.T) {
 	assert.Equal(t, "B4", attachmentRequest.ReportTypeCode)
 	assert.Equal(t, "EL", attachmentRequest.TransmissionCode)
 	assert.Equal(t, "text/plain", attachmentRequest.ContentType)
+	assert.Equal(t, "doc-xml-001", attachmentRequest.DocumentReferenceID)
+	assert.Equal(t, "https://docs.example.test/doc-xml-001.txt", attachmentRequest.DocumentReferenceURL)
+}
+
+func TestAcceptXMLRoutesAttachmentPacketToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var packetRequest domain.AttachmentPacketRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims/claim-1/attachments":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&packetRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Lore: "Patient information attachment packet accepted.",
+				Transactions: []domain.Transaction{
+					{Type: domain.Tx275, Status: domain.TxStatusAccepted, RelatedID: "tx-837"},
+					{Type: domain.Tx275, Status: domain.TxStatusAccepted, RelatedID: "tx-837"},
+				},
+			})
+		case "/transactions":
+			return jsonResponse(http.StatusCreated, domain.Envelope{})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="275">
+  <Sender id="provider-vitesse-temple" />
+  <Receiver id="Adventure Society" />
+  <AttachmentPacket packetId="packet-claim-1">
+    <Attachment>
+      <ClaimId>claim-1</ClaimId>
+      <ProviderId>provider-vitesse-temple</ProviderId>
+      <AttachmentType>OZ</AttachmentType>
+      <AttachmentControlNumber>ATTACH-PKT-1</AttachmentControlNumber>
+      <ReportTypeCode>B4</ReportTypeCode>
+      <TransmissionCode>EL</TransmissionCode>
+      <ContentType>text/plain</ContentType>
+      <Description>First resurrection note</Description>
+      <Content>First note.</Content>
+    </Attachment>
+    <Attachment>
+      <ClaimId>claim-1</ClaimId>
+      <ProviderId>provider-vitesse-temple</ProviderId>
+      <AttachmentType>OZ</AttachmentType>
+      <AttachmentControlNumber>ATTACH-PKT-2</AttachmentControlNumber>
+      <ReportTypeCode>B4</ReportTypeCode>
+      <TransmissionCode>EL</TransmissionCode>
+      <ContentType>text/plain</ContentType>
+      <Description>Second resurrection note</Description>
+      <DocumentReferenceUrl>https://docs.example.test/claim-1/second-note.txt</DocumentReferenceUrl>
+    </Attachment>
+  </AttachmentPacket>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/claims/claim-1/attachments", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "packet-claim-1", packetRequest.PacketID)
+	require.Len(t, packetRequest.Attachments, 2)
+	assert.Equal(t, 1, packetRequest.Attachments[0].PacketSequence)
+	assert.Equal(t, 2, packetRequest.Attachments[1].PacketSequence)
+	assert.Equal(t, "packet-claim-1", packetRequest.Attachments[1].PacketID)
 }
 
 func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
@@ -186,6 +308,14 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 		{
 			name: "275 attachment", wantMethod: http.MethodPost, wantPath: "/claims/claim-1/attachments",
 			body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-1</AttachmentControlNumber><ReportTypeCode>B4</ReportTypeCode><TransmissionCode>EL</TransmissionCode><ContentType>text/plain</ContentType><Description>notes</Description><Content>content</Content></Attachment></AshnX12Transaction>`,
+		},
+		{
+			name: "275 prior authorization attachment", wantMethod: http.MethodPost, wantPath: "/auth-requests/tx-278/attachments",
+			body: `<AshnX12Transaction type="275"><Attachment><AuthorizationTransactionId>tx-278</AuthorizationTransactionId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-AUTH-1</AttachmentControlNumber><ReportTypeCode>B4</ReportTypeCode><TransmissionCode>EL</TransmissionCode><ContentType>text/plain</ContentType><Description>notes</Description><Content>content</Content></Attachment></AshnX12Transaction>`,
+		},
+		{
+			name: "275 external document reference", wantMethod: http.MethodPost, wantPath: "/claims/claim-1/attachments",
+			body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-REF-1</AttachmentControlNumber><ReportTypeCode>B4</ReportTypeCode><TransmissionCode>EL</TransmissionCode><ContentType>text/plain</ContentType><Description>notes</Description><DocumentReferenceUrl>https://docs.example.test/doc.txt</DocumentReferenceUrl></Attachment></AshnX12Transaction>`,
 		},
 		{
 			name: "278 prior authorization", wantMethod: http.MethodPost, wantPath: "/auth-requests",
@@ -218,6 +348,8 @@ func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
 	}{
 		{name: "unknown type", body: `<AshnX12Transaction type="999"></AshnX12Transaction>`, want: "unsupported transaction type"},
 		{name: "missing attachment", body: `<AshnX12Transaction type="275"></AshnX12Transaction>`, want: "missing attachment"},
+		{name: "missing attachment content or reference", body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-1</AttachmentControlNumber><ReportTypeCode>B4</ReportTypeCode><TransmissionCode>EL</TransmissionCode><ContentType>text/plain</ContentType><Description>notes</Description></Attachment></AshnX12Transaction>`, want: "missing Content or DocumentReferenceUrl"},
+		{name: "ambiguous attachment target", body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><AuthorizationTransactionId>tx-278</AuthorizationTransactionId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-1</AttachmentControlNumber><ReportTypeCode>B4</ReportTypeCode><TransmissionCode>EL</TransmissionCode><ContentType>text/plain</ContentType><Description>notes</Description><Content>content</Content></Attachment></AshnX12Transaction>`, want: "attachment requires exactly one of ClaimId or AuthorizationTransactionId"},
 		{name: "invalid service type", body: `<AshnX12Transaction type="278"><PriorAuthorization><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><ServiceType>vacation</ServiceType><IncidentSeverity>Diamond</IncidentSeverity></PriorAuthorization></AshnX12Transaction>`, want: "invalid field ServiceType"},
 		{name: "invalid payment amount", body: `<AshnX12Transaction type="835"><Payment><ClaimId>claim-1</ClaimId><PaymentAmountCents>-1</PaymentAmountCents></Payment></AshnX12Transaction>`, want: "invalid field PaymentAmountCents"},
 	}
@@ -257,11 +389,23 @@ func TestAcceptXMLRejectsUnsupportedContentType(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "text/plain")
 	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusUnsupportedMediaType, response.Code)
 	assert.Equal(t, "unsupported content type", decodeEnvelope(t, response).Error)
+}
+
+func TestAcceptTransactionRejectsMalformedJSON(t *testing.T) {
+	handler := newIntakeTestMux(intakeApp{})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/transactions", strings.NewReader(`{"type":"837"`))
+	request.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "invalid json", decodeEnvelope(t, response).Error)
 }
 
 func TestAcceptXMLRejectsMalformedXML(t *testing.T) {
@@ -397,6 +541,77 @@ func TestAcceptXMLRejectsDisallowedPartnerTransaction(t *testing.T) {
 	assert.Equal(t, "transaction type 837 not allowed for trading partner", decodeEnvelope(t, response).Error)
 }
 
+func TestValidateTradingPartnerProfileAppliesAttachmentRules(t *testing.T) {
+	partners := seedTradingPartners()
+	inbound := inboundTransaction{
+		Type: string(domain.Tx275),
+		Attachment: &xmlAttachment{
+			AttachmentType:          "PN",
+			AttachmentControlNumber: "RIM-275-1",
+			ReportTypeCode:          "03",
+			TransmissionCode:        "EL",
+			ContentType:             "application/pdf",
+			Content:                 "%PDF-1.7",
+		},
+	}
+
+	err := validateTradingPartnerProfile(partners["tp-vitesse-temple"], inbound)
+	require.Error(t, err)
+	assert.Equal(t, "attachment type PN is not allowed for trading partner tp-vitesse-temple; allowed: OZ", err.Error())
+
+	require.NoError(t, validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound))
+}
+
+func TestValidateTradingPartnerProfileRejectsPriorAuthOutsideProfile(t *testing.T) {
+	partner := seedTradingPartners()["tp-vitesse-temple"]
+	inbound := inboundTransaction{
+		Type: string(domain.Tx278),
+		PriorAuthorization: &xmlPriorAuth{
+			ServiceType:      "dragon-riding",
+			IncidentSeverity: "Awakened",
+		},
+	}
+
+	err := validateTradingPartnerProfile(partner, inbound)
+	require.Error(t, err)
+	assert.Equal(t, "service type dragon-riding is not allowed for trading partner tp-vitesse-temple; allowed: resurrection, restoration, curse-removal, trauma-care", err.Error())
+}
+
+func TestAcceptXMLRejectsPartnerProfileViolationBeforeForwarding(t *testing.T) {
+	forwarded := false
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/transactions" {
+			forwarded = true
+		}
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "unexpected"})
+	})}
+	handler := newIntakeTestMux(intakeApp{client: client, payerURL: "http://payer-core"})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="275">
+  <Sender id="provider-vitesse-temple" />
+  <Receiver id="Adventure Society" />
+  <Attachment>
+    <ClaimId>claim-1</ClaimId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <AttachmentType>PN</AttachmentType>
+    <AttachmentControlNumber>RIM-275-1</AttachmentControlNumber>
+    <ReportTypeCode>03</ReportTypeCode>
+    <TransmissionCode>EL</TransmissionCode>
+    <ContentType>application/pdf</ContentType>
+    <Description>Operative note</Description>
+    <Content>%PDF-1.7</Content>
+  </Attachment>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "attachment type PN is not allowed for trading partner tp-vitesse-temple; allowed: OZ", decodeEnvelope(t, response).Error)
+	assert.False(t, forwarded)
+}
+
 func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	handler := newIntakeTestMux(intakeApp{})
 
@@ -413,6 +628,7 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 		senderIDs = append(senderIDs, partner.SenderID)
 	}
 	assert.Contains(t, senderIDs, "partner-greenstone")
+	assert.Equal(t, []string{"OZ"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AttachmentTypes)
 }
 
 func TestListMessagesWithoutDatabaseReturnsEmptyPage(t *testing.T) {
@@ -593,13 +809,15 @@ func TestLoadTradingPartnersReadsDatabaseAndSplitsCSV(t *testing.T) {
 	db, mock, cleanup := newIntakeMockDB(t)
 	defer cleanup()
 	mock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "route_target", "status"}).
-			AddRow("tp-1", "Partner One", "sender-1", "Adventure Society", "834, 837, , 999", "payer-core", "active"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "validation_profile", "route_target", "status"}).
+			AddRow("tp-1", "Partner One", "sender-1", "Adventure Society", "834, 837, , 999", `{"attachmentTypes":["OZ"],"maxEmbeddedContentBytes":2048}`, "payer-core", "active"))
 
 	partners := loadTradingPartners(db)
 
 	require.Len(t, partners, 1)
 	assert.Equal(t, []string{"834", "837", "999"}, partners["tp-1"].AllowedTransactionTypes)
+	assert.Equal(t, []string{"OZ"}, partners["tp-1"].ValidationProfile.AttachmentTypes)
+	assert.Equal(t, 2048, partners["tp-1"].ValidationProfile.MaxEmbeddedContentBytes)
 	require.NoError(t, mock.ExpectationsWereMet())
 	assert.Equal(t, []string{"270", "837"}, splitCSV("270, ,837"))
 }
@@ -615,7 +833,7 @@ func TestLoadTradingPartnersFallsBackOnDatabaseErrorAndOpenDBNoEnv(t *testing.T)
 	emptyDB, emptyMock, emptyCleanup := newIntakeMockDB(t)
 	defer emptyCleanup()
 	emptyMock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "route_target", "status"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "validation_profile", "route_target", "status"}))
 	assert.Len(t, loadTradingPartners(emptyDB), 3)
 	require.NoError(t, emptyMock.ExpectationsWereMet())
 
@@ -681,6 +899,9 @@ func TestEDIHelpersParseFiltersPaginationAndValidation(t *testing.T) {
 	assert.False(t, validRegion("Moon"))
 	assert.True(t, validServiceType("curse-removal"))
 	assert.False(t, validServiceType("vacation"))
+	assert.True(t, isXMLContent("application/vnd.ashn+x12+xml; charset=utf-8"))
+	assert.True(t, isJSONContent("application/vnd.ashn+x12+json"))
+	assert.False(t, isJSONContent("text/plain"))
 	parsed, err := parsePositiveInt64("AmountCents", "42")
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), parsed)
@@ -715,6 +936,7 @@ func TestEDIOpenAPIIncludesIntakeRoutes(t *testing.T) {
 	info := spec["info"].(map[string]string)
 	assert.Equal(t, "ASHN EDI Intake", info["title"])
 	paths := spec["paths"].(map[string]any)
+	assert.Contains(t, paths, "/x12/transactions")
 	assert.Contains(t, paths, "/x12/xml")
 	assert.Contains(t, paths, "/x12/messages/{id}/replay")
 	assert.Contains(t, paths, "/x12/trading-partners")
@@ -723,6 +945,7 @@ func TestEDIOpenAPIIncludesIntakeRoutes(t *testing.T) {
 func newIntakeTestMux(app intakeApp) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
+	mux.HandleFunc("POST /x12/transactions", app.acceptTransaction)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)

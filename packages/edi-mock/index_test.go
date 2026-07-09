@@ -58,6 +58,9 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	}
 
 	tx := Generate275(claim, domain.AttachmentRequest{
+		PacketID:                "packet-claim-1",
+		PacketSequence:          1,
+		PacketCount:             2,
 		AttachmentType:          "OZ",
 		AttachmentControlNumber: "ATTACH-1",
 		ReportTypeCode:          "B4",
@@ -73,11 +76,55 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "ST*275")
 	assert.Contains(t, tx.RawX12, "REF*1K*claim-1")
 	assert.Contains(t, tx.RawX12, "REF*6R*ATTACH-1")
+	assert.Contains(t, tx.RawX12, "REF*F8*packet-claim-1-1-OF-2")
 	assert.Contains(t, tx.RawX12, "PWK*B4*EL***AC*ATTACH-1")
 	assert.Contains(t, tx.RawX12, "LQ*AT*OZ")
 	assert.Contains(t, tx.RawX12, "K3*Content-Type: text/plain")
 	assert.Contains(t, tx.RawX12, "BIN*")
 	assert.Contains(t, tx.RawX12, "Patient stabilized after dragonfire incident.")
+}
+
+func TestGenerate275ForAuthorizationUsesAuthReference(t *testing.T) {
+	auth := Generate278Request(
+		domain.Adventurer{ID: "adv-1", Name: "Farros"},
+		domain.Provider{ID: "provider-vitesse-temple", Name: "Temple"},
+		"resurrection",
+	)
+	auth.ID = "tx-278"
+
+	tx := Generate275ForAuthorization(auth, domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-AUTH-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Medical necessity notes",
+		Content:                 "Encounter notes",
+	})
+
+	assert.Equal(t, domain.Tx275, tx.Type)
+	assert.Equal(t, "tx-278", tx.RelatedID)
+	assert.Contains(t, tx.RawX12, "REF*G1*tx-278")
+	assert.NotContains(t, tx.RawX12, "REF*1K*tx-278")
+}
+
+func TestGenerate275CanReferenceExternalDocumentWithoutEmbeddedContent(t *testing.T) {
+	claim := domain.Claim{ID: "claim-1", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", TransactionID: "tx-837"}
+
+	tx := Generate275(claim, domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-REF-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "application/pdf",
+		Description:             "External operative notes",
+		DocumentReferenceID:     "doc-ashn-001",
+		DocumentReferenceURL:    "https://docs.example.test/ashn/doc-ashn-001.pdf",
+	}, "")
+
+	assert.Contains(t, tx.RawX12, "K3*Document-Reference: https://docs.example.test/ashn/doc-ashn-001.pdf")
+	assert.NotContains(t, tx.RawX12, "BIN*")
+	assert.Contains(t, string(tx.Payload), `"documentReferenceId":"doc-ashn-001"`)
 }
 
 func TestGenerate999UsesAcknowledgedTransactionType(t *testing.T) {

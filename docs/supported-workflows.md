@@ -31,7 +31,7 @@ ASHN supports both **business-state APIs** and an **EDI-style transaction ledger
 | --- | --- | --- | --- | --- |
 | Enrollment | `834` | `POST /v1/adventurers`, XML `834` | Workflow card, ledger, timeline | Creates adventurer and enrollment transaction. |
 | Eligibility | `270 → 271` | `POST /v1/eligibility`, XML `270` | Workflow card, ledger, timeline | Returns active/inactive coverage. |
-| Prior authorization | `278` | `POST /v1/auth-requests`, `POST /v1/auth-requests/{id}/decision`, XML `278` | Workflow card, manual review widget, ledger, timeline | Starts pending; manual approve/deny or async worker decision. |
+| Prior authorization | `278 → 275` | `POST /v1/auth-requests`, `POST /v1/auth-requests/{id}/attachments`, `POST /v1/auth-requests/{id}/decision`, XML `278`, XML `275` | Workflow card, manual review widget, ledger, timeline | Starts pending; supporting 275 documentation can attach before manual/worker decision. |
 | Claim submission | `837 → 277CA` | `POST /v1/claims`, XML `837` | Workflow card, claims panel, ledger, timeline | Emits claim and claim acknowledgment. |
 | Claim attachment | `277 → 275` | `POST /v1/claims/{id}/documentation-request`, `POST /v1/claims/{id}/attachments`, XML `275` | Claim detail action, ledger, timeline attachment label, raw X12 detail | Payer can request documentation; 275 clears the hold. |
 | Claim status | `276 → 277` | `GET /v1/claims/{id}/status`, XML `276` | Ledger, timeline | Creates request/response status pair. |
@@ -121,17 +121,46 @@ sequenceDiagram
         Reviewer->>Gateway: POST /v1/auth-requests/{txId}/decision
         Gateway->>Payer: Approve or deny
         Payer->>Ledger: Update 278 to Approved/Denied
+        Payer->>Ledger: Update linked claim auth history
+    else Supporting docs
+        Reviewer->>Gateway: POST /v1/auth-requests/{txId}/attachments
+        Gateway->>Payer: Submit 275 patient information
+        Payer->>Ledger: Emit 275 linked to 278
     else No manual review
         Worker->>Ledger: Process pending auth_review
         Worker->>Ledger: Update 278 to Approved/Denied
+        Worker->>Ledger: Update linked claim auth history
     end
 ```
 
 **Current behavior**
 
 - The dashboard shows a prior-auth review widget after a `278` is created.
+- `Send 275 Auth Docs` emits a related `275` for supporting medical necessity documentation.
 - `Approve Auth` and `Deny Auth` update the visible transaction status.
+- The async worker auto-approves Diamond resurrection requests and auto-denies requests outside the configured severity/service-type rule.
 - The worker skips already-reviewed authorizations so manual decisions are not overwritten.
+- Claims can reference an authorization transaction, preserve the authorization status/reason, and display that history in the claim detail drawer.
+- Approved authorization allows otherwise catastrophic Diamond claims to adjudicate instead of denying for missing prior authorization.
+
+## Async Processing Visibility
+
+```mermaid
+flowchart LR
+    API["payer-core request"] --> Jobs["transaction_jobs"]
+    Jobs --> Worker["tx-worker poll"]
+    Worker --> Done["completed"]
+    Worker --> Retry["retry pending"]
+    Retry --> Worker
+    Retry --> Dead["failed / dead letter"]
+    Dead --> Replay["POST /v1/jobs/{id}/replay"]
+    Replay --> Jobs
+    Jobs --> Dashboard["Dashboard worker queue card"]
+```
+
+- `GET /v1/jobs` exposes recent async jobs with type, entity, status, attempts, run time, error, and dead-letter flag.
+- `POST /v1/jobs/{id}/replay` resets failed jobs back to pending with attempts cleared.
+- The dashboard polls the queue next to live session events so users can see queued, completed, failed, and replayable work.
 
 ## 4. Claim Submission and Acknowledgment
 
@@ -173,7 +202,8 @@ sequenceDiagram
 
     Provider->>Gateway: POST /v1/claims/{claimId}/attachments or XML 275
     Gateway->>Payer: POST /claims/{claimId}/attachments
-    Payer->>Payer: Validate payer-specific metadata
+    Gateway->>Gateway: Validate trading partner companion profile
+    Payer->>Payer: Apply payer backstop validation
     alt Metadata valid
         Payer->>Ledger: Emit 275 Accepted linked to claim/837
         Payer->>Payer: Clear Pending Documentation hold
@@ -186,8 +216,8 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     A["275 Attachment Request"] --> B{"Provider profile"}
-    B --> C["Vitesse Temple rules"]
-    B --> D["Rimaros Hospital rules"]
+    B --> C["Vitesse trading partner profile"]
+    B --> D["Rimaros trading partner profile"]
     C --> E{"OZ + B4 + EL + text/plain + 4 KB"}
     D --> F{"OZ/PN + 03/B4 + EL + text/plain/pdf + 8 KB"}
     E --> G["Emit 275 + raw X12"]
@@ -197,11 +227,15 @@ flowchart TD
 
 **Current behavior**
 
-- `275` is currently claim-linked through `claimId` and `relatedId`.
+- `275` can be claim-linked through `claimId` or prior-auth-linked through `authorizationTransactionId`.
 - Payers can mark a claim `Pending Documentation` and emit a related `277` documentation request.
 - A valid `275` clears the documentation hold back to `Pending` so adjudication can continue.
-- Raw X12 includes `REF*1K`, `REF*6R`, `PWK`, `LQ*AT`, `K3`, and `BIN`.
-- The timeline labels 275 steps using attachment/report metadata.
+- The `275` transaction remains EDI `Accepted`, while `attachmentReviewStatus` tracks business review as `Received`, `Accepted`, or `Rejected`.
+- Attachments can embed content or reference external documents through `documentReferenceId` and `documentReferenceUrl`.
+- Multi-attachment packets can submit repeated supporting documents as separate `275` transactions sharing `packetId`, `packetSequence`, and `packetCount`.
+- `edi-intake` rejects partner profile violations before forwarding, including unsupported attachment/report/content codes, bad control-number prefixes, oversized embedded content, and unsupported `278` service/severity values.
+- Raw X12 includes claim `REF*1K` or authorization `REF*G1`, packet `REF*F8`, plus `REF*6R`, `PWK`, `LQ*AT`, `K3`, and optional `BIN`.
+- The timeline labels 275 steps using attachment/report metadata and review status.
 
 ## 6. Claim Status Lifecycle
 
@@ -249,6 +283,8 @@ sequenceDiagram
 
 ## 8. XML Intake, Acknowledgment, Export, and Replay
 
+ASHN treats XML and JSON as external representations, not separate business pathways. The public API accepts canonical transaction payloads through `api-gateway`, `edi-intake` translates and audits them, and `payer-core` still owns business validation, transaction persistence, authorization lifecycle, claims, payments, and async jobs.
+
 ```mermaid
 sequenceDiagram
     participant Partner as Trading Partner
@@ -258,16 +294,17 @@ sequenceDiagram
     participant Audit as XML Audit Store
     participant Ledger as Transaction Ledger
 
-    Partner->>Gateway: POST /v1/x12/xml
-    Gateway->>Intake: POST /x12/xml
-    Intake->>Audit: Persist raw XML
-    Intake->>Intake: Validate XML + trading partner rules
+    Partner->>Gateway: POST /v1/x12/transactions
+    Gateway->>Intake: POST /x12/transactions
+    Intake->>Audit: Persist raw payload
+    Intake->>Intake: Validate representation + trading partner rules
     alt Accepted
-        Intake->>Payer: Forward mapped request
+        Intake->>Payer: Forward mapped request to existing endpoint
         Payer->>Ledger: Emit routed transaction
         Intake->>Ledger: Record 999 Accepted
         Intake-->>Partner: 201 accepted
     else Rejected
+        Intake->>Audit: Preserve error detail
         Intake->>Ledger: Record 999 Failed
         Intake-->>Partner: 4xx validation error
     end
@@ -284,13 +321,17 @@ flowchart LR
 
 **Current behavior**
 
-- XML intake supports canonical ASHN XML wrappers for multiple transaction types.
-- Every inbound XML message is visible in the XML Intake tab.
-- Transactions and XML messages can be exported and replayed for demos.
+- Intake supports canonical ASHN XML and JSON wrappers for multiple transaction types.
+- Canonical ASHN XML is the first supported contract; transaction-specific and partner-specific XML can be added later.
+- XML intake calls existing `payer-core` endpoints instead of writing payer transactions directly.
+- `POST /v1/x12/transactions` is the content-negotiated public route; `POST /v1/x12/xml` remains as an XML compatibility route.
+- Every inbound representation is visible in the XML Intake tab.
+- Accepted and rejected submissions create audit records.
+- Transactions and intake messages can be exported and replayed for demos.
 
 ## Recommended 275 Workflows To Add Next
 
-ASHN already supports claim-linked `275` attachments. The next high-value workflows are:
+ASHN already supports claim-linked `275` attachments, solicited claim documentation, and prior-auth-linked 275 attachments. The next high-value workflows are:
 
 ### 1. Solicited Claim Attachment Request
 
@@ -321,11 +362,11 @@ sequenceDiagram
     Payer->>Ledger: 278 Approved/Denied after review
 ```
 
-Allow `275` to link to a `278` transaction, not just a claim/`837`. This would make resurrection medical necessity feel more realistic.
+Baseline support now exists: the dashboard and APIs can emit a `275` linked to a pending `278`. The next iteration should show attachment review state separately from the final authorization decision.
 
 ### 3. Attachment Review Outcomes
 
-Track attachment review state separately from transaction acceptance:
+Baseline support now exists through `POST /v1/transactions/{id}/attachment-review` and the dashboard transaction detail drawer. Track attachment review state separately from transaction acceptance:
 
 ```mermaid
 stateDiagram-v2
@@ -342,7 +383,7 @@ A `275` can be syntactically accepted but clinically rejected as insufficient. T
 
 ### 4. External Document Reference Mode
 
-Support attachments that reference external documents instead of embedding content in `BIN`:
+Baseline support now exists. Attachments can reference external documents instead of embedding content in `BIN`:
 
 ```mermaid
 flowchart LR

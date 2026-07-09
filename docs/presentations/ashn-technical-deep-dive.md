@@ -172,18 +172,18 @@ sequenceDiagram
     participant Payer as Payer Core
     participant DB as Postgres
 
-    Partner->>GW: POST /v1/x12/xml
-    GW->>Intake: Forward XML
-    Intake->>DB: Audit raw inbound XML
+    Partner->>GW: POST /v1/x12/transactions
+    GW->>Intake: Forward XML or JSON
+    Intake->>DB: Audit raw inbound payload
     Intake->>Intake: Validate + map
-    Intake->>Payer: Forward accepted workflow request
+    Intake->>Payer: Forward accepted request to existing endpoint
     Payer->>DB: Store business transaction
     Intake->>Payer: POST /transactions with 999
     Payer->>DB: Store 999 acknowledgment
 ```
 
 **Talk track:**  
-The intake service owns external payload concerns. Even rejected XML is audited, and every XML submission produces a `999` accepted or failed acknowledgment linked back to the inbound audit record.
+The intake service owns external payload concerns, but payer-core still owns business behavior. This keeps XML and JSON handling like a Rails-style representation layer: the gateway exposes one public workflow surface, edi-intake translates canonical ASHN representations, accepted work flows into existing payer endpoints, and even rejected submissions are audited with a linked `999` acknowledgment.
 
 ---
 
@@ -272,7 +272,8 @@ The tests focus on the paths we demo: HTTP contracts, persistence, transaction c
 - `claim_finalization` marks claims `Approved` or `Denied`.
 - Claim finalization calculates allowed, paid, adjustment, patient responsibility, and denial fields.
 - Finalized claims emit a related `277` status transaction.
-- The dashboard polls periodically so status changes appear over time.
+- Failed jobs can dead-letter and be replayed back to pending.
+- The dashboard polls periodically so status changes and worker queue state appear over time.
 
 **Talk track:**  
 This gives the demo a more realistic shape: request handlers accept work quickly, while operational decisions happen later through an async processor.
@@ -302,10 +303,10 @@ Recommended next build sequence:
 
 1. Add visual links between related transactions.
 2. Expand companion-guide-like segment examples.
-3. Add retry, dead-letter, and replay controls for async jobs.
-4. Add trading partner profiles and routing rules.
-5. Add benefits, COB, and richer provider/member-specific adjudication rules.
-6. Add observability: request IDs, structured logs, traces.
+3. Expand partner-specific validation rules.
+4. Add benefits, COB, and richer provider/member-specific adjudication rules.
+5. Add observability: request IDs, structured logs, traces.
+6. Add document-vault retrieval for external 275 references.
 
 **Talk track:**  
 The next phase is about moving from visible workflow to integration lab: more realistic routing, validation, async behavior, and operational visibility.

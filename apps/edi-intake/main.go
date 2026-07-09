@@ -29,75 +29,88 @@ type intakeApp struct {
 }
 
 type inboundTransaction struct {
-	XMLName              xml.Name           `xml:"AshnX12Transaction"`
-	Type                 string             `xml:"type,attr"`
-	Sender               party              `xml:"Sender"`
-	Receiver             party              `xml:"Receiver"`
-	Enrollment           *xmlEnrollment     `xml:"Enrollment"`
-	EligibilityInquiry   *xmlEligibility    `xml:"EligibilityInquiry"`
-	PriorAuthorization   *xmlPriorAuth      `xml:"PriorAuthorization"`
-	Attachment           *xmlAttachment     `xml:"Attachment"`
-	Claim                *xmlClaim          `xml:"Claim"`
-	ClaimStatusRequest   *xmlClaimStatus    `xml:"ClaimStatusRequest"`
-	Payment              *xmlPayment        `xml:"Payment"`
-	PremiumPayment       *xmlPremiumPayment `xml:"PremiumPayment"`
-	RawUnsupportedFields []xml.Name         `xml:",any"`
+	XMLName              xml.Name             `xml:"AshnX12Transaction" json:"-"`
+	Type                 string               `xml:"type,attr" json:"type"`
+	Sender               party                `xml:"Sender" json:"sender"`
+	Receiver             party                `xml:"Receiver" json:"receiver"`
+	Enrollment           *xmlEnrollment       `xml:"Enrollment" json:"enrollment,omitempty"`
+	EligibilityInquiry   *xmlEligibility      `xml:"EligibilityInquiry" json:"eligibilityInquiry,omitempty"`
+	PriorAuthorization   *xmlPriorAuth        `xml:"PriorAuthorization" json:"priorAuthorization,omitempty"`
+	Attachment           *xmlAttachment       `xml:"Attachment" json:"attachment,omitempty"`
+	AttachmentPacket     *xmlAttachmentPacket `xml:"AttachmentPacket" json:"attachmentPacket,omitempty"`
+	Claim                *xmlClaim            `xml:"Claim" json:"claim,omitempty"`
+	ClaimStatusRequest   *xmlClaimStatus      `xml:"ClaimStatusRequest" json:"claimStatusRequest,omitempty"`
+	Payment              *xmlPayment          `xml:"Payment" json:"payment,omitempty"`
+	PremiumPayment       *xmlPremiumPayment   `xml:"PremiumPayment" json:"premiumPayment,omitempty"`
+	RawUnsupportedFields []xml.Name           `xml:",any" json:"-"`
 }
 
 type party struct {
-	ID string `xml:"id,attr"`
+	ID string `xml:"id,attr" json:"id"`
 }
 
 type xmlEnrollment struct {
-	Name   string `xml:"Name"`
-	Rank   string `xml:"Rank"`
-	Guild  string `xml:"Guild"`
-	Region string `xml:"Region"`
+	Name   string `xml:"Name" json:"name"`
+	Rank   string `xml:"Rank" json:"rank"`
+	Guild  string `xml:"Guild" json:"guild"`
+	Region string `xml:"Region" json:"region"`
 }
 
 type xmlEligibility struct {
-	AdventurerID string `xml:"AdventurerId"`
-	ProviderID   string `xml:"ProviderId"`
+	AdventurerID string `xml:"AdventurerId" json:"adventurerId"`
+	ProviderID   string `xml:"ProviderId" json:"providerId"`
 }
 
 type xmlPriorAuth struct {
-	AdventurerID     string `xml:"AdventurerId"`
-	ProviderID       string `xml:"ProviderId"`
-	ServiceType      string `xml:"ServiceType"`
-	IncidentSeverity string `xml:"IncidentSeverity"`
+	AdventurerID     string `xml:"AdventurerId" json:"adventurerId"`
+	ProviderID       string `xml:"ProviderId" json:"providerId"`
+	ServiceType      string `xml:"ServiceType" json:"serviceType"`
+	IncidentSeverity string `xml:"IncidentSeverity" json:"incidentSeverity"`
 }
 
 type xmlClaim struct {
-	AdventurerID     string `xml:"AdventurerId"`
-	ProviderID       string `xml:"ProviderId"`
-	IncidentSeverity string `xml:"IncidentSeverity"`
-	AmountCents      string `xml:"AmountCents"`
+	AdventurerID               string `xml:"AdventurerId" json:"adventurerId"`
+	ProviderID                 string `xml:"ProviderId" json:"providerId"`
+	IncidentSeverity           string `xml:"IncidentSeverity" json:"incidentSeverity"`
+	AmountCents                string `xml:"AmountCents" json:"amountCents"`
+	AuthorizationTransactionID string `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
 }
 
 type xmlAttachment struct {
-	ClaimID                 string `xml:"ClaimId"`
-	ProviderID              string `xml:"ProviderId"`
-	AttachmentType          string `xml:"AttachmentType"`
-	AttachmentControlNumber string `xml:"AttachmentControlNumber"`
-	ReportTypeCode          string `xml:"ReportTypeCode"`
-	TransmissionCode        string `xml:"TransmissionCode"`
-	ContentType             string `xml:"ContentType"`
-	Description             string `xml:"Description"`
-	Content                 string `xml:"Content"`
+	PacketID                   string `xml:"PacketId" json:"packetId,omitempty"`
+	PacketSequence             int    `xml:"PacketSequence" json:"packetSequence,omitempty"`
+	PacketCount                int    `xml:"PacketCount" json:"packetCount,omitempty"`
+	ClaimID                    string `xml:"ClaimId" json:"claimId,omitempty"`
+	AuthorizationTransactionID string `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
+	ProviderID                 string `xml:"ProviderId" json:"providerId"`
+	AttachmentType             string `xml:"AttachmentType" json:"attachmentType"`
+	AttachmentControlNumber    string `xml:"AttachmentControlNumber" json:"attachmentControlNumber"`
+	ReportTypeCode             string `xml:"ReportTypeCode" json:"reportTypeCode"`
+	TransmissionCode           string `xml:"TransmissionCode" json:"transmissionCode"`
+	ContentType                string `xml:"ContentType" json:"contentType"`
+	Description                string `xml:"Description" json:"description"`
+	Content                    string `xml:"Content" json:"content,omitempty"`
+	DocumentReferenceID        string `xml:"DocumentReferenceId" json:"documentReferenceId,omitempty"`
+	DocumentReferenceURL       string `xml:"DocumentReferenceUrl" json:"documentReferenceUrl,omitempty"`
+}
+
+type xmlAttachmentPacket struct {
+	PacketID    string          `xml:"packetId,attr" json:"packetId,omitempty"`
+	Attachments []xmlAttachment `xml:"Attachment" json:"attachments"`
 }
 
 type xmlClaimStatus struct {
-	ClaimID string `xml:"ClaimId"`
+	ClaimID string `xml:"ClaimId" json:"claimId"`
 }
 
 type xmlPayment struct {
-	ClaimID            string `xml:"ClaimId"`
-	PaymentAmountCents string `xml:"PaymentAmountCents"`
+	ClaimID            string `xml:"ClaimId" json:"claimId"`
+	PaymentAmountCents string `xml:"PaymentAmountCents" json:"paymentAmountCents"`
 }
 
 type xmlPremiumPayment struct {
-	AdventurerID string `xml:"AdventurerId"`
-	AmountCents  string `xml:"AmountCents"`
+	AdventurerID string `xml:"AdventurerId" json:"adventurerId"`
+	AmountCents  string `xml:"AmountCents" json:"amountCents"`
 }
 
 func main() {
@@ -107,7 +120,8 @@ func main() {
 	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN EDI Intake Docs"))
 	mux.HandleFunc("GET /openapi.json", openapidocs.JSONHandler(ediOpenAPI()))
 	mux.HandleFunc("GET /health", health)
-	mux.HandleFunc("POST /x12/xml", app.acceptXML)
+	mux.HandleFunc("POST /x12/transactions", app.acceptTransaction)
+	mux.HandleFunc("POST /x12/xml", app.acceptTransaction)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
 	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
@@ -117,28 +131,29 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
 }
 
-func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
+func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	defer r.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		messageID := a.auditInboundMessage(contentType, "", "", "", "rejected", "invalid xml", http.StatusBadRequest)
-		a.record999(messageID, "", "", false, "invalid xml")
-		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll faded before the scribe could read it.")
+		messageID := a.auditInboundMessage(contentType, "", "", "", "rejected", "invalid payload", http.StatusBadRequest)
+		a.record999(messageID, "", "", false, "invalid payload")
+		fail(w, http.StatusBadRequest, "invalid payload", "The intake scroll faded before the scribe could read it.")
 		return
 	}
-	rawXML := string(body)
-	if !isXMLContent(contentType) {
-		messageID := a.auditInboundMessage(contentType, "", "", rawXML, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
+	rawPayload := string(body)
+	inbound, err := parseInboundPayload(contentType, body)
+	if errors.Is(err, errUnsupportedContentType) {
+		messageID := a.auditInboundMessage(contentType, "", "", rawPayload, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
 		a.record999(messageID, "", "", false, "unsupported content type")
-		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe only accepts XML scrolls.")
+		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe accepts canonical ASHN XML or JSON scrolls.")
 		return
 	}
-	inbound, err := parseInboundXML(body)
 	if err != nil {
-		messageID := a.auditInboundMessage(contentType, "", "", rawXML, "rejected", "invalid xml", http.StatusBadRequest)
-		a.record999(messageID, "", "", false, "invalid xml")
-		fail(w, http.StatusBadRequest, "invalid xml", "The XML scroll does not match the Society intake format.")
+		errorText := invalidPayloadError(contentType)
+		messageID := a.auditInboundMessage(contentType, "", "", rawPayload, "rejected", errorText, http.StatusBadRequest)
+		a.record999(messageID, "", "", false, errorText)
+		fail(w, http.StatusBadRequest, errorText, "The intake scroll does not match the Society canonical transaction format.")
 		return
 	}
 	method, path, payload, err := inbound.toPayerRequest()
@@ -147,26 +162,49 @@ func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "not implemented") {
 			status = http.StatusNotImplemented
 		}
-		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawXML, "rejected", err.Error(), status)
+		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawPayload, "rejected", err.Error(), status)
 		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
-		fail(w, status, err.Error(), "The intake scribe rejected the XML scroll before it entered the ledger.")
+		fail(w, status, err.Error(), "The intake scribe rejected the transaction scroll before it entered the ledger.")
 		return
 	}
 	partner, err := a.validateTradingPartner(inbound)
 	if err != nil {
-		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawXML, "rejected", err.Error(), http.StatusBadRequest)
+		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawPayload, "rejected", err.Error(), http.StatusBadRequest)
 		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
 		fail(w, http.StatusBadRequest, err.Error(), "The trading partner seal did not match the Society routing rules.")
 		return
 	}
+	if err := validateTradingPartnerProfile(partner, inbound); err != nil {
+		messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawPayload, "rejected", err.Error(), http.StatusBadRequest)
+		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
+		fail(w, http.StatusBadRequest, err.Error(), "The companion guide seal rejected the transaction scroll.")
+		return
+	}
 	status, forwardErr := a.forward(w, method, path, payload)
 	if forwardErr != "" {
-		messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawXML, "rejected", forwardErr, status)
+		messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawPayload, "rejected", forwardErr, status)
 		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, forwardErr)
 		return
 	}
-	messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawXML, "accepted", "", status)
+	messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawPayload, "accepted", "", status)
 	a.record999(messageID, inbound.Type, inbound.Sender.ID, true, "")
+}
+
+func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
+	a.acceptTransaction(w, r)
+}
+
+var errUnsupportedContentType = errors.New("unsupported content type")
+
+func parseInboundPayload(contentType string, body []byte) (inboundTransaction, error) {
+	switch {
+	case isXMLContent(contentType):
+		return parseInboundXML(body)
+	case isJSONContent(contentType):
+		return parseInboundJSON(body)
+	default:
+		return inboundTransaction{}, errUnsupportedContentType
+	}
 }
 
 func parseInboundXML(body []byte) (inboundTransaction, error) {
@@ -181,6 +219,30 @@ func parseInboundXML(body []byte) (inboundTransaction, error) {
 	}
 	inbound.Type = strings.TrimSpace(inbound.Type)
 	return inbound, nil
+}
+
+func parseInboundJSON(body []byte) (inboundTransaction, error) {
+	var inbound inboundTransaction
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&inbound); err != nil {
+		return inbound, err
+	}
+	inbound.Type = strings.TrimSpace(inbound.Type)
+	if inbound.Type == "" {
+		return inbound, fmt.Errorf("missing type")
+	}
+	return inbound, nil
+}
+
+func invalidPayloadError(contentType string) string {
+	if isXMLContent(contentType) {
+		return "invalid xml"
+	}
+	if isJSONContent(contentType) {
+		return "invalid json"
+	}
+	return "invalid payload"
 }
 
 func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
@@ -222,34 +284,21 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 			ProviderID:   strings.TrimSpace(t.EligibilityInquiry.ProviderID),
 		}, nil
 	case domain.Tx275:
-		if t.Attachment == nil {
+		attachments, packetID, claimID, authorizationTransactionID, err := t.attachmentRequests()
+		if err != nil {
+			return "", "", nil, err
+		}
+		if len(attachments) == 0 {
 			return "", "", nil, fmt.Errorf("missing attachment")
 		}
-		if err := requireFields(map[string]string{
-			"ClaimId":                 t.Attachment.ClaimID,
-			"ProviderId":              t.Attachment.ProviderID,
-			"AttachmentType":          t.Attachment.AttachmentType,
-			"AttachmentControlNumber": t.Attachment.AttachmentControlNumber,
-			"ReportTypeCode":          t.Attachment.ReportTypeCode,
-			"TransmissionCode":        t.Attachment.TransmissionCode,
-			"ContentType":             t.Attachment.ContentType,
-			"Description":             t.Attachment.Description,
-			"Content":                 t.Attachment.Content,
-		}); err != nil {
-			return "", "", nil, err
+		path := "/claims/" + claimID + "/attachments"
+		if authorizationTransactionID != "" {
+			path = "/auth-requests/" + authorizationTransactionID + "/attachments"
 		}
-		if err := validateProviderSender(t.Sender.ID, t.Attachment.ProviderID); err != nil {
-			return "", "", nil, err
+		if len(attachments) == 1 {
+			return http.MethodPost, path, attachments[0], nil
 		}
-		return http.MethodPost, "/claims/" + strings.TrimSpace(t.Attachment.ClaimID) + "/attachments", domain.AttachmentRequest{
-			AttachmentType:          strings.TrimSpace(t.Attachment.AttachmentType),
-			AttachmentControlNumber: strings.TrimSpace(t.Attachment.AttachmentControlNumber),
-			ReportTypeCode:          strings.TrimSpace(t.Attachment.ReportTypeCode),
-			TransmissionCode:        strings.TrimSpace(t.Attachment.TransmissionCode),
-			ContentType:             strings.TrimSpace(t.Attachment.ContentType),
-			Description:             strings.TrimSpace(t.Attachment.Description),
-			Content:                 strings.TrimSpace(t.Attachment.Content),
-		}, nil
+		return http.MethodPost, path, domain.AttachmentPacketRequest{PacketID: packetID, Attachments: attachments}, nil
 	case domain.Tx278:
 		if t.PriorAuthorization == nil {
 			return "", "", nil, fmt.Errorf("missing prior authorization")
@@ -303,6 +352,7 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		return http.MethodPost, "/claims", domain.ClaimRequest{
 			AdventurerID: strings.TrimSpace(t.Claim.AdventurerID), ProviderID: strings.TrimSpace(t.Claim.ProviderID),
 			IncidentSeverity: domain.IncidentSeverity(strings.TrimSpace(t.Claim.IncidentSeverity)), AmountCents: amountCents,
+			AuthorizationTransactionID: strings.TrimSpace(t.Claim.AuthorizationTransactionID),
 		}, nil
 	case domain.Tx276:
 		if t.ClaimStatusRequest == nil {
@@ -332,6 +382,102 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 	default:
 		return "", "", nil, fmt.Errorf("unsupported transaction type")
 	}
+}
+
+func (t inboundTransaction) attachmentRequests() ([]domain.AttachmentRequest, string, string, string, error) {
+	xmlAttachments := []xmlAttachment{}
+	packetID := ""
+	if t.Attachment != nil {
+		xmlAttachments = append(xmlAttachments, *t.Attachment)
+		packetID = strings.TrimSpace(t.Attachment.PacketID)
+	}
+	if t.AttachmentPacket != nil {
+		packetID = strings.TrimSpace(t.AttachmentPacket.PacketID)
+		xmlAttachments = append(xmlAttachments, t.AttachmentPacket.Attachments...)
+	}
+	if len(xmlAttachments) == 0 {
+		return nil, "", "", "", nil
+	}
+	if packetID == "" && len(xmlAttachments) > 1 {
+		packetID = "xml-packet-" + domain.NewID()
+	}
+	requests := make([]domain.AttachmentRequest, 0, len(xmlAttachments))
+	claimID := ""
+	authorizationTransactionID := ""
+	providerID := ""
+	for index, attachment := range xmlAttachments {
+		itemClaimID := strings.TrimSpace(attachment.ClaimID)
+		itemAuthorizationTransactionID := strings.TrimSpace(attachment.AuthorizationTransactionID)
+		if (itemClaimID == "") == (itemAuthorizationTransactionID == "") {
+			return nil, "", "", "", fmt.Errorf("attachment requires exactly one of ClaimId or AuthorizationTransactionId")
+		}
+		if claimID == "" {
+			claimID = itemClaimID
+		}
+		if authorizationTransactionID == "" {
+			authorizationTransactionID = itemAuthorizationTransactionID
+		}
+		if claimID != itemClaimID || authorizationTransactionID != itemAuthorizationTransactionID {
+			return nil, "", "", "", fmt.Errorf("attachment packet must target one claim or authorization")
+		}
+		if err := requireFields(map[string]string{
+			"ProviderId":              attachment.ProviderID,
+			"AttachmentType":          attachment.AttachmentType,
+			"AttachmentControlNumber": attachment.AttachmentControlNumber,
+			"ReportTypeCode":          attachment.ReportTypeCode,
+			"TransmissionCode":        attachment.TransmissionCode,
+			"ContentType":             attachment.ContentType,
+			"Description":             attachment.Description,
+		}); err != nil {
+			return nil, "", "", "", err
+		}
+		if strings.TrimSpace(attachment.Content) == "" && strings.TrimSpace(attachment.DocumentReferenceURL) == "" {
+			return nil, "", "", "", fmt.Errorf("missing Content or DocumentReferenceUrl")
+		}
+		if providerID == "" {
+			providerID = strings.TrimSpace(attachment.ProviderID)
+		}
+		if !strings.EqualFold(providerID, strings.TrimSpace(attachment.ProviderID)) {
+			return nil, "", "", "", fmt.Errorf("attachment packet must use one ProviderId")
+		}
+		if err := validateProviderSender(t.Sender.ID, attachment.ProviderID); err != nil {
+			return nil, "", "", "", err
+		}
+		sequence := attachment.PacketSequence
+		count := attachment.PacketCount
+		if len(xmlAttachments) > 1 {
+			if sequence == 0 {
+				sequence = index + 1
+			}
+			if count == 0 {
+				count = len(xmlAttachments)
+			}
+		}
+		requests = append(requests, domain.AttachmentRequest{
+			PacketID:                firstNonEmpty(strings.TrimSpace(attachment.PacketID), packetID),
+			PacketSequence:          sequence,
+			PacketCount:             count,
+			AttachmentType:          strings.TrimSpace(attachment.AttachmentType),
+			AttachmentControlNumber: strings.TrimSpace(attachment.AttachmentControlNumber),
+			ReportTypeCode:          strings.TrimSpace(attachment.ReportTypeCode),
+			TransmissionCode:        strings.TrimSpace(attachment.TransmissionCode),
+			ContentType:             strings.TrimSpace(attachment.ContentType),
+			Description:             strings.TrimSpace(attachment.Description),
+			Content:                 strings.TrimSpace(attachment.Content),
+			DocumentReferenceID:     strings.TrimSpace(attachment.DocumentReferenceID),
+			DocumentReferenceURL:    strings.TrimSpace(attachment.DocumentReferenceURL),
+		})
+	}
+	return requests, packetID, claimID, authorizationTransactionID, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any) (int, string) {
@@ -415,6 +561,84 @@ func (a intakeApp) partnerBySenderID(senderID string) (domain.TradingPartner, bo
 func partnerAllows(partner domain.TradingPartner, txType string) bool {
 	for _, allowed := range partner.AllowedTransactionTypes {
 		if strings.EqualFold(strings.TrimSpace(allowed), strings.TrimSpace(txType)) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboundTransaction) error {
+	profile := partner.ValidationProfile
+	switch domain.TransactionType(inbound.Type) {
+	case domain.Tx275:
+		attachments := inbound.attachmentsForValidation()
+		if len(attachments) == 0 {
+			return nil
+		}
+		for _, attachment := range attachments {
+			if err := validateProfileCode(partner.ID, "attachment type", attachment.AttachmentType, profile.AttachmentTypes); err != nil {
+				return err
+			}
+			if err := validateProfileCode(partner.ID, "report type", attachment.ReportTypeCode, profile.ReportTypeCodes); err != nil {
+				return err
+			}
+			if err := validateProfileCode(partner.ID, "transmission code", attachment.TransmissionCode, profile.TransmissionCodes); err != nil {
+				return err
+			}
+			if err := validateProfileCode(partner.ID, "content type", attachment.ContentType, profile.ContentTypes); err != nil {
+				return err
+			}
+			if len(profile.ControlNumberPrefixes) > 0 && !hasProfilePrefix(attachment.AttachmentControlNumber, profile.ControlNumberPrefixes) {
+				return fmt.Errorf("attachment control number must start with one of: %s", strings.Join(profile.ControlNumberPrefixes, ", "))
+			}
+			if profile.MaxEmbeddedContentBytes > 0 && len([]byte(strings.TrimSpace(attachment.Content))) > profile.MaxEmbeddedContentBytes {
+				return fmt.Errorf("attachment content exceeds %d byte limit for trading partner %s", profile.MaxEmbeddedContentBytes, partner.ID)
+			}
+		}
+	case domain.Tx278:
+		if inbound.PriorAuthorization == nil {
+			return nil
+		}
+		if err := validateProfileCode(partner.ID, "service type", inbound.PriorAuthorization.ServiceType, profile.ServiceTypes); err != nil {
+			return err
+		}
+		if err := validateProfileCode(partner.ID, "incident severity", inbound.PriorAuthorization.IncidentSeverity, profile.IncidentSeverities); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (inbound inboundTransaction) attachmentsForValidation() []xmlAttachment {
+	if inbound.Attachment != nil {
+		return []xmlAttachment{*inbound.Attachment}
+	}
+	if inbound.AttachmentPacket != nil {
+		return inbound.AttachmentPacket.Attachments
+	}
+	return nil
+}
+
+func validateProfileCode(partnerID, label, value string, allowed []string) error {
+	if len(allowed) == 0 || containsProfileCode(allowed, value) {
+		return nil
+	}
+	return fmt.Errorf("%s %s is not allowed for trading partner %s; allowed: %s", label, strings.TrimSpace(value), partnerID, strings.Join(allowed, ", "))
+}
+
+func containsProfileCode(values []string, candidate string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(candidate)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasProfilePrefix(value string, prefixes []string) bool {
+	trimmed := strings.TrimSpace(value)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(trimmed, strings.TrimSpace(prefix)) {
 			return true
 		}
 	}
@@ -715,27 +939,62 @@ func validServiceType(value string) bool {
 }
 
 func isXMLContent(contentType string) bool {
-	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
-	return contentType == "application/xml" || contentType == "text/xml"
+	mediaType := mediaType(contentType)
+	return mediaType == "application/xml" || mediaType == "text/xml" || strings.HasSuffix(mediaType, "+xml")
+}
+
+func isJSONContent(contentType string) bool {
+	mediaType := mediaType(contentType)
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+func mediaType(contentType string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 }
 
 func seedTradingPartners() map[string]domain.TradingPartner {
 	partners := map[string]domain.TradingPartner{}
 	for _, partner := range []domain.TradingPartner{
 		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
-		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
-		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active"},
+		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
+		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
 	} {
 		partners[partner.ID] = partner
 	}
 	return partners
 }
 
+func vitesseValidationProfile() domain.PartnerValidationProfile {
+	return domain.PartnerValidationProfile{
+		AttachmentTypes:         []string{"OZ"},
+		ReportTypeCodes:         []string{"B4"},
+		TransmissionCodes:       []string{"EL"},
+		ContentTypes:            []string{"text/plain"},
+		ControlNumberPrefixes:   []string{"TEMPLE-", "ATTACH-", "XML-"},
+		MaxEmbeddedContentBytes: 4096,
+		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care"},
+		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
+	}
+}
+
+func rimarosValidationProfile() domain.PartnerValidationProfile {
+	return domain.PartnerValidationProfile{
+		AttachmentTypes:         []string{"OZ", "PN"},
+		ReportTypeCodes:         []string{"03", "B4"},
+		TransmissionCodes:       []string{"EL"},
+		ContentTypes:            []string{"text/plain", "application/pdf"},
+		ControlNumberPrefixes:   []string{"RIM-", "ATTACH-", "XML-"},
+		MaxEmbeddedContentBytes: 8192,
+		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care"},
+		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
+	}
+}
+
 func loadTradingPartners(db *sql.DB) map[string]domain.TradingPartner {
 	if db == nil {
 		return seedTradingPartners()
 	}
-	rows, err := db.Query(`SELECT id, name, sender_id, receiver_id, allowed_transaction_types, route_target, status FROM trading_partners ORDER BY name`)
+	rows, err := db.Query(`SELECT id, name, sender_id, receiver_id, allowed_transaction_types, validation_profile::text, route_target, status FROM trading_partners ORDER BY name`)
 	if err != nil {
 		log.Printf("[ASHN] postgres trading partner load failed; using seed partners: %v", err)
 		return seedTradingPartners()
@@ -745,11 +1004,15 @@ func loadTradingPartners(db *sql.DB) map[string]domain.TradingPartner {
 	for rows.Next() {
 		var partner domain.TradingPartner
 		var allowed string
-		if err := rows.Scan(&partner.ID, &partner.Name, &partner.SenderID, &partner.ReceiverID, &allowed, &partner.RouteTarget, &partner.Status); err != nil {
+		var validationProfile string
+		if err := rows.Scan(&partner.ID, &partner.Name, &partner.SenderID, &partner.ReceiverID, &allowed, &validationProfile, &partner.RouteTarget, &partner.Status); err != nil {
 			log.Printf("[ASHN] postgres trading partner row skipped: %v", err)
 			continue
 		}
 		partner.AllowedTransactionTypes = splitCSV(allowed)
+		if err := json.Unmarshal([]byte(validationProfile), &partner.ValidationProfile); err != nil {
+			log.Printf("[ASHN] postgres trading partner profile skipped for %s: %v", partner.ID, err)
+		}
 		partners[partner.ID] = partner
 	}
 	if err := rows.Err(); err != nil {
@@ -817,8 +1080,11 @@ func ediOpenAPI() map[string]any {
 		Version:     "0.1.0",
 		Paths: map[string]map[string]openapidocs.Operation{
 			"/health": {"get": {Summary: "Check edi-intake health", Tags: []string{"health"}}},
+			"/x12/transactions": {
+				"post": {Summary: "Accept canonical ASHN transaction intake as XML or JSON", Tags: []string{"intake", "x12"}, RequestBody: true},
+			},
 			"/x12/xml": {
-				"post": {Summary: "Accept XML transaction intake", Tags: []string{"xml", "x12"}, RequestBody: true},
+				"post": {Summary: "Accept XML transaction intake compatibility route", Tags: []string{"xml", "x12"}, RequestBody: true},
 			},
 			"/x12/messages": {
 				"get": {Summary: "List XML intake audit messages", Tags: []string{"xml", "audit"}},

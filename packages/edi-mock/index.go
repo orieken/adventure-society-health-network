@@ -53,12 +53,36 @@ func Generate275(claim domain.Claim, attachment domain.AttachmentRequest, relate
 	tx := transaction(domain.Tx275, domain.TxStatusAccepted, claim.ProviderID, "Adventure Society", map[string]any{
 		"x12": "275 Patient Information", "claimId": claim.ID, "providerId": claim.ProviderID,
 		"adventurerId": claim.AdventurerID, "attachmentType": attachment.AttachmentType,
+		"packetId": attachment.PacketID, "packetSequence": attachment.PacketSequence,
+		"packetCount":             attachment.PacketCount,
 		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
 		"reportTypeCode": attachment.ReportTypeCode, "transmissionCode": attachment.TransmissionCode,
-		"contentType": attachment.ContentType,
-		"content":     attachment.Content, "lore": lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"),
+		"contentType": attachment.ContentType, "documentReferenceId": attachment.DocumentReferenceID,
+		"documentReferenceUrl": attachment.DocumentReferenceURL,
+		"content":              attachment.Content, "attachmentReviewStatus": "Received",
+		"lore": lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"),
 	})
 	tx.RelatedID = relatedID
+	tx.RawX12 = rawX12(tx)
+	return tx
+}
+
+func Generate275ForAuthorization(auth domain.Transaction, attachment domain.AttachmentRequest) domain.Transaction {
+	adventurerID := payloadString(auth, "adventurerId", auth.ID)
+	providerID := payloadString(auth, "providerId", auth.SenderID)
+	tx := transaction(domain.Tx275, domain.TxStatusAccepted, providerID, "Adventure Society", map[string]any{
+		"x12": "275 Patient Information", "authorizationTransactionId": auth.ID, "providerId": providerID,
+		"adventurerId": adventurerID, "attachmentType": attachment.AttachmentType,
+		"packetId": attachment.PacketID, "packetSequence": attachment.PacketSequence,
+		"packetCount":             attachment.PacketCount,
+		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
+		"reportTypeCode": attachment.ReportTypeCode, "transmissionCode": attachment.TransmissionCode,
+		"contentType": attachment.ContentType, "documentReferenceId": attachment.DocumentReferenceID,
+		"documentReferenceUrl": attachment.DocumentReferenceURL,
+		"content":              attachment.Content, "attachmentReviewStatus": "Received",
+		"lore": lore.ThemeTransaction(domain.Tx275, providerID, "Adventure Society"),
+	})
+	tx.RelatedID = auth.ID
 	tx.RawX12 = rawX12(tx)
 	return tx
 }
@@ -206,20 +230,21 @@ func transactionSegments(tx domain.Transaction) []string {
 		}
 	case domain.Tx275:
 		attachment := attachmentInfo(tx)
-		return []string{
+		segments := []string{
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*1P*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
 			"HL*2*1*22*0~",
 			"NM1*IL*1*" + element(attachment.AdventurerID) + "****MI*" + element(attachment.AdventurerID) + "~",
-			"REF*1K*" + element(attachment.ClaimID) + "~",
+			attachmentReferenceSegment(attachment),
 			"REF*6R*" + element(attachment.ControlNumber) + "~",
+			attachmentPacketSegment(attachment),
 			"PWK*" + element(attachment.ReportTypeCode) + "*" + element(attachment.TransmissionCode) + "***AC*" + element(attachment.ControlNumber) + "~",
 			"LQ*AT*" + element(attachment.AttachmentType) + "~",
-			"K3*Content-Type: " + element(attachment.ContentType) + "~",
+			documentReferenceSegment(attachment),
 			"NTE*ADD*" + element(attachment.Description) + "~",
-			"BIN*" + strconv.Itoa(len(attachment.Content)) + "*" + element(attachment.Content) + "~",
 		}
+		return append(segments, attachmentContentSegments(attachment)...)
 	case domain.Tx278:
 		return []string{
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
@@ -298,6 +323,41 @@ func transactionSegments(tx domain.Transaction) []string {
 	}
 }
 
+func attachmentReferenceSegment(attachment x12AttachmentInfo) string {
+	if attachment.ClaimID != "" {
+		return "REF*1K*" + element(attachment.ClaimID) + "~"
+	}
+	return "REF*G1*" + element(attachment.AuthorizationTransactionID) + "~"
+}
+
+func attachmentPacketSegment(attachment x12AttachmentInfo) string {
+	if attachment.PacketID == "" {
+		return "REF*F8*" + element(attachment.ControlNumber) + "~"
+	}
+	detail := attachment.PacketID
+	if attachment.PacketSequence > 0 && attachment.PacketCount > 0 {
+		detail = fmt.Sprintf("%s-%d-OF-%d", detail, attachment.PacketSequence, attachment.PacketCount)
+	}
+	return "REF*F8*" + element(detail) + "~"
+}
+
+func documentReferenceSegment(attachment x12AttachmentInfo) string {
+	if attachment.DocumentReferenceURL != "" {
+		return "K3*Document-Reference: " + element(attachment.DocumentReferenceURL) + "~"
+	}
+	if attachment.DocumentReferenceID != "" {
+		return "K3*Document-Reference: " + element(attachment.DocumentReferenceID) + "~"
+	}
+	return "K3*Content-Type: " + element(attachment.ContentType) + "~"
+}
+
+func attachmentContentSegments(attachment x12AttachmentInfo) []string {
+	if attachment.Content == "" {
+		return nil
+	}
+	return []string{"BIN*" + strconv.Itoa(len(attachment.Content)) + "*" + element(attachment.Content) + "~"}
+}
+
 func implementationGuide(txType domain.TransactionType) string {
 	switch txType {
 	case domain.Tx834:
@@ -351,22 +411,27 @@ type x12ClaimInfo struct {
 }
 
 type x12AttachmentInfo struct {
-	ClaimID          string
-	ProviderID       string
-	AdventurerID     string
-	AttachmentType   string
-	ControlNumber    string
-	ReportTypeCode   string
-	TransmissionCode string
-	ContentType      string
-	Description      string
-	Content          string
+	ClaimID                    string
+	AuthorizationTransactionID string
+	ProviderID                 string
+	AdventurerID               string
+	PacketID                   string
+	PacketSequence             int
+	PacketCount                int
+	AttachmentType             string
+	ControlNumber              string
+	ReportTypeCode             string
+	TransmissionCode           string
+	ContentType                string
+	Description                string
+	Content                    string
+	DocumentReferenceID        string
+	DocumentReferenceURL       string
 }
 
 func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
 	var payload map[string]any
 	info := x12AttachmentInfo{
-		ClaimID:          tx.RelatedID,
 		ProviderID:       tx.SenderID,
 		AdventurerID:     "adventurer",
 		AttachmentType:   "OZ",
@@ -375,14 +440,17 @@ func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
 		TransmissionCode: "EL",
 		ContentType:      "text/plain",
 		Description:      "ASHN patient information attachment",
-		Content:          "supporting documentation",
 	}
 	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
 		return info
 	}
 	info.ClaimID = stringValue(payload, "claimId", info.ClaimID)
+	info.AuthorizationTransactionID = stringValue(payload, "authorizationTransactionId", tx.RelatedID)
 	info.ProviderID = stringValue(payload, "providerId", info.ProviderID)
 	info.AdventurerID = stringValue(payload, "adventurerId", info.AdventurerID)
+	info.PacketID = stringValue(payload, "packetId", info.PacketID)
+	info.PacketSequence = intValue(payload, "packetSequence", info.PacketSequence)
+	info.PacketCount = intValue(payload, "packetCount", info.PacketCount)
 	info.AttachmentType = stringValue(payload, "attachmentType", info.AttachmentType)
 	info.ControlNumber = stringValue(payload, "attachmentControlNumber", info.ControlNumber)
 	info.ReportTypeCode = stringValue(payload, "reportTypeCode", info.ReportTypeCode)
@@ -390,6 +458,8 @@ func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
 	info.ContentType = stringValue(payload, "contentType", info.ContentType)
 	info.Description = stringValue(payload, "description", info.Description)
 	info.Content = stringValue(payload, "content", info.Content)
+	info.DocumentReferenceID = stringValue(payload, "documentReferenceId", info.DocumentReferenceID)
+	info.DocumentReferenceURL = stringValue(payload, "documentReferenceUrl", info.DocumentReferenceURL)
 	return info
 }
 
@@ -452,6 +522,25 @@ func stringValue(payload map[string]any, key string, fallback string) string {
 		return fallback
 	}
 	return text
+}
+
+func intValue(payload map[string]any, key string, fallback int) int {
+	value, ok := payload[key]
+	if !ok {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed
+		}
+	}
+	return fallback
 }
 
 func diagnosisCode(severity domain.IncidentSeverity) string {

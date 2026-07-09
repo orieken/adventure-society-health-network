@@ -49,6 +49,63 @@ func Enqueue(db *sql.DB, jobType, entityID string, delay time.Duration) error {
 	return err
 }
 
+func List(db *sql.DB, limit int) ([]domain.TransactionJob, error) {
+	if db == nil {
+		return []domain.TransactionJob{}, nil
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := db.Query(
+		`SELECT id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at
+		 FROM transaction_jobs
+		 ORDER BY created_at DESC
+		 LIMIT $1`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	jobs := []domain.TransactionJob{}
+	for rows.Next() {
+		var job domain.TransactionJob
+		if err := rows.Scan(&job.ID, &job.Type, &job.EntityID, &job.Status, &job.Attempts, &job.RunAfter, &job.LastError, &job.CreatedAt, &job.UpdatedAt); err != nil {
+			return nil, err
+		}
+		job.DeadLetter = job.Status == StatusFailed
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func Replay(db *sql.DB, id string) (domain.TransactionJob, error) {
+	if db == nil {
+		return domain.TransactionJob{}, errors.New("database is required")
+	}
+	var job domain.TransactionJob
+	err := db.QueryRow(
+		`UPDATE transaction_jobs
+		 SET status = $1, attempts = 0, run_after = now(), last_error = NULL, updated_at = now()
+		 WHERE id = $2 AND status = $3
+		 RETURNING id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at`,
+		StatusPending, id, StatusFailed,
+	).Scan(&job.ID, &job.Type, &job.EntityID, &job.Status, &job.Attempts, &job.RunAfter, &job.LastError, &job.CreatedAt, &job.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.TransactionJob{}, fmt.Errorf("dead-letter job not found")
+	}
+	if err != nil {
+		return domain.TransactionJob{}, err
+	}
+	return job, nil
+}
+
 func ProcessDue(db *sql.DB, limit int) (int, error) {
 	if db == nil {
 		return 0, errors.New("database is required")
@@ -143,8 +200,18 @@ func processAuthReview(db *sql.DB, transactionID string) error {
 	if _, err := db.Exec(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`, string(decision), transactionID); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`UPDATE claims SET authorization_status = $1, authorization_reason = $2 WHERE authorization_transaction_id = $3`, string(decision), autoReviewReason(decision), transactionID); err != nil {
+		return err
+	}
 	_, err = db.Exec(`UPDATE transactions SET status = $1 WHERE id = $2 AND type = $3`, string(decision), transactionID, string(domain.Tx278))
 	return err
+}
+
+func autoReviewReason(decision domain.TransactionStatus) string {
+	if decision == domain.TxStatusApproved {
+		return "Auto-approved by severity and service-type rule."
+	}
+	return "Auto-denied by severity and service-type rule."
 }
 
 func processClaimAdjudication(db *sql.DB, claimID string) error {
@@ -165,10 +232,10 @@ func processClaimAdjudication(db *sql.DB, claimID string) error {
 func processClaimFinalization(db *sql.DB, claimID string) error {
 	var claim domain.Claim
 	err := db.QueryRow(
-		`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), amount_cents, status
+		`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, status
 		 FROM claims WHERE id = $1`,
 		claimID,
-	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AmountCents, &claim.Status)
+	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AuthorizationTransactionID, &claim.AuthorizationStatus, &claim.AuthorizationReason, &claim.AmountCents, &claim.Status)
 	if err != nil {
 		return err
 	}
@@ -223,7 +290,8 @@ func adjudicateClaim(claim *domain.Claim) {
 		claim.AdjustmentAmountCents = claim.AmountCents - claim.AllowedAmountCents
 	}
 
-	if claim.IncidentSeverity == domain.SeverityDiamond || claim.AmountCents > 200000 {
+	hasApprovedAuthorization := strings.EqualFold(claim.AuthorizationStatus, string(domain.TxStatusApproved))
+	if (claim.IncidentSeverity == domain.SeverityDiamond || claim.AmountCents > 200000) && !hasApprovedAuthorization {
 		claim.Status = domain.ClaimDenied
 		claim.AllowedAmountCents = 0
 		claim.PaidAmountCents = 0
@@ -231,6 +299,10 @@ func adjudicateClaim(claim *domain.Claim) {
 		claim.AdjustmentAmountCents = claim.AmountCents
 		claim.AdjustmentReason = "Non-covered catastrophic encounter"
 		claim.DenialReason = "Prior authorization or benefit exception required"
+	}
+
+	if hasApprovedAuthorization && claim.IncidentSeverity == domain.SeverityDiamond {
+		claim.AdjustmentReason = "ASHN contractual allowance with approved prior authorization"
 	}
 }
 

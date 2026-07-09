@@ -74,7 +74,7 @@ sequenceDiagram
 | `820` | Premium payment | Adventurer or sponsor pays premium dues | `Accepted`; available in the mock generator |
 | `270` | Eligibility inquiry | Provider asks whether the adventurer has active coverage | `Dispatched` |
 | `271` | Eligibility response | Society confirms or denies active coverage | `Accepted` when active, otherwise `Denied` |
-| `275` | Patient information / attachments | Provider sends supporting claim or prior auth documentation | `Accepted`; linked to the source claim transaction |
+| `275` | Patient information / attachments | Provider sends supporting claim or prior auth documentation | `Accepted`; linked to the source claim or authorization transaction |
 | `278` | Prior authorization | Provider requests approval for high-severity care such as resurrection | Starts `Pending`; `tx-worker` later marks `Approved` or `Denied` |
 | `837` | Health care claim | Provider submits a claim for the encounter | `Accepted` |
 | `835` | Claim payment / remittance advice | Society pays the provider and explains the remittance | `Paid` |
@@ -137,13 +137,22 @@ The mock payload also adds a severity description so the fantasy event maps back
 
 ### 5. Patient Information Attachments: `275`
 
-Some claims and prior authorization requests need extra supporting documentation. ASHN models this with a `275 Patient Information` transaction linked back to the claim's original `837` transaction through `relatedId`.
+Some claims and prior authorization requests need extra supporting documentation. ASHN models this with a `275 Patient Information` transaction linked back to either the claim's original `837` transaction or the prior authorization `278` transaction through `relatedId`.
 
 The payer can also solicit documentation by marking a claim `Pending Documentation` through `POST /claims/{id}/documentation-request`. That emits a related `277` status response with a documentation request payload. When a valid `275` arrives, ASHN clears the hold back to `Pending` and queues claim finalization again.
+
+For prior authorization, the dashboard and API can submit `POST /auth-requests/{transactionId}/attachments`. XML intake also accepts `<AuthorizationTransactionId>` inside a `275` `<Attachment>` payload. Claim attachments use `REF*1K`; authorization attachments use `REF*G1` in the generated X12.
+
+ASHN also separates transaction acceptance from business review. A new `275` starts with `attachmentReviewStatus: Received`; reviewers can later call `POST /transactions/{id}/attachment-review` to mark the supporting documentation `Accepted` or `Rejected` without changing the original EDI transaction status.
+
+Attachments can include embedded `content` or reference an external document with `documentReferenceId` and `documentReferenceUrl`. External references are useful for PDF/image-sized artifacts; generated X12 records the pointer in `K3*Document-Reference` and omits `BIN` when no embedded content is supplied.
+
+ASHN also supports multi-attachment packets. A packet is represented as multiple `275` transactions that share a `packetId`, with `packetSequence` and `packetCount` showing each document's position in the packet. JSON callers can post an `attachments[]` packet to the existing claim or authorization attachment endpoints, and XML callers can use `<AttachmentPacket packetId="...">` with repeated `<Attachment>` children. Raw X12 emits `REF*F8` with the packet identifier and sequence/count marker.
 
 In ASHN, a provider can submit:
 
 - attachment type
+- packet ID and sequence metadata
 - attachment control number
 - report type code
 - transmission code
@@ -153,14 +162,18 @@ In ASHN, a provider can submit:
 
 This is the "supporting scroll" step: operative notes, dungeon incident reports, resurrection medical necessity, or other evidence the payer needs before adjudication.
 
-ASHN also models payer-specific companion-guide rules. These are intentionally small but teach the real-world shape of `275` validation:
+ASHN also models partner-specific companion-guide rules. These are stored on each trading partner profile and enforced by `edi-intake` before the request is forwarded to `payer-core`. The payer still keeps its own backstop validation, but the EDI layer now owns the routing-facing companion-guide contract.
+
+These rules are intentionally small but teach the real-world shape of `275` validation:
 
 | Provider | Allowed attachment types | Allowed report types | Transmission | Content types | Control prefixes | Size limit |
 | --- | --- | --- | --- | --- | --- | --- |
 | `provider-vitesse-temple` | `OZ` | `B4` | `EL` | `text/plain` | `TEMPLE-`, `ATTACH-`, `XML-` | 4 KB |
 | `provider-rimaros-hospital` | `OZ`, `PN` | `03`, `B4` | `EL` | `text/plain`, `application/pdf` | `RIM-`, `ATTACH-`, `XML-` | 8 KB |
 
-Generated raw X12 includes `REF*1K` for claim correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type, and `BIN` for the payload.
+Generated raw X12 includes `REF*1K` or `REF*G1` for correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type or external document reference, and `BIN` when embedded content is present.
+
+The same profile can also constrain `278` prior authorization service types and incident severities, which gives demos a single place to explain sender IDs, allowed transaction sets, routing, and partner-specific validation.
 
 ### 6. Claim Status: `276 → 277`
 
@@ -222,9 +235,9 @@ The important architectural choice is that ASHN stores normalized business entit
 
 | Service | Responsibility |
 | --- | --- |
-| `api-gateway` | Public demo API, routing, CORS, health aggregation |
-| `edi-intake` | XML intake, validation, and mapping into payer workflows |
-| `payer-core` | Enrollment, eligibility, authorization, claims, payments, transaction ledger |
+| `api-gateway` | Public demo API, routing, CORS, health aggregation, and public intake routes `POST /v1/x12/transactions` / `POST /v1/x12/xml` |
+| `edi-intake` | XML/JSON representation handling, validation, audit, acknowledgments, and mapping into existing payer endpoints |
+| `payer-core` | Enrollment, eligibility, authorization, claims, payments, transaction ledger, and business state ownership |
 | `provider-service` | Provider registry and provider-facing lookup behavior |
 | `dashboard` | Visual workflow, trading partner visibility, ledger search, filters, pagination, and detail views |
 | `ashn-cli` | Scriptable demo workflow from the terminal |
@@ -252,12 +265,14 @@ ASHN now models external trading partner profiles for XML intake. Each profile c
 - route target, currently `payer-core`
 - active/inactive status
 
-When XML arrives, `edi-intake` first validates the XML shape and maps it to an internal payer request. Then it checks the trading partner seal:
+When XML or JSON arrives, `edi-intake` first validates the canonical ASHN transaction shape and maps it to an internal payer request. Then it checks the trading partner seal:
 
 1. The `Sender id` must match a known active partner.
 2. The `Receiver id` must match that partner's expected receiver.
 3. The requested X12 type must be allowed for that partner.
 4. The route target must be supported.
+
+Accepted intake is forwarded to existing `payer-core` HTTP endpoints. Rejected intake still creates an inbound audit record, preserving the raw payload and validation error for debugging, export, and replay.
 
 This gives the demo a realistic EDI boundary: not every external sender can submit every transaction type.
 

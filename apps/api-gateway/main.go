@@ -74,6 +74,12 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.proxy(w, r, g.payerURL, path)
 	case strings.HasPrefix(path, "/transactions/") && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, path)
+	case path == "/jobs" && r.Method == http.MethodGet:
+		g.proxy(w, r, g.payerURL, path)
+	case strings.HasPrefix(path, "/jobs/") && r.Method == http.MethodPost:
+		g.proxy(w, r, g.payerURL, path)
+	case path == "/x12/transactions" && r.Method == http.MethodPost:
+		g.proxy(w, r, g.ediURL, path)
 	case path == "/x12/xml" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.ediURL, path)
 	case path == "/x12/messages" && r.Method == http.MethodGet:
@@ -222,20 +228,27 @@ func apiGatewayOpenAPI() map[string]any {
 			"/v1/auth-requests/{id}/decision": {
 				"post": {Summary: "Approve or deny a 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true},
 			},
+			"/v1/auth-requests/{id}/attachments": {
+				"post": {Summary: "Submit one 275 attachment or a packet for a 278 authorization", Tags: []string{"authorizations", "attachments", "x12"}, RequestBody: true},
+			},
 			"/v1/claims": {
 				"get":  {Summary: "List claims", Tags: []string{"claims"}},
 				"post": {Summary: "Submit 837 claim", Tags: []string{"claims", "x12"}, RequestBody: true},
 			},
-			"/v1/claims/{id}":                       {"get": {Summary: "Get claim detail", Tags: []string{"claims"}}},
-			"/v1/claims/{id}/status":                {"get": {Summary: "Get claim status", Tags: []string{"claims"}}},
-			"/v1/claims/{id}/documentation-request": {"post": {Summary: "Request 275 supporting documentation", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
-			"/v1/claims/{id}/attachments":           {"post": {Summary: "Submit 275 patient information attachment", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
-			"/v1/claims/{id}/payment":               {"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true}},
-			"/v1/transactions":                      {"get": {Summary: "List ledger transactions", Tags: []string{"transactions"}}},
-			"/v1/transactions/{id}":                 {"get": {Summary: "Get transaction detail", Tags: []string{"transactions"}}},
-			"/v1/transactions/{id}/export":          {"get": {Summary: "Export transaction as JSON, XML, or X12", Tags: []string{"transactions", "export"}}},
-			"/v1/transactions/{id}/replay":          {"post": {Summary: "Replay transaction", Tags: []string{"transactions", "replay"}}},
-			"/v1/x12/xml":                           {"post": {Summary: "Accept XML intake", Tags: []string{"xml", "x12"}, RequestBody: true}},
+			"/v1/claims/{id}":                         {"get": {Summary: "Get claim detail", Tags: []string{"claims"}}},
+			"/v1/claims/{id}/status":                  {"get": {Summary: "Get claim status", Tags: []string{"claims"}}},
+			"/v1/claims/{id}/documentation-request":   {"post": {Summary: "Request 275 supporting documentation", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
+			"/v1/claims/{id}/attachments":             {"post": {Summary: "Submit one 275 patient information attachment or a packet", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
+			"/v1/claims/{id}/payment":                 {"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true}},
+			"/v1/transactions":                        {"get": {Summary: "List ledger transactions", Tags: []string{"transactions"}}},
+			"/v1/transactions/{id}":                   {"get": {Summary: "Get transaction detail", Tags: []string{"transactions"}}},
+			"/v1/transactions/{id}/export":            {"get": {Summary: "Export transaction as JSON, XML, or X12", Tags: []string{"transactions", "export"}}},
+			"/v1/transactions/{id}/replay":            {"post": {Summary: "Replay transaction", Tags: []string{"transactions", "replay"}}},
+			"/v1/transactions/{id}/attachment-review": {"post": {Summary: "Record 275 attachment review outcome", Tags: []string{"transactions", "attachments"}, RequestBody: true}},
+			"/v1/jobs":                              {"get": {Summary: "List async transaction jobs", Tags: []string{"async jobs"}}},
+			"/v1/jobs/{id}/replay":                  {"post": {Summary: "Replay a dead-lettered async job", Tags: []string{"async jobs", "replay"}}},
+			"/v1/x12/transactions":                  {"post": {Summary: "Accept canonical ASHN transaction intake as XML or JSON", Tags: []string{"intake", "x12"}, RequestBody: true}},
+			"/v1/x12/xml":                           {"post": {Summary: "Accept XML intake compatibility route", Tags: []string{"xml", "x12"}, RequestBody: true}},
 			"/v1/x12/messages":                      {"get": {Summary: "List XML intake audits", Tags: []string{"xml"}}},
 			"/v1/x12/messages/{id}/export":          {"get": {Summary: "Export XML intake audit", Tags: []string{"xml", "export"}}},
 			"/v1/x12/messages/{id}/replay":          {"post": {Summary: "Replay XML intake", Tags: []string{"xml", "replay"}}},

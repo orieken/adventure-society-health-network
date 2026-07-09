@@ -18,6 +18,12 @@ type TradingPartner = {
   allowedTransactionTypes: string[];
   routeTarget: string;
   status: string;
+  validationProfile?: {
+    attachmentTypes?: string[];
+    reportTypeCodes?: string[];
+    contentTypes?: string[];
+    maxEmbeddedContentBytes?: number;
+  };
 };
 
 type Adventurer = {
@@ -35,6 +41,9 @@ type Claim = {
   providerId: string;
   incidentSeverity: string;
   transactionId: string;
+  authorizationTransactionId?: string;
+  authorizationStatus?: string;
+  authorizationReason?: string;
   amountCents: number;
   allowedAmountCents?: number;
   paidAmountCents?: number;
@@ -94,6 +103,19 @@ type InboundMessage = {
   createdAt: string;
 };
 
+type TransactionJob = {
+  id: string;
+  type: string;
+  entityId: string;
+  status: string;
+  attempts: number;
+  runAfter: string;
+  lastError?: string;
+  deadLetter: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 const apiUrl = import.meta.env.VITE_ASHN_API_URL ?? "http://localhost:8080";
 const adventurerPageSize = 10;
 const claimPageSize = 10;
@@ -143,6 +165,7 @@ function App() {
   const [recentClaims, setRecentClaims] = useState<Claim[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [inboundMessages, setInboundMessages] = useState<InboundMessage[]>([]);
+  const [transactionJobs, setTransactionJobs] = useState<TransactionJob[]>([]);
   const [adventurerPage, setAdventurerPage] = useState<PageInfo>({ limit: adventurerPageSize, offset: 0, count: 0, hasMore: false });
   const [claimPage, setClaimPage] = useState<PageInfo>({ limit: claimPageSize, offset: 0, count: 0, hasMore: false });
   const [transactionPage, setTransactionPage] = useState<PageInfo>({ limit: transactionPageSize, offset: 0, count: 0, hasMore: false });
@@ -215,28 +238,46 @@ function App() {
       status: auditStatusFilter,
       type: auditTypeFilter
     });
-    const [healthResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult] = await Promise.all([
+    const [healthResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, jobsResult] = await Promise.allSettled([
       request<Record<string, string>>("/v1/health"),
       request<Provider[]>("/v1/providers"),
       request<TradingPartner[]>("/v1/x12/trading-partners"),
       request<Adventurer[]>(`/v1/adventurers?${adventurerQuery}`),
       request<Claim[]>(`/v1/claims?${claimQuery}`),
       request<Transaction[]>(`/v1/transactions?${transactionQuery}`),
-      request<InboundMessage[]>(`/v1/x12/messages?${auditQuery}`)
+      request<InboundMessage[]>(`/v1/x12/messages?${auditQuery}`),
+      request<TransactionJob[]>("/v1/jobs?limit=8")
     ]);
-    setHealth(healthResult);
-    setProviders(providersResult.data ?? []);
-    setTradingPartners(partnersResult.data ?? []);
-    setRecentAdventurers(adventurersResult.data ?? []);
-    setRecentClaims(claimsResult.data ?? []);
-    setRecentTransactions(transactionsResult.data ?? []);
-    setInboundMessages(auditResult.data ?? []);
-    setAdventurerPage(adventurersResult.page ?? { limit: adventurerPageSize, offset: adventurerOffset, count: adventurersResult.data?.length ?? 0, hasMore: false });
-    setClaimPage(claimsResult.page ?? { limit: claimPageSize, offset: claimOffset, count: claimsResult.data?.length ?? 0, hasMore: false });
-    setTransactionPage(transactionsResult.page ?? { limit: transactionPageSize, offset: transactionOffset, count: transactionsResult.data?.length ?? 0, hasMore: false });
-    setAuditPage(auditResult.page ?? { limit: auditPageSize, offset: auditOffset, count: auditResult.data?.length ?? 0, hasMore: false });
-    if (pushProviderEvent && providersResult.lore) {
-      pushEvent(providersResult);
+    const healthEnvelope = settledValue(healthResult);
+    const providersEnvelope = settledValue(providersResult);
+    const partnersEnvelope = settledValue(partnersResult);
+    const adventurersEnvelope = settledValue(adventurersResult);
+    const claimsEnvelope = settledValue(claimsResult);
+    const transactionsEnvelope = settledValue(transactionsResult);
+    const auditEnvelope = settledValue(auditResult);
+    const jobsEnvelope = settledValue(jobsResult);
+    if (healthEnvelope) setHealth(healthEnvelope);
+    if (providersEnvelope) setProviders(providersEnvelope.data ?? []);
+    if (partnersEnvelope) setTradingPartners(partnersEnvelope.data ?? []);
+    if (adventurersEnvelope) {
+      setRecentAdventurers(adventurersEnvelope.data ?? []);
+      setAdventurerPage(adventurersEnvelope.page ?? { limit: adventurerPageSize, offset: adventurerOffset, count: adventurersEnvelope.data?.length ?? 0, hasMore: false });
+    }
+    if (claimsEnvelope) {
+      setRecentClaims(claimsEnvelope.data ?? []);
+      setClaimPage(claimsEnvelope.page ?? { limit: claimPageSize, offset: claimOffset, count: claimsEnvelope.data?.length ?? 0, hasMore: false });
+    }
+    if (transactionsEnvelope) {
+      setRecentTransactions(transactionsEnvelope.data ?? []);
+      setTransactionPage(transactionsEnvelope.page ?? { limit: transactionPageSize, offset: transactionOffset, count: transactionsEnvelope.data?.length ?? 0, hasMore: false });
+    }
+    if (auditEnvelope) {
+      setInboundMessages(auditEnvelope.data ?? []);
+      setAuditPage(auditEnvelope.page ?? { limit: auditPageSize, offset: auditOffset, count: auditEnvelope.data?.length ?? 0, hasMore: false });
+    }
+    if (jobsEnvelope) setTransactionJobs(jobsEnvelope.data ?? []);
+    if (pushProviderEvent && providersEnvelope?.lore) {
+      pushEvent(providersEnvelope);
     }
   }
 
@@ -245,6 +286,10 @@ function App() {
     setClaimOffset(0);
     setTransactionOffset(0);
     setAuditOffset(0);
+  }
+
+  function settledValue<T>(result: PromiseSettledResult<Envelope<T>>) {
+    return result.status === "fulfilled" ? result.value : undefined;
   }
 
   async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
@@ -294,9 +339,35 @@ function App() {
     setBusy(false);
   }
 
+  async function reviewAttachment(status: "Accepted" | "Rejected") {
+    if (!selectedTransaction) return;
+    setBusy(true);
+    const result = await request<Record<string, string>>(`/v1/transactions/${selectedTransaction.id}/attachment-review`, {
+      method: "POST",
+      body: JSON.stringify({
+        status,
+        reason: status === "Accepted" ? "Supporting documentation satisfies review." : "Supporting documentation is insufficient for business review."
+      })
+    });
+    if (result.transaction) {
+      setSelectedTransaction(result.transaction);
+    }
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
   async function replayInboundMessage(messageId: string) {
     setBusy(true);
     const result = await request(`/v1/x12/messages/${messageId}/replay`, { method: "POST" });
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
+  async function replayJob(jobId: string) {
+    setBusy(true);
+    const result = await request<TransactionJob>(`/v1/jobs/${jobId}/replay`, { method: "POST" });
     pushEvent(result);
     await refresh();
     setBusy(false);
@@ -369,6 +440,26 @@ function App() {
     setBusy(false);
   }
 
+  async function attachAuthorizationDocumentation() {
+    if (!authorizationTransaction) return;
+    setBusy(true);
+    const result = await request<Record<string, string>>(`/v1/auth-requests/${authorizationTransaction.id}/attachments`, {
+      method: "POST",
+      body: JSON.stringify({
+        attachmentType: "OZ",
+        attachmentControlNumber: `ATTACH-${authorizationTransaction.id.slice(0, 8).toUpperCase()}`,
+        reportTypeCode: "B4",
+        transmissionCode: "EL",
+        contentType: "text/plain",
+        description: "Prior authorization medical necessity notes",
+        content: "Resurrection authorization includes encounter notes, severity evidence, and healer attestation."
+      })
+    });
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
   async function submitClaim() {
     if (!adventurer) return;
     setBusy(true);
@@ -378,7 +469,8 @@ function App() {
         adventurerId: adventurer.id,
         providerId: selectedProviderId,
         incidentSeverity: "Awakened",
-        amountCents: 125000
+        amountCents: 125000,
+        authorizationTransactionId: authorizationTransaction?.id
       })
     });
     setClaim(result.data ?? null);
@@ -604,6 +696,7 @@ function App() {
               </div>
               <p>Manual council review can approve or deny the pending resurrection authorization before the worker decides.</p>
               <div className="actions compact-actions">
+                <button disabled={busy} onClick={attachAuthorizationDocumentation}>Send 275 Auth Docs</button>
                 <button disabled={busy || authorizationTransaction.status !== "Pending"} onClick={() => decideAuthorization("Approved")}>Approve Auth</button>
                 <button className="danger" disabled={busy || authorizationTransaction.status !== "Pending"} onClick={() => decideAuthorization("Denied")}>Deny Auth</button>
               </div>
@@ -628,6 +721,21 @@ function App() {
           <p className="muted">No transactions yet. The Society scribe is sharpening a quill.</p>
         ) : (
           events.map((event, index) => <LedgerEvent key={index} event={event} />)
+        )}
+      </section>
+
+      <section className="panel ledger">
+        <div className="ledger-title">
+          <div>
+            <h2>Async Worker Queue</h2>
+            <p className="muted">Queued 278 reviews and claim adjudication jobs with retry/dead-letter status.</p>
+          </div>
+          <span className="muted">{transactionJobs.length} recent jobs</span>
+        </div>
+        {transactionJobs.length === 0 ? (
+          <p className="muted">No queued jobs are visible yet. The worker campfire is quiet.</p>
+        ) : (
+          transactionJobs.map((job) => <JobRow key={job.id} job={job} busy={busy} onReplay={replayJob} />)
         )}
       </section>
       </>
@@ -825,9 +933,24 @@ function App() {
                 <button className="secondary" onClick={() => downloadFromPath(`/v1/transactions/${selectedTransaction.id}/export?format=xml`)}>Export XML</button>
                 <button className="secondary" disabled={!selectedTransaction.rawX12} onClick={() => downloadFromPath(`/v1/transactions/${selectedTransaction.id}/export?format=x12`)}>Export X12</button>
                 <button disabled={busy} onClick={() => replayTransaction(selectedTransaction.id)}>Replay Transaction</button>
+                {selectedTransaction.type === "275" && (
+                  <>
+                    <button disabled={busy} onClick={() => reviewAttachment("Accepted")}>Accept Attachment</button>
+                    <button className="danger" disabled={busy} onClick={() => reviewAttachment("Rejected")}>Reject Attachment</button>
+                  </>
+                )}
               </div>
               <DetailItem label="Type" value={selectedTransaction.type} />
               <DetailItem label="Status" value={selectedTransaction.status} />
+              {selectedTransaction.type === "275" && (
+                <>
+                  <DetailItem label="Attachment Review" value={payloadString(selectedTransaction, "attachmentReviewStatus") ?? "Received"} />
+                  <DetailItem label="Review Reason" value={payloadString(selectedTransaction, "attachmentReviewReason") ?? "—"} />
+                  <DetailItem label="Packet" value={attachmentPacketLabel(selectedTransaction) ?? "—"} />
+                  <DetailItem label="Document Ref" value={payloadString(selectedTransaction, "documentReferenceId") ?? "—"} />
+                  <DetailItem label="Document URL" value={payloadString(selectedTransaction, "documentReferenceUrl") ?? "—"} />
+                </>
+              )}
               <DetailItem label="Sender" value={selectedTransaction.senderId} />
               <DetailItem label="Receiver" value={selectedTransaction.receiverId} />
               <DetailItem label="Created" value={new Date(selectedTransaction.createdAt).toLocaleString()} />
@@ -862,6 +985,9 @@ function App() {
               <DetailItem label="Adjustment" value={money(selectedClaim.adjustmentAmountCents)} />
               <DetailItem label="Adjustment Reason" value={selectedClaim.adjustmentReason ?? "—"} />
               <DetailItem label="Denial Reason" value={selectedClaim.denialReason ?? "—"} />
+              <DetailItem label="Prior Auth" value={selectedClaim.authorizationTransactionId ?? "—"} />
+              <DetailItem label="Auth Status" value={selectedClaim.authorizationStatus ?? "—"} />
+              <DetailItem label="Auth Reason" value={selectedClaim.authorizationReason ?? "—"} />
               <DetailItem label="Adventurer" value={selectedClaim.adventurerId} />
               <DetailItem label="Provider" value={selectedClaim.providerId} />
               <DetailItem label="Transaction" value={selectedClaim.transactionId} />
@@ -907,6 +1033,7 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
 }
 
 function TradingPartnerCard({ partner }: { partner: TradingPartner }) {
+  const profile = partner.validationProfile;
   return (
     <article className="partner-card">
       <div>
@@ -917,6 +1044,13 @@ function TradingPartnerCard({ partner }: { partner: TradingPartner }) {
       <div className="chips">
         {partner.allowedTransactionTypes.map((type) => <span key={type}>{type}</span>)}
       </div>
+      {profile && (profile.attachmentTypes?.length || profile.contentTypes?.length || profile.maxEmbeddedContentBytes) ? (
+        <p>
+          Guide: {profile.attachmentTypes?.length ? `${profile.attachmentTypes.join("/")} attachments` : "standard attachments"}
+          {profile.contentTypes?.length ? ` · ${profile.contentTypes.join(", ")}` : ""}
+          {profile.maxEmbeddedContentBytes ? ` · ${Math.round(profile.maxEmbeddedContentBytes / 1024)} KB embedded limit` : ""}
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -1075,10 +1209,22 @@ function timelineStepDetail(transaction: Transaction) {
   if (transaction.type === "275") {
     const attachmentType = payloadString(transaction, "attachmentType");
     const reportTypeCode = payloadString(transaction, "reportTypeCode");
+    const reviewStatus = payloadString(transaction, "attachmentReviewStatus") ?? "Received";
     const attachmentLabel = [attachmentType, reportTypeCode].filter(Boolean).join("/");
-    return attachmentLabel ? `${attachmentLabel} attachment · ${transaction.status}` : `Attachment · ${transaction.status}`;
+    const packetLabel = attachmentPacketLabel(transaction);
+    const suffix = packetLabel ? ` · ${packetLabel}` : "";
+    return attachmentLabel ? `${attachmentLabel} attachment · Review ${reviewStatus}${suffix}` : `Attachment · Review ${reviewStatus}${suffix}`;
   }
   return transaction.status;
+}
+
+function attachmentPacketLabel(transaction: Transaction) {
+  const packetId = payloadString(transaction, "packetId");
+  const packetSequence = payloadString(transaction, "packetSequence");
+  const packetCount = payloadString(transaction, "packetCount");
+  if (!packetId) return undefined;
+  if (packetSequence && packetCount) return `${packetId} (${packetSequence}/${packetCount})`;
+  return packetId;
 }
 
 function transactionClaimId(transaction: Transaction) {
@@ -1127,6 +1273,22 @@ function InboundMessageRow({ message, onSelect }: { message: InboundMessage; onS
         <span>{message.downstreamStatus ? `${message.downstreamStatus} · ` : ""}{new Date(message.createdAt).toLocaleString()}</span>
       </div>
       <code>{message.id}</code>
+    </article>
+  );
+}
+
+function JobRow({ job, busy, onReplay }: { job: TransactionJob; busy: boolean; onReplay: (jobId: string) => void }) {
+  return (
+    <article className="compact-row">
+      <div>
+        <strong>{job.type} · {job.status}{job.deadLetter ? " · Dead Letter" : ""}</strong>
+        <span>{job.attempts} attempt{job.attempts === 1 ? "" : "s"} · runs {new Date(job.runAfter).toLocaleTimeString()} · entity {job.entityId}</span>
+        {job.lastError && <span>{job.lastError}</span>}
+      </div>
+      <div className="row-actions">
+        <code>{job.id}</code>
+        {job.deadLetter && <button className="secondary" disabled={busy} onClick={() => onReplay(job.id)}>Replay</button>}
+      </div>
     </article>
   );
 }
