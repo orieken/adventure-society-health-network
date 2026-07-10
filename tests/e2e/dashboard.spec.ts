@@ -257,12 +257,18 @@ test.describe("ASHN dashboard smoke", () => {
 
     await page.getByRole("button", { name: /Submit 275 Packet/i }).click();
     await expect(drawer.getByText("Pending", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("Document Review")).toBeVisible();
+    await expect(drawer.locator(".document-review-row").filter({ hasText: "Medical necessity letter" })).toBeVisible();
+    await drawer.locator(".document-review-row").filter({ hasText: "Medical necessity letter" }).getByRole("button", { name: "Accept Doc" }).click();
+    await expect(drawer.locator(".document-review-row").filter({ hasText: "Medical necessity letter" }).getByText("Accepted")).toBeVisible();
+    await expect(drawer.locator(".document-review-row").filter({ hasText: "Encounter notes" }).getByText("Received")).toBeVisible();
+
     await page.getByRole("button", { name: "Close" }).click();
     await page.getByRole("button", { name: /Workflow/i }).click();
     const latestEvent = page.locator(".event").first();
     await latestEvent.getByText("Raw payload").click();
     await expect(latestEvent.getByText("tx-e2e-doc-packet-1")).toBeVisible();
-    await expect(latestEvent.getByText("tx-e2e-doc-packet-3")).toBeVisible();
+    await expect(latestEvent.getByText("attachmentReviewStatus")).toBeVisible();
   });
 
   test("reviews 275 attachment outcomes separately from EDI acceptance", async ({ page }) => {
@@ -289,6 +295,7 @@ test.describe("ASHN dashboard smoke", () => {
 
 async function mockDashboardApi(page: Page) {
   let claimStatus = "Submitted";
+  const workbenchTransactions: DemoTransaction[] = [];
   const partnerProfiles = [
     {
       id: "tp-vitesse-temple",
@@ -493,9 +500,20 @@ async function mockDashboardApi(page: Page) {
 
     if (path === "/v1/claims/claim-e2e-dashboard/attachments") {
       claimStatus = "Pending";
-      const packet = route.request().postDataJSON() as { attachments: Array<Record<string, string>>; packetId: string };
+      const packet = route.request().postDataJSON() as {
+        packetId: string;
+        attachments: Array<{
+          attachmentType: string;
+          reportTypeCode: string;
+          documentReferenceId: string;
+          documentReferenceUrl: string;
+          description: string;
+        }>;
+      };
+      const attachmentTemplate = demoTransactions.find((transaction) => transaction.type === "275");
+      expect(attachmentTemplate).toBeTruthy();
       const transactions = packet.attachments.map((attachment, index) => ({
-        ...demoTransactions.find((transaction) => transaction.type === "275"),
+        ...attachmentTemplate!,
         id: `tx-e2e-doc-packet-${index + 1}`,
         relatedId: "tx-e2e-837",
         payload: {
@@ -508,9 +526,11 @@ async function mockDashboardApi(page: Page) {
           packetCount: String(packet.attachments.length),
           attachmentReviewStatus: "Received",
           documentReferenceId: attachment.documentReferenceId,
-          documentReferenceUrl: attachment.documentReferenceUrl
+          documentReferenceUrl: attachment.documentReferenceUrl,
+          description: attachment.description
         }
       }));
+      workbenchTransactions.splice(0, workbenchTransactions.length, ...transactions);
       await route.fulfill({
         status: 201,
         json: {
@@ -518,6 +538,27 @@ async function mockDashboardApi(page: Page) {
           lore: "Patient information attachment accepted for documentation workbench.",
           transaction: transactions[0],
           transactions
+        }
+      });
+      return;
+    }
+
+    const packetReviewMatch = path.match(/^\/v1\/transactions\/(tx-e2e-doc-packet-\d+)\/attachment-review$/);
+    if (packetReviewMatch) {
+      const transaction = workbenchTransactions.find((item) => item.id === packetReviewMatch[1]);
+      const body = route.request().postDataJSON() as { status: string; reason: string };
+      if (transaction) {
+        transaction.payload = {
+          ...transaction.payload,
+          attachmentReviewStatus: body.status,
+          attachmentReviewReason: body.reason
+        };
+      }
+      await route.fulfill({
+        json: {
+          data: { transactionId: packetReviewMatch[1], attachmentReviewStatus: body.status, reason: body.reason },
+          lore: `Attachment review marked ${body.status.toLowerCase()}.`,
+          transaction
         }
       });
       return;
@@ -543,7 +584,8 @@ async function mockDashboardApi(page: Page) {
 
     if (path === "/v1/transactions") {
       const type = url.searchParams.get("type");
-      const data = type ? demoTransactions.filter((transaction) => transaction.type === type) : demoTransactions;
+      const allTransactions = [...workbenchTransactions, ...demoTransactions];
+      const data = type ? allTransactions.filter((transaction) => transaction.type === type) : allTransactions;
       await route.fulfill({ json: { data, page: pageInfo(data.length, 25) } });
       return;
     }

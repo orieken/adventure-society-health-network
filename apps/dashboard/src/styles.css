@@ -879,6 +879,57 @@ pre {
   color: #91d7ff;
 }
 
+.document-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.document-review-list h4 {
+  margin: 0;
+}
+
+.document-review-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(135, 226, 167, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 12px;
+}
+
+.document-review-row div:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.document-review-row span {
+  color: #87e2a7;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.document-review-row small {
+  overflow-wrap: anywhere;
+  color: #91d7ff;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.review-actions button {
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

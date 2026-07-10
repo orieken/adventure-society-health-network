@@ -162,7 +162,7 @@ In ASHN, a provider can submit:
 
 This is the "supporting scroll" step: operative notes, dungeon incident reports, resurrection medical necessity, or other evidence the payer needs before adjudication.
 
-The dashboard claim detail drawer includes a **275 Documentation Workbench** that shows required and optional documents, lets the payer request the checklist, and lets the provider submit a packet that creates one `275` transaction per checklist document.
+The dashboard claim detail drawer includes a **275 Documentation Workbench** that shows required and optional documents, lets the payer request the checklist, and lets the provider submit a packet that creates one `275` transaction per checklist document. Each submitted document can then be reviewed independently as `Received`, `Accepted`, or `Rejected`, while the overall EDI transaction remains accepted.
 
 ASHN also models partner-specific companion-guide rules. These are stored on each trading partner profile and enforced by `edi-intake` before the request is forwarded to `payer-core`. The payer still keeps its own backstop validation, but the EDI layer now owns the routing-facing companion-guide contract.
 

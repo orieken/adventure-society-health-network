@@ -439,6 +439,33 @@ func TestReviewAttachmentUpdatesPayloadWithoutChangingTransactionAcceptance(t *t
 	assert.Contains(t, string(app.transactions["tx-275"].Payload), `"attachmentReviewStatus":"Rejected"`)
 }
 
+func TestReviewAttachmentUpdatesOnlySelectedPacketDocument(t *testing.T) {
+	app := newTestStore()
+	app.transactions["tx-doc-1"] = domain.Transaction{
+		ID:     "tx-doc-1",
+		Type:   domain.Tx275,
+		Status: domain.TxStatusAccepted,
+		Payload: domain.Payload(map[string]any{
+			"packetId": "packet-claim-1", "packetSequence": 1, "description": "Medical necessity letter", "attachmentReviewStatus": "Received",
+		}),
+	}
+	app.transactions["tx-doc-2"] = domain.Transaction{
+		ID:     "tx-doc-2",
+		Type:   domain.Tx275,
+		Status: domain.TxStatusAccepted,
+		Payload: domain.Payload(map[string]any{
+			"packetId": "packet-claim-1", "packetSequence": 2, "description": "Encounter notes", "attachmentReviewStatus": "Received",
+		}),
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/transactions/tx-doc-1/attachment-review", domain.AttachmentReviewRequest{Status: "Accepted", Reason: "Document satisfies checklist item."})
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, string(app.transactions["tx-doc-1"].Payload), `"attachmentReviewStatus":"Accepted"`)
+	assert.Contains(t, string(app.transactions["tx-doc-2"].Payload), `"attachmentReviewStatus":"Received"`)
+}
+
 func TestReviewAttachmentValidatesTransactionAndStatus(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)

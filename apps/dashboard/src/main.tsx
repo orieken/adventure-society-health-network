@@ -295,6 +295,11 @@ function App() {
     [recentTransactions, selectedTransaction]
   );
 
+  const selectedClaimAttachmentTransactions = useMemo(
+    () => (selectedClaim ? claimAttachmentTransactions(selectedClaim, recentTransactions) : []),
+    [recentTransactions, selectedClaim]
+  );
+
   const providerFilters = useMemo(
     () => ["All", ...providers.map((provider) => provider.id)],
     [providers]
@@ -549,8 +554,12 @@ function App() {
 
   async function reviewAttachment(status: "Accepted" | "Rejected") {
     if (!selectedTransaction) return;
+    await reviewAttachmentTransaction(selectedTransaction.id, status);
+  }
+
+  async function reviewAttachmentTransaction(transactionId: string, status: "Accepted" | "Rejected") {
     setBusy(true);
-    const result = await request<Record<string, string>>(`/v1/transactions/${selectedTransaction.id}/attachment-review`, {
+    const result = await request<Record<string, string>>(`/v1/transactions/${transactionId}/attachment-review`, {
       method: "POST",
       body: JSON.stringify({
         status,
@@ -558,7 +567,8 @@ function App() {
       })
     });
     if (result.transaction) {
-      setSelectedTransaction(result.transaction);
+      const reviewedTransaction = result.transaction;
+      setSelectedTransaction((current) => current?.id === reviewedTransaction.id ? reviewedTransaction : current);
     }
     pushEvent(result);
     await refresh();
@@ -1276,7 +1286,13 @@ function App() {
                 <button disabled={busy || selectedClaim.status === "Pending Documentation"} onClick={requestClaimDocumentation}>Request 275 Docs</button>
                 <button disabled={busy} onClick={submitClaimDocumentationPacket}>Submit 275 Packet</button>
               </div>
-              <DocumentationWorkbench claim={selectedClaim} checklist={documentationChecklist} />
+              <DocumentationWorkbench
+                claim={selectedClaim}
+                checklist={documentationChecklist}
+                attachmentTransactions={selectedClaimAttachmentTransactions}
+                busy={busy}
+                onReview={reviewAttachmentTransaction}
+              />
               <DetailItem label="Status" value={selectedClaim.status} />
               <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
               <DetailItem label="Billed" value={money(selectedClaim.amountCents)} />
@@ -1442,9 +1458,22 @@ function DetailItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DocumentationWorkbench({ claim, checklist }: { claim: Claim; checklist: DocumentationChecklistItem[] }) {
+function DocumentationWorkbench({
+  claim,
+  checklist,
+  attachmentTransactions,
+  busy,
+  onReview
+}: {
+  claim: Claim;
+  checklist: DocumentationChecklistItem[];
+  attachmentTransactions: Transaction[];
+  busy: boolean;
+  onReview: (transactionId: string, status: "Accepted" | "Rejected") => void;
+}) {
   const openCount = claim.status === "Pending Documentation" ? checklist.filter((item) => item.required).length : 0;
-  const statusLabel = claim.status === "Pending Documentation" ? `${openCount} required docs open` : "Ready for packet";
+  const receivedCount = attachmentTransactions.length;
+  const statusLabel = receivedCount > 0 ? `${receivedCount} docs received` : claim.status === "Pending Documentation" ? `${openCount} required docs open` : "Ready for packet";
 
   return (
     <section className="documentation-workbench" aria-label="275 documentation workbench">
@@ -1467,6 +1496,27 @@ function DocumentationWorkbench({ claim, checklist }: { claim: Claim; checklist:
       <p className="muted">
         A submitted packet creates one related 275 transaction per checklist document, sharing the same packet id for downstream review.
       </p>
+      {attachmentTransactions.length > 0 && (
+        <div className="document-review-list">
+          <h4>Document Review</h4>
+          {attachmentTransactions.map((transaction) => {
+            const reviewStatus = payloadString(transaction, "attachmentReviewStatus") ?? "Received";
+            return (
+              <article key={transaction.id} className="document-review-row">
+                <div>
+                  <span>{reviewStatus}</span>
+                  <strong>{payloadString(transaction, "description") ?? payloadString(transaction, "attachmentControlNumber") ?? transaction.id}</strong>
+                  <small>{payloadString(transaction, "attachmentType")}/{payloadString(transaction, "reportTypeCode")} · {payloadString(transaction, "documentReferenceId") ?? transaction.id}</small>
+                </div>
+                <div className="review-actions">
+                  <button disabled={busy || reviewStatus === "Accepted"} onClick={() => onReview(transaction.id, "Accepted")}>Accept Doc</button>
+                  <button className="danger" disabled={busy || reviewStatus === "Rejected"} onClick={() => onReview(transaction.id, "Rejected")}>Reject Doc</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -1605,6 +1655,18 @@ function buildTransactionRelationshipMap(current: Transaction, transactions: Tra
     current,
     children
   };
+}
+
+function claimAttachmentTransactions(claim: Claim, transactions: Transaction[]) {
+  return transactions
+    .filter((transaction) => transaction.type === "275")
+    .filter((transaction) => payloadString(transaction, "claimId") === claim.id || transaction.relatedId === claim.transactionId)
+    .sort((left, right) => {
+      const leftSequence = Number(payloadString(left, "packetSequence") ?? "0");
+      const rightSequence = Number(payloadString(right, "packetSequence") ?? "0");
+      if (leftSequence !== rightSequence) return leftSequence - rightSequence;
+      return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+    });
 }
 
 function timelineTitle(transaction: Transaction, claimId?: string, adventurerId?: string) {
