@@ -114,6 +114,7 @@ type TimelineGroup = {
 };
 
 type DashboardTab = "workflow" | "timeline" | "ledger" | "xml" | "partners";
+type PayloadTab = "json" | "xml" | "x12";
 
 type InboundMessage = {
   id: string;
@@ -149,6 +150,11 @@ const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837"
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
+const payloadTabs: { id: PayloadTab; label: string }[] = [
+  { id: "json", label: "JSON" },
+  { id: "xml", label: "XML" },
+  { id: "x12", label: "X12" }
+];
 const savedFiltersStorageKey = "ashn.savedFilters.v1";
 const initialPartnerForm: PartnerFormState = {
   id: "",
@@ -252,10 +258,16 @@ function App() {
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(loadSavedFilters);
   const [savedFilterName, setSavedFilterName] = useState("");
   const [selectedSavedFilterId, setSelectedSavedFilterId] = useState("");
+  const [payloadTab, setPayloadTab] = useState<PayloadTab>("json");
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
     [providers, selectedProviderId]
+  );
+
+  const selectedPayloadView = useMemo(
+    () => (selectedTransaction ? transactionPayloadView(selectedTransaction, payloadTab) : null),
+    [payloadTab, selectedTransaction]
   );
 
   const providerFilters = useMemo(
@@ -689,6 +701,7 @@ function App() {
     const transaction = result.transaction ?? result.data;
     if (transaction) {
       setSelectedTransaction(transaction);
+      setPayloadTab("json");
       setSelectedClaim(null);
       setSelectedInboundMessage(null);
     }
@@ -1157,19 +1170,30 @@ function App() {
               <DetailItem label="Created" value={new Date(selectedTransaction.createdAt).toLocaleString()} />
               <DetailItem label="ID" value={selectedTransaction.id} />
               <DetailItem label="Related" value={selectedTransaction.relatedId ?? "—"} />
-              <PayloadBlock
-                title="Raw X12"
-                value={selectedTransaction.rawX12 ?? "No raw X12 was generated for this transaction."}
-                onCopy={copyText}
-                downloadLabel="Download .x12"
-                onDownload={() => downloadText(`ashn-${selectedTransaction.type}-${selectedTransaction.id}.x12`, selectedTransaction.rawX12 ?? "")}
-                canDownload={Boolean(selectedTransaction.rawX12)}
-              />
-              <PayloadBlock
-                title="JSON Payload"
-                value={JSON.stringify(selectedTransaction.payload, null, 2)}
-                onCopy={copyText}
-              />
+              <div className="payload-tabs" role="tablist" aria-label="Payload formats">
+                {payloadTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    className={`payload-tab ${payloadTab === tab.id ? "active" : ""}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={payloadTab === tab.id}
+                    onClick={() => setPayloadTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {selectedPayloadView && (
+                <PayloadBlock
+                  title={`${selectedPayloadView.label} Payload`}
+                  value={selectedPayloadView.value}
+                  onCopy={copyText}
+                  downloadLabel={`Download .${selectedPayloadView.extension}`}
+                  onDownload={() => downloadText(selectedPayloadView.filename, selectedPayloadView.value)}
+                  canDownload={selectedPayloadView.canDownload}
+                />
+              )}
             </div>
           )}
           {selectedClaim && (
@@ -1466,6 +1490,59 @@ function payloadNestedString(transaction: Transaction, parentKey: string, childK
 function payloadRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
+}
+
+function transactionPayloadView(transaction: Transaction, tab: PayloadTab) {
+  if (tab === "x12") {
+    const value = transaction.rawX12 ?? "No raw X12 was generated for this transaction.";
+    return {
+      label: "X12",
+      value,
+      extension: "x12",
+      filename: `ashn-${transaction.type}-${transaction.id}.x12`,
+      canDownload: Boolean(transaction.rawX12)
+    };
+  }
+
+  if (tab === "xml") {
+    const value = transactionXMLPreview(transaction);
+    return {
+      label: "XML",
+      value,
+      extension: "xml",
+      filename: `ashn-${transaction.type}-${transaction.id}.xml`,
+      canDownload: true
+    };
+  }
+
+  return {
+    label: "JSON",
+    value: JSON.stringify(transaction.payload ?? null, null, 2),
+    extension: "json",
+    filename: `ashn-${transaction.type}-${transaction.id}.json`,
+    canDownload: true
+  };
+}
+
+function transactionXMLPreview(transaction: Transaction) {
+  return [
+    `<AshnTransaction id="${escapeXML(transaction.id)}" type="${escapeXML(transaction.type)}" status="${escapeXML(transaction.status)}">`,
+    `  <SenderId>${escapeXML(transaction.senderId)}</SenderId>`,
+    `  <ReceiverId>${escapeXML(transaction.receiverId)}</ReceiverId>`,
+    `  <RelatedId>${escapeXML(transaction.relatedId ?? "")}</RelatedId>`,
+    `  <CreatedAt>${escapeXML(transaction.createdAt)}</CreatedAt>`,
+    `  <PayloadJson>${escapeXML(JSON.stringify(transaction.payload ?? null, null, 2))}</PayloadJson>`,
+    `</AshnTransaction>`
+  ].join("\n");
+}
+
+function escapeXML(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function TransactionRow({ transaction, onSelect }: { transaction: Transaction; onSelect: (transactionId: string) => void }) {

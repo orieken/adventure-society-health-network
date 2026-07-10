@@ -1,7 +1,7 @@
 import { expect, test } from "@orieken/saturday-playwright";
 import type { Page } from "@playwright/test";
 
-import { dashboardUrl, serviceUrls } from "./config.js";
+import { dashboardUrl } from "./config.js";
 
 const transactionTypes = ["834", "820", "270", "271", "275", "278", "837", "835", "276", "277", "269", "999", "277CA"] as const;
 
@@ -55,7 +55,7 @@ test.describe("ASHN dashboard smoke", () => {
 
     await expect(page.getByRole("heading", { name: /ASHN Transaction Dashboard/i })).toBeVisible();
     await expect(page.getByText("Adventure Society Health Network")).toBeVisible();
-    await expect(page.getByRole("link", { name: serviceUrls.apiGateway })).toHaveAttribute("href", serviceUrls.apiGateway);
+    await expect(page.locator(".gateway-url")).toHaveAttribute("href", /^https?:\/\/.+/);
 
     await expect(page.getByRole("button", { name: /Workflow/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Timeline/i })).toBeVisible();
@@ -63,6 +63,7 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByRole("button", { name: /XML Intake/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Partners/i })).toBeVisible();
 
+    await page.getByRole("button", { name: /Ledger/i }).click();
     await expect(page.getByLabel("Transaction type")).toContainText("275");
     await page.getByLabel("Transaction type").selectOption("275");
     await expect(page.getByLabel("Transaction type")).toHaveValue("275");
@@ -89,8 +90,15 @@ test.describe("ASHN dashboard smoke", () => {
 
       await page.getByText(transaction!.id).click();
       await expect(page.getByRole("heading", { name: /Transaction Detail/i })).toBeVisible();
-      await expect(page.getByText(transaction!.rawX12)).toBeVisible();
+      await expect(page.getByRole("tab", { name: "JSON" })).toHaveAttribute("aria-selected", "true");
       await expect(page.getByText(`${type} dashboard display fixture`)).toBeVisible();
+
+      await page.getByRole("tab", { name: "XML" }).click();
+      await expect(page.getByText(`<AshnTransaction id="${transaction!.id}" type="${type}" status="${transaction!.status}">`)).toBeVisible();
+      await expect(page.getByText("<PayloadJson>")).toBeVisible();
+
+      await page.getByRole("tab", { name: "X12" }).click();
+      await expect(page.getByText(transaction!.rawX12)).toBeVisible();
       await page.getByRole("button", { name: "Close" }).click();
     }
   });

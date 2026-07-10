@@ -237,7 +237,7 @@ flowchart TD
 - Multi-attachment packets can submit repeated supporting documents as separate `275` transactions sharing `packetId`, `packetSequence`, and `packetCount`.
 - `edi-intake` rejects partner profile violations before forwarding, including unsupported attachment/report/content codes, bad control-number prefixes, oversized embedded content, and unsupported `278` service/severity values.
 - Raw X12 includes claim `REF*1K` or authorization `REF*G1`, packet `REF*F8`, plus `REF*6R`, `PWK`, `LQ*AT`, `K3`, and optional `BIN`.
-- The timeline labels 275 steps using attachment/report metadata and review status.
+- The timeline labels 275 steps using attachment/report metadata and review status, and transaction detail exposes JSON, XML, and X12 payload tabs for demos and debugging.
 
 ## 6. Claim Status Lifecycle
 
@@ -281,7 +281,7 @@ sequenceDiagram
 
 - `835` includes billed, allowed, paid, adjustment, and patient responsibility fields.
 - Payment updates claim status to `Paid`.
-- Raw X12 detail shows remittance-inspired segments.
+- Transaction detail shows JSON, XML, and raw X12 payload tabs with remittance-inspired X12 segments.
 
 ## 8. XML Intake, Acknowledgment, Export, and Replay
 

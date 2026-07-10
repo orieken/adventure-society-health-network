@@ -123,9 +123,9 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P2 — Dashboard Enhancements
 
-- [ ] Add a transaction timeline view grouped by adventurer or claim.
+- [x] Add a transaction timeline view grouped by adventurer or claim.
 - [x] Add saved filters for transaction type, status, provider, and date range.
-- [ ] Add raw payload tabs: JSON, XML, and X12.
+- [x] Add raw payload tabs: JSON, XML, and X12.
 - [x] Add XML intake audit visibility with raw XML detail.
 - [x] Add transaction export to JSON, XML, and X12.
 - [x] Add XML intake audit export to XML and JSON.

@@ -772,6 +772,27 @@ pre {
   margin: 0;
 }
 
+.payload-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.payload-tab {
+  border: 1px solid rgba(135, 226, 167, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff7eb;
+  padding: 8px 14px;
+}
+
+.payload-tab.active {
+  background: rgba(135, 226, 167, 0.18);
+  box-shadow: 0 0 18px rgba(135, 226, 167, 0.22);
+  color: #87e2a7;
+}
+
 .payload-block {
   display: grid;
   grid-column: 1 / -1;
