@@ -840,6 +840,45 @@ pre {
   gap: 8px;
 }
 
+.documentation-workbench {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  border: 1px solid rgba(246, 185, 90, 0.18);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(246, 185, 90, 0.14), transparent 34%),
+    rgba(255, 255, 255, 0.05);
+  padding: 16px;
+}
+
+.documentation-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.documentation-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(14, 9, 20, 0.62);
+  padding: 12px;
+}
+
+.documentation-item span {
+  color: #87e2a7;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.documentation-item small {
+  color: #91d7ff;
+}
+
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

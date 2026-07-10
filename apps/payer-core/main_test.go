@@ -673,7 +673,8 @@ func TestRequestClaimDocumentationMarksClaimAndEmits277(t *testing.T) {
 	mux := newPayerTestMux(app)
 
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/claims/claim-1/documentation-request", nil))
+	body := strings.NewReader(`{"reason":"Need appeal evidence","dueDate":"2026-07-17","requiredDocuments":[{"code":"APPEAL","label":"Appeal letter","attachmentType":"OZ","reportTypeCode":"B4","contentType":"text/plain","required":true}]}`)
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/claims/claim-1/documentation-request", body))
 
 	assert.Equal(t, http.StatusAccepted, response.Code)
 	envelope := decodeEnvelope(t, response)
@@ -682,6 +683,20 @@ func TestRequestClaimDocumentationMarksClaimAndEmits277(t *testing.T) {
 	assert.Equal(t, "tx-837", envelope.Transaction.RelatedID)
 	assert.Equal(t, domain.ClaimPendingDocumentation, app.claims["claim-1"].Status)
 	assert.Contains(t, string(envelope.Transaction.Payload), "documentationRequest")
+	assert.Contains(t, string(envelope.Transaction.Payload), "Appeal letter")
+
+	var data struct {
+		Reason                string                              `json:"reason"`
+		DueDate               string                              `json:"dueDate"`
+		RequiredDocumentCount int                                 `json:"requiredDocumentCount"`
+		RequiredDocuments     []domain.DocumentationChecklistItem `json:"requiredDocuments"`
+	}
+	require.NoError(t, json.Unmarshal(envelope.Data, &data))
+	assert.Equal(t, "Need appeal evidence", data.Reason)
+	assert.Equal(t, "2026-07-17", data.DueDate)
+	assert.Equal(t, 1, data.RequiredDocumentCount)
+	require.Len(t, data.RequiredDocuments, 1)
+	assert.Equal(t, "APPEAL", data.RequiredDocuments[0].Code)
 }
 
 func TestRequestClaimDocumentationMissingClaim(t *testing.T) {

@@ -230,7 +230,8 @@ flowchart TD
 **Current behavior**
 
 - `275` can be claim-linked through `claimId` or prior-auth-linked through `authorizationTransactionId`.
-- Payers can mark a claim `Pending Documentation` and emit a related `277` documentation request.
+- Payers can mark a claim `Pending Documentation` and emit a related `277` documentation request with a due date and checklist.
+- The claim detail drawer includes a 275 Documentation Workbench for requesting checklist items and submitting a multi-document packet.
 - A valid `275` clears the documentation hold back to `Pending` so adjudication can continue.
 - The `275` transaction remains EDI `Accepted`, while `attachmentReviewStatus` tracks business review as `Received`, `Accepted`, or `Rejected`.
 - Attachments can embed content or reference external documents through `documentReferenceId` and `documentReferenceUrl`.
@@ -331,9 +332,9 @@ flowchart LR
 - Accepted and rejected submissions create audit records.
 - Transactions and intake messages can be exported and replayed for demos.
 
-## Recommended 275 Workflows To Add Next
+## Recommended 275 Expansion Paths
 
-ASHN already supports claim-linked `275` attachments, solicited claim documentation, and prior-auth-linked 275 attachments. The next high-value workflows are:
+ASHN already supports claim-linked `275` attachments, solicited claim documentation, a documentation workbench, and prior-auth-linked 275 attachments. The next high-value expansion paths are:
 
 ### 1. Solicited Claim Attachment Request
 
@@ -348,7 +349,7 @@ sequenceDiagram
     Payer->>Ledger: Claim adjudication resumes
 ```
 
-Baseline support now exists: a claim can move to `Pending Documentation`, emit a `277`, and accept a `275` that clears the hold. The next iteration should make the request reason/code more structured and show the request as a first-class attachment task.
+Baseline support now exists: a claim can move to `Pending Documentation`, emit a `277` with checklist metadata, and accept a multi-document `275` packet that clears the hold. The dashboard shows the request as a first-class 275 Documentation Workbench task.
 
 ### 2. Prior Authorization Attachment
 

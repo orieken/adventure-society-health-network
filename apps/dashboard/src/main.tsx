@@ -77,6 +77,15 @@ type Claim = {
   status: string;
 };
 
+type DocumentationChecklistItem = {
+  code: string;
+  label: string;
+  attachmentType: string;
+  reportTypeCode: string;
+  contentType: string;
+  required: boolean;
+};
+
 type PageInfo = {
   limit: number;
   offset: number;
@@ -156,6 +165,11 @@ const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837"
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
+const documentationChecklist: DocumentationChecklistItem[] = [
+  { code: "MED-NEC", label: "Medical necessity letter", attachmentType: "OZ", reportTypeCode: "B4", contentType: "text/plain", required: true },
+  { code: "ENC-NOTE", label: "Encounter notes", attachmentType: "OZ", reportTypeCode: "B4", contentType: "text/plain", required: true },
+  { code: "ITEM-BILL", label: "Itemized bill narrative", attachmentType: "OZ", reportTypeCode: "B4", contentType: "text/plain", required: false }
+];
 const payloadTabs: { id: PayloadTab; label: string }[] = [
   { id: "json", label: "JSON" },
   { id: "xml", label: "XML" },
@@ -689,7 +703,46 @@ function App() {
   async function requestClaimDocumentation() {
     if (!selectedClaim) return;
     setBusy(true);
-    const result = await request<Record<string, string>>(`/v1/claims/${selectedClaim.id}/documentation-request`, { method: "POST" });
+    const dueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const result = await request<Record<string, string>>(`/v1/claims/${selectedClaim.id}/documentation-request`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Medical necessity, encounter detail, and itemization required before adjudication.",
+        dueDate,
+        requiredDocuments: documentationChecklist
+      })
+    });
+    pushEvent(result);
+    const refreshed = await request<Claim>(`/v1/claims/${selectedClaim.id}`);
+    if (refreshed.data) {
+      setSelectedClaim(refreshed.data);
+    }
+    await refresh();
+    setBusy(false);
+  }
+
+  async function submitClaimDocumentationPacket() {
+    if (!selectedClaim) return;
+    setBusy(true);
+    const packetId = `packet-${selectedClaim.id.slice(0, 8)}`;
+    const result = await request<Record<string, string>>(`/v1/claims/${selectedClaim.id}/attachments`, {
+      method: "POST",
+      body: JSON.stringify({
+        packetId,
+        attachments: documentationChecklist.map((item, index) => ({
+          packetId,
+          attachmentType: item.attachmentType,
+          attachmentControlNumber: `ATTACH-${item.code}-${selectedClaim.id.slice(0, 8).toUpperCase()}`,
+          reportTypeCode: item.reportTypeCode,
+          transmissionCode: "EL",
+          contentType: item.contentType,
+          description: item.label,
+          documentReferenceId: `${item.code.toLowerCase()}-${selectedClaim.id.slice(0, 8)}`,
+          documentReferenceUrl: `https://docs.example.test/${selectedClaim.id}/${item.code.toLowerCase()}.txt`,
+          content: `${item.label} for claim ${selectedClaim.id}. Packet document ${index + 1} of ${documentationChecklist.length}.`
+        }))
+      })
+    });
     pushEvent(result);
     const refreshed = await request<Claim>(`/v1/claims/${selectedClaim.id}`);
     if (refreshed.data) {
@@ -1221,7 +1274,9 @@ function App() {
             <div className="detail-grid">
               <div className="detail-actions">
                 <button disabled={busy || selectedClaim.status === "Pending Documentation"} onClick={requestClaimDocumentation}>Request 275 Docs</button>
+                <button disabled={busy} onClick={submitClaimDocumentationPacket}>Submit 275 Packet</button>
               </div>
+              <DocumentationWorkbench claim={selectedClaim} checklist={documentationChecklist} />
               <DetailItem label="Status" value={selectedClaim.status} />
               <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
               <DetailItem label="Billed" value={money(selectedClaim.amountCents)} />
@@ -1384,6 +1439,35 @@ function DetailItem({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <strong>{value || "—"}</strong>
     </div>
+  );
+}
+
+function DocumentationWorkbench({ claim, checklist }: { claim: Claim; checklist: DocumentationChecklistItem[] }) {
+  const openCount = claim.status === "Pending Documentation" ? checklist.filter((item) => item.required).length : 0;
+  const statusLabel = claim.status === "Pending Documentation" ? `${openCount} required docs open` : "Ready for packet";
+
+  return (
+    <section className="documentation-workbench" aria-label="275 documentation workbench">
+      <div className="relationship-heading">
+        <div>
+          <h3>275 Documentation Workbench</h3>
+          <p className="muted">Request, package, and review supporting patient information for this claim.</p>
+        </div>
+        <span>{statusLabel}</span>
+      </div>
+      <div className="documentation-checklist">
+        {checklist.map((item) => (
+          <article key={item.code} className="documentation-item">
+            <span>{item.required ? "Required" : "Optional"}</span>
+            <strong>{item.label}</strong>
+            <small>{item.attachmentType}/{item.reportTypeCode} · {item.contentType}</small>
+          </article>
+        ))}
+      </div>
+      <p className="muted">
+        A submitted packet creates one related 275 transaction per checklist document, sharing the same packet id for downstream review.
+      </p>
+    </section>
   );
 }
 

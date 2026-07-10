@@ -245,12 +245,24 @@ test.describe("ASHN dashboard smoke", () => {
     await page.getByText("claim-e2e-dashboard").click();
     const drawer = page.getByLabel("Selected record details");
     await expect(drawer.getByRole("heading", { name: /Claim Detail/i })).toBeVisible();
-    await expect(drawer.getByText("Submitted")).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Status" }).getByText("Submitted", { exact: true })).toBeVisible();
     await expect(drawer.locator(".detail-item").filter({ hasText: "Prior Auth" }).getByText("tx-e2e-auth-review")).toBeVisible();
     await expect(drawer.locator(".detail-item").filter({ hasText: "Auth Status" }).getByText("Approved")).toBeVisible();
+    await expect(drawer.getByRole("heading", { name: /275 Documentation Workbench/i })).toBeVisible();
+    await expect(drawer.getByText("Medical necessity letter")).toBeVisible();
+    await expect(drawer.getByText("Encounter notes")).toBeVisible();
 
     await page.getByRole("button", { name: /Request 275 Docs/i }).click();
     await expect(drawer.getByText("Pending Documentation")).toBeVisible();
+
+    await page.getByRole("button", { name: /Submit 275 Packet/i }).click();
+    await expect(drawer.getByText("Pending", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latestEvent = page.locator(".event").first();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("tx-e2e-doc-packet-1")).toBeVisible();
+    await expect(latestEvent.getByText("tx-e2e-doc-packet-3")).toBeVisible();
   });
 
   test("reviews 275 attachment outcomes separately from EDI acceptance", async ({ page }) => {
@@ -468,12 +480,44 @@ async function mockDashboardApi(page: Page) {
       await route.fulfill({
         status: 202,
         json: {
-          data: { claimId: "claim-e2e-dashboard", status: claimStatus, requestedTransaction: "275" },
+          data: { claimId: "claim-e2e-dashboard", status: claimStatus, requestedTransaction: "275", requiredDocumentCount: 3 },
           transaction: {
             ...demoTransactions.find((transaction) => transaction.type === "277"),
             id: "tx-e2e-doc-request",
             relatedId: "tx-e2e-837"
           }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/claims/claim-e2e-dashboard/attachments") {
+      claimStatus = "Pending";
+      const packet = route.request().postDataJSON() as { attachments: Array<Record<string, string>>; packetId: string };
+      const transactions = packet.attachments.map((attachment, index) => ({
+        ...demoTransactions.find((transaction) => transaction.type === "275"),
+        id: `tx-e2e-doc-packet-${index + 1}`,
+        relatedId: "tx-e2e-837",
+        payload: {
+          x12: "275 documentation workbench packet fixture",
+          claimId: "claim-e2e-dashboard",
+          attachmentType: attachment.attachmentType,
+          reportTypeCode: attachment.reportTypeCode,
+          packetId: packet.packetId,
+          packetSequence: String(index + 1),
+          packetCount: String(packet.attachments.length),
+          attachmentReviewStatus: "Received",
+          documentReferenceId: attachment.documentReferenceId,
+          documentReferenceUrl: attachment.documentReferenceUrl
+        }
+      }));
+      await route.fulfill({
+        status: 201,
+        json: {
+          data: { claimId: "claim-e2e-dashboard", claimStatus, packetId: packet.packetId, attachmentCount: transactions.length },
+          lore: "Patient information attachment accepted for documentation workbench.",
+          transaction: transactions[0],
+          transactions
         }
       });
       return;

@@ -369,6 +369,10 @@ func (s *store) requestClaimDocumentation(w http.ResponseWriter, r *http.Request
 		fail(w, http.StatusNotFound, "claim not found", "No claim scroll with that seal exists in the Society ledger.")
 		return
 	}
+	documentationRequest, ok := decodeClaimDocumentationRequest(w, r)
+	if !ok {
+		return
+	}
 	claim.Status = domain.ClaimPendingDocumentation
 	if err := s.updateClaimStatus(claim); err != nil {
 		fail(w, http.StatusInternalServerError, "claim update failed", "The Society could not mark this claim for documentation.")
@@ -379,14 +383,62 @@ func (s *store) requestClaimDocumentation(w http.ResponseWriter, r *http.Request
 	request.Payload = domain.Payload(map[string]any{
 		"x12": "277 Claim Status Response", "claimId": claim.ID, "claimStatus": claim.Status,
 		"documentationRequest": map[string]any{
-			"reason":              "Additional supporting documentation required before adjudication.",
+			"reason":              documentationRequest.Reason,
+			"dueDate":             documentationRequest.DueDate,
 			"expectedTransaction": domain.Tx275,
+			"requiredDocuments":   documentationRequest.RequiredDocuments,
 		},
 		"relatedId": claim.TransactionID,
 	})
 	s.saveTransaction(request)
-	data := map[string]any{"claimId": claim.ID, "status": claim.Status, "requestedTransaction": domain.Tx275}
+	data := map[string]any{
+		"claimId":               claim.ID,
+		"status":                claim.Status,
+		"requestedTransaction":  domain.Tx275,
+		"reason":                documentationRequest.Reason,
+		"dueDate":               documentationRequest.DueDate,
+		"requiredDocuments":     documentationRequest.RequiredDocuments,
+		"requiredDocumentCount": len(documentationRequest.RequiredDocuments),
+	}
 	respond(w, http.StatusAccepted, domain.Envelope{Data: data, Lore: "The Society requested supporting documentation before adjudication.", Transaction: &request})
+}
+
+func decodeClaimDocumentationRequest(w http.ResponseWriter, r *http.Request) (domain.ClaimDocumentationRequest, bool) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		fail(w, http.StatusBadRequest, "invalid json", "The documentation request could not be read by the Society scribe.")
+		return domain.ClaimDocumentationRequest{}, false
+	}
+	request := defaultClaimDocumentationRequest()
+	if len(strings.TrimSpace(string(body))) == 0 {
+		return request, true
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		fail(w, http.StatusBadRequest, "invalid json", "The documentation request could not be read by the Society scribe.")
+		return domain.ClaimDocumentationRequest{}, false
+	}
+	request.Reason = strings.TrimSpace(request.Reason)
+	request.DueDate = strings.TrimSpace(request.DueDate)
+	if request.Reason == "" {
+		request.Reason = defaultClaimDocumentationRequest().Reason
+	}
+	if len(request.RequiredDocuments) == 0 {
+		request.RequiredDocuments = defaultClaimDocumentationRequest().RequiredDocuments
+	}
+	return request, true
+}
+
+func defaultClaimDocumentationRequest() domain.ClaimDocumentationRequest {
+	return domain.ClaimDocumentationRequest{
+		Reason:  "Additional supporting documentation required before adjudication.",
+		DueDate: time.Now().UTC().AddDate(0, 0, 7).Format("2006-01-02"),
+		RequiredDocuments: []domain.DocumentationChecklistItem{
+			{Code: "MED-NEC", Label: "Medical necessity letter", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "text/plain", Required: true},
+			{Code: "ENC-NOTE", Label: "Encounter notes", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "text/plain", Required: true},
+			{Code: "ITEM-BILL", Label: "Itemized bill narrative", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "text/plain", Required: false},
+		},
+	}
 }
 
 func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {

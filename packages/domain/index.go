@@ -207,6 +207,21 @@ type ClaimRequest struct {
 	AuthorizationTransactionID string           `json:"authorizationTransactionId,omitempty"`
 }
 
+type DocumentationChecklistItem struct {
+	Code           string `json:"code"`
+	Label          string `json:"label"`
+	AttachmentType string `json:"attachmentType"`
+	ReportTypeCode string `json:"reportTypeCode"`
+	ContentType    string `json:"contentType"`
+	Required       bool   `json:"required"`
+}
+
+type ClaimDocumentationRequest struct {
+	Reason            string                       `json:"reason,omitempty"`
+	DueDate           string                       `json:"dueDate,omitempty"`
+	RequiredDocuments []DocumentationChecklistItem `json:"requiredDocuments,omitempty"`
+}
+
 type AttachmentRequest struct {
 	PacketID                string `json:"packetId,omitempty"`
 	PacketSequence          int    `json:"packetSequence,omitempty"`
