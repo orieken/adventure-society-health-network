@@ -124,6 +124,21 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByLabel("Saved filters")).not.toContainText("Accepted 275s");
   });
 
+  test("exports the loaded transaction ledger to CSV", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    await page.getByLabel("Transaction type").selectOption("275");
+    await expect(page.getByText("tx-e2e-275")).toBeVisible();
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export CSV" }).click();
+    const download = await downloadPromise;
+
+    expect(download.suggestedFilename()).toBe("ashn-ledger-transactions.csv");
+  });
+
   test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);

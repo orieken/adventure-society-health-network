@@ -281,7 +281,7 @@ sequenceDiagram
 
 - `835` includes billed, allowed, paid, adjustment, and patient responsibility fields.
 - Payment updates claim status to `Paid`.
-- Transaction detail shows request/response links plus JSON, XML, and raw X12 payload tabs with remittance-inspired X12 segments.
+- Transaction detail shows request/response links plus JSON, XML, and raw X12 payload tabs with remittance-inspired X12 segments, and the loaded transaction ledger can be exported as CSV.
 
 ## 8. XML Intake, Acknowledgment, Export, and Replay
 

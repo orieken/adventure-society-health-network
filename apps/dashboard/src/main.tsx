@@ -477,6 +477,10 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  function exportLedgerCSV() {
+    downloadText("ashn-ledger-transactions.csv", transactionsToCSV(recentTransactions));
+  }
+
   function downloadFromPath(path: string) {
     const anchor = document.createElement("a");
     anchor.href = `${apiUrl}${path}`;
@@ -1083,8 +1087,11 @@ function App() {
       <section className="history-grid">
         <div className="panel ledger">
           <div className="ledger-title">
-            <h2>Persisted Transactions</h2>
-            <span className="muted">from Postgres</span>
+            <div>
+              <h2>Persisted Transactions</h2>
+              <p className="muted">from Postgres</p>
+            </div>
+            <button className="secondary" disabled={recentTransactions.length === 0} onClick={exportLedgerCSV}>Export CSV</button>
           </div>
           {recentTransactions.length === 0 ? (
             <p className="muted">No transactions match the current filters.</p>
@@ -1610,6 +1617,29 @@ function transactionPayloadView(transaction: Transaction, tab: PayloadTab) {
     filename: `ashn-${transaction.type}-${transaction.id}.json`,
     canDownload: true
   };
+}
+
+function transactionsToCSV(transactions: Transaction[]) {
+  const headers = ["id", "type", "status", "senderId", "receiverId", "relatedId", "createdAt", "payload"];
+  const rows = transactions.map((transaction) => [
+    transaction.id,
+    transaction.type,
+    transaction.status,
+    transaction.senderId,
+    transaction.receiverId,
+    transaction.relatedId ?? "",
+    transaction.createdAt,
+    JSON.stringify(transaction.payload ?? null)
+  ]);
+
+  return [headers, ...rows]
+    .map((row) => row.map(csvCell).join(","))
+    .join("\n");
+}
+
+function csvCell(value: string) {
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, "\"\"")}"`;
+  return value;
 }
 
 function transactionXMLPreview(transaction: Transaction) {
