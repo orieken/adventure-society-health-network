@@ -139,7 +139,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [ ] Add request IDs and correlation IDs across services.
 - [ ] Add structured logs.
 - [ ] Add basic OpenTelemetry traces.
-- [ ] Add health checks for every service in Docker Compose.
+- [x] Add health checks for every service in Docker Compose.
 - [ ] Add migration tests and seed-data reset tests.
 - [ ] Add rate limiting for public/demo endpoints.
 

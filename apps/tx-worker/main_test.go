@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -43,6 +45,16 @@ func TestEnvIntParsesConfiguredValue(t *testing.T) {
 	t.Setenv("TX_TEST_INT", "12")
 
 	assert.Equal(t, 12, envInt("TX_TEST_INT", 5))
+}
+
+func TestHealthReportsWorkerStatus(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	response := httptest.NewRecorder()
+
+	health(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.JSONEq(t, `{"service":"tx-worker","status":"ok"}`, response.Body.String())
 }
 
 func TestOpenDBReturnsNilWithoutDatabaseURL(t *testing.T) {

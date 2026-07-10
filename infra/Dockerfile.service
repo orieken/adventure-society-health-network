@@ -1,0 +1,19 @@
+ARG GO_VERSION=1.26
+
+FROM golang:${GO_VERSION}-bookworm AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+ARG APP
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/ashn-service ./apps/${APP}
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates wget \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /out/ashn-service /usr/local/bin/ashn-service
+ENTRYPOINT ["/usr/local/bin/ashn-service"]

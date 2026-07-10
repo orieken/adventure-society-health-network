@@ -10,6 +10,121 @@ services:
     volumes:
       - ashn-postgres:/var/lib/postgresql/data
       - ./migrations:/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ashn_user -d ashn"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  payer-core:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: payer-core
+    ports:
+      - "8081:8081"
+    environment:
+      PAYER_CORE_ADDR: :8081
+      ASHN_AUTO_MIGRATE: "true"
+      DATABASE_URL: postgres://ashn_user:ashn_password@postgres:5432/ashn?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  provider-service:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: provider-service
+    ports:
+      - "8082:8082"
+    environment:
+      PROVIDER_SERVICE_ADDR: :8082
+      PAYER_CORE_URL: http://payer-core:8081
+      DATABASE_URL: postgres://ashn_user:ashn_password@postgres:5432/ashn?sslmode=disable
+    depends_on:
+      payer-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  edi-intake:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: edi-intake
+    ports:
+      - "8083:8083"
+    environment:
+      EDI_INTAKE_ADDR: :8083
+      PAYER_CORE_URL: http://payer-core:8081
+      DATABASE_URL: postgres://ashn_user:ashn_password@postgres:5432/ashn?sslmode=disable
+    depends_on:
+      payer-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8083/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  tx-worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: tx-worker
+    ports:
+      - "8084:8084"
+    environment:
+      TX_WORKER_ADDR: :8084
+      TX_WORKER_INTERVAL: 1s
+      DATABASE_URL: postgres://ashn_user:ashn_password@postgres:5432/ashn?sslmode=disable
+    depends_on:
+      payer-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8084/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.service
+      args:
+        APP: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      API_GATEWAY_ADDR: :8080
+      PAYER_CORE_URL: http://payer-core:8081
+      PROVIDER_SERVICE_URL: http://provider-service:8082
+      EDI_INTAKE_URL: http://edi-intake:8083
+    depends_on:
+      payer-core:
+        condition: service_healthy
+      provider-service:
+        condition: service_healthy
+      edi-intake:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
 volumes:
   ashn-postgres:

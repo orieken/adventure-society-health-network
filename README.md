@@ -64,6 +64,16 @@ Trading partner profiles and routing rules are available at `GET /v1/x12/trading
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
 
+## Docker Compose Backend
+
+Start the containerized backend stack with service health checks:
+
+```sh
+make dev
+```
+
+This starts Postgres, `payer-core`, `provider-service`, `edi-intake`, `tx-worker`, and `api-gateway`. Compose waits on each upstream health check before starting dependent services, and the gateway is available at `http://localhost:8080`.
+
 ## Database
 
 Start Postgres and apply the schema/seed data:
