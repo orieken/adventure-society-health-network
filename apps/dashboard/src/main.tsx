@@ -113,6 +113,12 @@ type TimelineGroup = {
   latestAt: number;
 };
 
+type TransactionRelationshipMap = {
+  parent?: Transaction;
+  current: Transaction;
+  children: Transaction[];
+};
+
 type DashboardTab = "workflow" | "timeline" | "ledger" | "xml" | "partners";
 type PayloadTab = "json" | "xml" | "x12";
 
@@ -268,6 +274,11 @@ function App() {
   const selectedPayloadView = useMemo(
     () => (selectedTransaction ? transactionPayloadView(selectedTransaction, payloadTab) : null),
     [payloadTab, selectedTransaction]
+  );
+
+  const selectedRelationshipMap = useMemo(
+    () => (selectedTransaction ? buildTransactionRelationshipMap(selectedTransaction, recentTransactions) : null),
+    [recentTransactions, selectedTransaction]
   );
 
   const providerFilters = useMemo(
@@ -1170,6 +1181,9 @@ function App() {
               <DetailItem label="Created" value={new Date(selectedTransaction.createdAt).toLocaleString()} />
               <DetailItem label="ID" value={selectedTransaction.id} />
               <DetailItem label="Related" value={selectedTransaction.relatedId ?? "—"} />
+              {selectedRelationshipMap && (
+                <TransactionRelationshipGraph relationshipMap={selectedRelationshipMap} onSelect={openTransactionDetail} />
+              )}
               <div className="payload-tabs" role="tablist" aria-label="Payload formats">
                 {payloadTabs.map((tab) => (
                   <button
@@ -1394,6 +1408,66 @@ function TimelineGroupCard({ group, onSelect }: { group: TimelineGroup; onSelect
   );
 }
 
+function TransactionRelationshipGraph({
+  relationshipMap,
+  onSelect
+}: {
+  relationshipMap: TransactionRelationshipMap;
+  onSelect: (transactionId: string) => void;
+}) {
+  const hasParent = Boolean(relationshipMap.parent);
+  const hasChildren = relationshipMap.children.length > 0;
+
+  return (
+    <section className="relationship-map" aria-label="Transaction relationship map">
+      <div className="relationship-heading">
+        <div>
+          <h3>Request / Response Links</h3>
+          <p className="muted">Follow acknowledgments, attachments, and paired transactions without leaving the detail drawer.</p>
+        </div>
+        <span>{hasParent || hasChildren ? "Linked" : "Standalone"}</span>
+      </div>
+      <div className="relationship-chain">
+        {relationshipMap.parent ? (
+          <RelationshipNode transaction={relationshipMap.parent} label="Source" onSelect={onSelect} />
+        ) : (
+          <div className="relationship-empty">No parent</div>
+        )}
+        <RelationshipNode transaction={relationshipMap.current} label="Current" active onSelect={onSelect} />
+        {hasChildren ? (
+          <div className="relationship-children">
+            {relationshipMap.children.map((transaction) => (
+              <RelationshipNode key={transaction.id} transaction={transaction} label="Response" onSelect={onSelect} />
+            ))}
+          </div>
+        ) : (
+          <div className="relationship-empty">No responses yet</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RelationshipNode({
+  transaction,
+  label,
+  active = false,
+  onSelect
+}: {
+  transaction: Transaction;
+  label: string;
+  active?: boolean;
+  onSelect: (transactionId: string) => void;
+}) {
+  return (
+    <button className={`relationship-node ${active ? "active" : ""}`} type="button" onClick={() => onSelect(transaction.id)}>
+      <span>{label}</span>
+      <strong>{transaction.type} · {transaction.status}</strong>
+      <small>{transaction.id}</small>
+    </button>
+  );
+}
+
 function buildTimelineGroups(transactions: Transaction[]) {
   const transactionsByID = new Map(transactions.map((transaction) => [transaction.id, transaction]));
   const groups = new Map<string, TimelineGroup>();
@@ -1426,6 +1500,20 @@ function buildTimelineGroups(transactions: Transaction[]) {
       transactions: group.transactions.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
     }))
     .sort((left, right) => right.latestAt - left.latestAt);
+}
+
+function buildTransactionRelationshipMap(current: Transaction, transactions: Transaction[]): TransactionRelationshipMap {
+  const transactionsByID = new Map(transactions.map((transaction) => [transaction.id, transaction]));
+  const parent = current.relatedId ? transactionsByID.get(current.relatedId) : undefined;
+  const children = transactions
+    .filter((transaction) => transaction.relatedId === current.id)
+    .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+
+  return {
+    parent,
+    current,
+    children
+  };
 }
 
 function timelineTitle(transaction: Transaction, claimId?: string, adventurerId?: string) {

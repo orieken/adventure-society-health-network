@@ -131,7 +131,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add XML intake audit export to XML and JSON.
 - [x] Add replay controls for transactions and inbound XML messages.
 - [ ] Add ledger export to CSV.
-- [ ] Add visual links between request/response transaction pairs.
+- [x] Add visual links between request/response transaction pairs.
 
 ### P3 — Security and Operational Readiness
 

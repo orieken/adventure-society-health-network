@@ -726,6 +726,105 @@ pre {
   font-style: normal;
 }
 
+.relationship-map {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  border: 1px solid rgba(135, 226, 167, 0.16);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(135, 226, 167, 0.12), transparent 34%),
+    rgba(255, 255, 255, 0.05);
+  padding: 16px;
+}
+
+.relationship-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.relationship-heading h3,
+.relationship-heading p {
+  margin: 0;
+}
+
+.relationship-heading div {
+  display: grid;
+  gap: 4px;
+}
+
+.relationship-heading span {
+  border-radius: 999px;
+  background: rgba(135, 226, 167, 0.14);
+  color: #87e2a7;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 6px 10px;
+}
+
+.relationship-chain {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.relationship-chain > * {
+  position: relative;
+}
+
+.relationship-chain > *:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -18px;
+  width: 18px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(246, 185, 90, 0.24), rgba(135, 226, 167, 0.74));
+  content: "";
+}
+
+.relationship-node,
+.relationship-empty {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(14, 9, 20, 0.66);
+  color: #fff7eb;
+  padding: 12px;
+  text-align: left;
+}
+
+.relationship-node {
+  display: grid;
+  gap: 5px;
+}
+
+.relationship-node.active {
+  border-color: rgba(246, 185, 90, 0.58);
+  box-shadow: 0 0 24px rgba(246, 185, 90, 0.18);
+}
+
+.relationship-node span,
+.relationship-empty {
+  color: #f6b95a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.relationship-node small {
+  overflow-wrap: anywhere;
+  color: #91d7ff;
+}
+
+.relationship-children {
+  display: grid;
+  gap: 8px;
+}
+
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -855,6 +954,19 @@ pre {
   .saved-filter-bar,
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .relationship-chain {
+    grid-template-columns: 1fr;
+  }
+
+  .relationship-chain > *:not(:last-child)::after {
+    top: auto;
+    right: auto;
+    bottom: -18px;
+    left: 24px;
+    width: 2px;
+    height: 18px;
   }
 
   .tab-nav {

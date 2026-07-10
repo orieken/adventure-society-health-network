@@ -131,10 +131,29 @@ test.describe("ASHN dashboard smoke", () => {
     await page.getByRole("button", { name: /Timeline/i }).click();
     await page.getByLabel("Transaction type").selectOption("275");
 
-    await expect(page.getByText("Claim lifecycle")).toBeVisible();
+    await expect(page.getByText("Claim lifecycle").first()).toBeVisible();
     await expect(page.getByText("Claim claim-e2e-275")).toBeVisible();
     await expect(page.getByRole("button", { name: /275 OZ\/B4 attachment/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /packet-e2e-275 \(1\/2\)/i })).toBeVisible();
+  });
+
+  test("shows visual request response links in transaction detail", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    await page.getByText("tx-e2e-834").click();
+
+    const drawer = page.getByLabel("Selected record details");
+    await expect(drawer.getByRole("heading", { name: /Transaction Detail/i })).toBeVisible();
+    await expect(drawer.getByRole("heading", { name: /Request \/ Response Links/i })).toBeVisible();
+    await expect(drawer.getByText("No parent")).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /Current 834 · Dispatched tx-e2e-834/i })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /Response 275 · Accepted tx-e2e-275/i })).toBeVisible();
+
+    await drawer.getByRole("button", { name: /Response 275 · Accepted tx-e2e-275/i }).click();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Related" }).getByText("tx-e2e-834")).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /Source 834 · Dispatched tx-e2e-834/i })).toBeVisible();
   });
 
   test("manages trading partner profiles", async ({ page }) => {
@@ -237,7 +256,7 @@ test.describe("ASHN dashboard smoke", () => {
     await drawer.getByRole("button", { name: /Reject Attachment/i }).click();
     await expect(reviewRow.getByText("Rejected", { exact: true })).toBeVisible();
     await expect(drawer.locator(".detail-item").filter({ hasText: "Review Reason" }).getByText("Supporting documentation is insufficient for business review.")).toBeVisible();
-    await expect(drawer.getByText("Accepted")).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Status" }).getByText("Accepted", { exact: true })).toBeVisible();
   });
 });
 
