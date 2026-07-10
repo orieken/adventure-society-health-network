@@ -231,11 +231,16 @@ func processClaimAdjudication(db *sql.DB, claimID string) error {
 
 func processClaimFinalization(db *sql.DB, claimID string) error {
 	var claim domain.Claim
+	var context adjudicationContext
 	err := db.QueryRow(
-		`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, status
-		 FROM claims WHERE id = $1`,
+		`SELECT c.id, c.adventurer_id, c.provider_id, c.incident_severity, COALESCE(c.transaction_id, ''), COALESCE(c.authorization_transaction_id, ''), COALESCE(c.authorization_status, ''), COALESCE(c.authorization_reason, ''), c.amount_cents, c.status,
+		        COALESCE(a.rank, ''), COALESCE(a.coverage_status, ''), COALESCE(p.tier_rank, '')
+		 FROM claims c
+		 LEFT JOIN adventurers a ON a.id = c.adventurer_id
+		 LEFT JOIN providers p ON p.id = c.provider_id
+		 WHERE c.id = $1`,
 		claimID,
-	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AuthorizationTransactionID, &claim.AuthorizationStatus, &claim.AuthorizationReason, &claim.AmountCents, &claim.Status)
+	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AuthorizationTransactionID, &claim.AuthorizationStatus, &claim.AuthorizationReason, &claim.AmountCents, &claim.Status, &context.AdventurerRank, &context.CoverageStatus, &context.ProviderTier)
 	if err != nil {
 		return err
 	}
@@ -243,7 +248,7 @@ func processClaimFinalization(db *sql.DB, claimID string) error {
 		return nil
 	}
 
-	adjudicateClaim(&claim)
+	adjudicateClaimWithContext(&claim, context)
 
 	statusTx := edimock.Generate277(claim.ID, claim.Status)
 	statusTx.RelatedID = claim.TransactionID
@@ -257,6 +262,9 @@ func processClaimFinalization(db *sql.DB, claimID string) error {
 			"adjustmentAmountCents":      claim.AdjustmentAmountCents,
 			"adjustmentReason":           claim.AdjustmentReason,
 			"denialReason":               claim.DenialReason,
+			"coverageStatus":             context.CoverageStatus,
+			"providerTier":               context.ProviderTier,
+			"adventurerRank":             context.AdventurerRank,
 		},
 		"relatedId": claim.TransactionID,
 	})
@@ -275,34 +283,109 @@ func processClaimFinalization(db *sql.DB, claimID string) error {
 }
 
 func adjudicateClaim(claim *domain.Claim) {
+	adjudicateClaimWithContext(claim, adjudicationContext{})
+}
+
+type adjudicationContext struct {
+	AdventurerRank domain.Rank
+	CoverageStatus domain.CoverageStatus
+	ProviderTier   domain.Rank
+}
+
+func adjudicateClaimWithContext(claim *domain.Claim, context adjudicationContext) {
 	claim.Status = domain.ClaimApproved
-	claim.AllowedAmountCents = percentage(claim.AmountCents, 80)
-	claim.PaidAmountCents = percentage(claim.AllowedAmountCents, 85)
-	claim.PatientResponsibilityCents = claim.AllowedAmountCents - claim.PaidAmountCents
-	claim.AdjustmentAmountCents = claim.AmountCents - claim.AllowedAmountCents
-	claim.AdjustmentReason = "ASHN contractual allowance"
-	claim.DenialReason = ""
+	allowedPercent := int64(80)
+	paidPercent := int64(85)
+	adjustmentReason := "ASHN contractual allowance"
 
 	if claim.IncidentSeverity == domain.SeverityNormal {
-		claim.AllowedAmountCents = percentage(claim.AmountCents, 90)
-		claim.PaidAmountCents = percentage(claim.AllowedAmountCents, 90)
-		claim.PatientResponsibilityCents = claim.AllowedAmountCents - claim.PaidAmountCents
-		claim.AdjustmentAmountCents = claim.AmountCents - claim.AllowedAmountCents
+		allowedPercent = 90
+		paidPercent = 90
 	}
 
+	allowedPercent += providerAllowedBoost(context.ProviderTier)
+	paidPercent += providerPaidBoost(context.ProviderTier) + adventurerPaidBoost(context.AdventurerRank)
+	if context.CoverageStatus == domain.CoveragePending {
+		paidPercent -= 15
+		adjustmentReason = "ASHN contractual allowance with pending benefits review"
+	}
+	if allowedPercent > 98 {
+		allowedPercent = 98
+	}
+	if paidPercent > 98 {
+		paidPercent = 98
+	}
+	if paidPercent < 0 {
+		paidPercent = 0
+	}
+
+	claim.AllowedAmountCents = percentage(claim.AmountCents, allowedPercent)
+	claim.PaidAmountCents = percentage(claim.AllowedAmountCents, paidPercent)
+	claim.PatientResponsibilityCents = claim.AllowedAmountCents - claim.PaidAmountCents
+	claim.AdjustmentAmountCents = claim.AmountCents - claim.AllowedAmountCents
+	claim.AdjustmentReason = adjustmentReason
+	claim.DenialReason = ""
+
 	hasApprovedAuthorization := strings.EqualFold(claim.AuthorizationStatus, string(domain.TxStatusApproved))
+	hasInactiveCoverage := context.CoverageStatus == domain.CoverageInactive || context.CoverageStatus == domain.CoverageSuspended
+	if hasInactiveCoverage {
+		denyClaim(claim, "Coverage not active", "Coverage inactive or suspended at service date")
+		return
+	}
 	if (claim.IncidentSeverity == domain.SeverityDiamond || claim.AmountCents > 200000) && !hasApprovedAuthorization {
-		claim.Status = domain.ClaimDenied
-		claim.AllowedAmountCents = 0
-		claim.PaidAmountCents = 0
-		claim.PatientResponsibilityCents = 0
-		claim.AdjustmentAmountCents = claim.AmountCents
-		claim.AdjustmentReason = "Non-covered catastrophic encounter"
-		claim.DenialReason = "Prior authorization or benefit exception required"
+		denyClaim(claim, "Non-covered catastrophic encounter", "Prior authorization or benefit exception required")
+		return
 	}
 
 	if hasApprovedAuthorization && claim.IncidentSeverity == domain.SeverityDiamond {
 		claim.AdjustmentReason = "ASHN contractual allowance with approved prior authorization"
+	}
+}
+
+func denyClaim(claim *domain.Claim, adjustmentReason, denialReason string) {
+	claim.Status = domain.ClaimDenied
+	claim.AllowedAmountCents = 0
+	claim.PaidAmountCents = 0
+	claim.PatientResponsibilityCents = 0
+	claim.AdjustmentAmountCents = claim.AmountCents
+	claim.AdjustmentReason = adjustmentReason
+	claim.DenialReason = denialReason
+}
+
+func providerAllowedBoost(rank domain.Rank) int64 {
+	switch rank {
+	case domain.RankDiamond:
+		return 5
+	case domain.RankGold:
+		return 3
+	default:
+		return 0
+	}
+}
+
+func providerPaidBoost(rank domain.Rank) int64 {
+	switch rank {
+	case domain.RankDiamond:
+		return 7
+	case domain.RankGold:
+		return 5
+	case domain.RankSilver:
+		return 2
+	default:
+		return 0
+	}
+}
+
+func adventurerPaidBoost(rank domain.Rank) int64 {
+	switch rank {
+	case domain.RankDiamond:
+		return 5
+	case domain.RankGold:
+		return 3
+	case domain.RankSilver:
+		return 1
+	default:
+		return 0
 	}
 }
 

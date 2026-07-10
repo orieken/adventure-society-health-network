@@ -197,6 +197,8 @@ Before payment, `tx-worker` adjudicates the claim and calculates:
 - adjustment amount and reason
 - denial reason, when applicable
 
+The adjudication rules are intentionally explainable: severity and billed amount set the baseline, approved prior authorization can unlock catastrophic encounters, provider tier can improve allowance/payment, adventurer rank can reduce responsibility, and inactive/suspended coverage denies the claim.
+
 The `835` represents the payer saying: “Here is what we paid, what we allowed, what was adjusted, and why.” In the dashboard, this is the final satisfying ledger event: the healer gets paid and the claim reaches `Paid`.
 
 ## ASHN Transaction Record Shape

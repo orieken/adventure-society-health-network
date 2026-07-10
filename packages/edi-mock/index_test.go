@@ -48,6 +48,26 @@ func TestGenerate835IncludesPaymentAndAdjustmentSegments(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "CAS*CO*45*250.00")
 }
 
+func TestGenerate835RepresentsDeniedClaimWithoutPayment(t *testing.T) {
+	claim := domain.Claim{
+		ID:                    "claim-denied",
+		ProviderID:            "provider-vitesse-temple",
+		AmountCents:           250000,
+		AdjustmentAmountCents: 250000,
+		AdjustmentReason:      "Non-covered catastrophic encounter",
+		DenialReason:          "Prior authorization or benefit exception required",
+		Status:                domain.ClaimDenied,
+	}
+
+	tx := Generate835(claim, 100000)
+
+	assert.Equal(t, domain.Tx835, tx.Type)
+	assert.Contains(t, tx.RawX12, "BPR*I*0.00")
+	assert.Contains(t, tx.RawX12, "CLP*claim-denied*4*2500.00*0.00*0.00")
+	assert.Contains(t, tx.RawX12, "CAS*CO*45*2500.00")
+	assert.Contains(t, string(tx.Payload), `"denialReason":"Prior authorization or benefit exception required"`)
+}
+
 func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	claim := domain.Claim{
 		ID:            "claim-1",

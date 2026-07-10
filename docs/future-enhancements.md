@@ -108,8 +108,8 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Support external document references for large PDFs/images instead of embedded `BIN` content.
 - [x] Support multi-attachment packets grouped under a claim or authorization.
 - [x] Move payer-specific `275` validation rules into trading partner profile data.
-- [ ] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
-- [ ] Add more tests for denied and partially paid claim variants.
+- [x] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
+- [x] Add more tests for denied and partially paid claim variants.
 
 ### P2 — Trading Partners and Routing
 

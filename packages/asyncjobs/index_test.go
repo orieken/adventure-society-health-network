@@ -206,11 +206,10 @@ func TestProcessClaimAdjudicationNoopsWhenClaimAlreadyMoved(t *testing.T) {
 func TestProcessClaimFinalizationUpdatesClaimAndRecords277(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, status
-		 FROM claims WHERE id = $1`)).
+	mock.ExpectQuery(claimFinalizationQueryPattern()).
 		WithArgs("claim-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "status"}).
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), domain.ClaimPending))
+		WillReturnRows(claimFinalizationRows().
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), domain.ClaimPending, "", "", ""))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1, allowed_amount_cents = $2, paid_amount_cents = $3, patient_responsibility_cents = $4, adjustment_amount_cents = $5, adjustment_reason = NULLIF($6, ''), denial_reason = NULLIF($7, '') WHERE id = $8`)).
 		WithArgs(string(domain.ClaimApproved), int64(80000), int64(68000), int64(12000), int64(20000), "ASHN contractual allowance", "", "claim-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -227,11 +226,10 @@ func TestProcessClaimFinalizationUpdatesClaimAndRecords277(t *testing.T) {
 func TestProcessClaimFinalizationSkipsCompletedClaims(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, status
-		 FROM claims WHERE id = $1`)).
+	mock.ExpectQuery(claimFinalizationQueryPattern()).
 		WithArgs("claim-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "status"}).
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", "", "", "", int64(100000), domain.ClaimPaid))
+		WillReturnRows(claimFinalizationRows().
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", "", "", "", int64(100000), domain.ClaimPaid, "", "", ""))
 
 	require.NoError(t, processClaimFinalization(db, "claim-1"))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -298,6 +296,134 @@ func TestAdjudicateClaimHonorsApprovedPriorAuthorization(t *testing.T) {
 	assert.Empty(t, claim.DenialReason)
 }
 
+func TestAdjudicateClaimAppliesProviderTierAndAdventurerRank(t *testing.T) {
+	claim := domain.Claim{IncidentSeverity: domain.SeverityAwakened, AmountCents: 100000}
+
+	adjudicateClaimWithContext(&claim, adjudicationContext{
+		AdventurerRank: domain.RankGold,
+		CoverageStatus: domain.CoverageActive,
+		ProviderTier:   domain.RankDiamond,
+	})
+
+	assert.Equal(t, domain.ClaimApproved, claim.Status)
+	assert.Equal(t, int64(85000), claim.AllowedAmountCents)
+	assert.Equal(t, int64(80750), claim.PaidAmountCents)
+	assert.Equal(t, int64(4250), claim.PatientResponsibilityCents)
+	assert.Equal(t, int64(15000), claim.AdjustmentAmountCents)
+	assert.Equal(t, "ASHN contractual allowance", claim.AdjustmentReason)
+}
+
+func TestAdjudicateClaimUsesCoverageStatus(t *testing.T) {
+	pending := domain.Claim{IncidentSeverity: domain.SeverityNormal, AmountCents: 100000}
+	adjudicateClaimWithContext(&pending, adjudicationContext{CoverageStatus: domain.CoveragePending})
+	assert.Equal(t, domain.ClaimApproved, pending.Status)
+	assert.Equal(t, int64(90000), pending.AllowedAmountCents)
+	assert.Equal(t, int64(67500), pending.PaidAmountCents)
+	assert.Equal(t, "ASHN contractual allowance with pending benefits review", pending.AdjustmentReason)
+
+	inactive := domain.Claim{IncidentSeverity: domain.SeverityNormal, AmountCents: 100000}
+	adjudicateClaimWithContext(&inactive, adjudicationContext{CoverageStatus: domain.CoverageSuspended})
+	assert.Equal(t, domain.ClaimDenied, inactive.Status)
+	assert.Equal(t, "Coverage not active", inactive.AdjustmentReason)
+	assert.Equal(t, "Coverage inactive or suspended at service date", inactive.DenialReason)
+}
+
+func TestAdjudicateClaimDeniedVariants(t *testing.T) {
+	tests := []struct {
+		name             string
+		claim            domain.Claim
+		context          adjudicationContext
+		adjustmentReason string
+		denialReason     string
+	}{
+		{
+			name:             "diamond severity without authorization",
+			claim:            domain.Claim{IncidentSeverity: domain.SeverityDiamond, AmountCents: 100000},
+			adjustmentReason: "Non-covered catastrophic encounter",
+			denialReason:     "Prior authorization or benefit exception required",
+		},
+		{
+			name:             "high billed amount without authorization",
+			claim:            domain.Claim{IncidentSeverity: domain.SeverityAwakened, AmountCents: 250000},
+			adjustmentReason: "Non-covered catastrophic encounter",
+			denialReason:     "Prior authorization or benefit exception required",
+		},
+		{
+			name:             "inactive coverage",
+			claim:            domain.Claim{IncidentSeverity: domain.SeverityNormal, AmountCents: 100000},
+			context:          adjudicationContext{CoverageStatus: domain.CoverageInactive, ProviderTier: domain.RankDiamond, AdventurerRank: domain.RankDiamond},
+			adjustmentReason: "Coverage not active",
+			denialReason:     "Coverage inactive or suspended at service date",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adjudicateClaimWithContext(&tt.claim, tt.context)
+
+			assert.Equal(t, domain.ClaimDenied, tt.claim.Status)
+			assert.Equal(t, int64(0), tt.claim.AllowedAmountCents)
+			assert.Equal(t, int64(0), tt.claim.PaidAmountCents)
+			assert.Equal(t, int64(0), tt.claim.PatientResponsibilityCents)
+			assert.Equal(t, tt.claim.AmountCents, tt.claim.AdjustmentAmountCents)
+			assert.Equal(t, tt.adjustmentReason, tt.claim.AdjustmentReason)
+			assert.Equal(t, tt.denialReason, tt.claim.DenialReason)
+		})
+	}
+}
+
+func TestAdjudicateClaimPartialPaymentVariants(t *testing.T) {
+	tests := []struct {
+		name                  string
+		claim                 domain.Claim
+		context               adjudicationContext
+		allowedAmount         int64
+		paidAmount            int64
+		patientResponsibility int64
+		adjustmentAmount      int64
+	}{
+		{
+			name:                  "standard awakened partial payment",
+			claim:                 domain.Claim{IncidentSeverity: domain.SeverityAwakened, AmountCents: 100000},
+			allowedAmount:         80000,
+			paidAmount:            68000,
+			patientResponsibility: 12000,
+			adjustmentAmount:      20000,
+		},
+		{
+			name:                  "pending coverage reduces paid amount",
+			claim:                 domain.Claim{IncidentSeverity: domain.SeverityNormal, AmountCents: 100000},
+			context:               adjudicationContext{CoverageStatus: domain.CoveragePending},
+			allowedAmount:         90000,
+			paidAmount:            67500,
+			patientResponsibility: 22500,
+			adjustmentAmount:      10000,
+		},
+		{
+			name:                  "silver provider and silver adventurer improve payment",
+			claim:                 domain.Claim{IncidentSeverity: domain.SeverityAwakened, AmountCents: 100000},
+			context:               adjudicationContext{ProviderTier: domain.RankSilver, AdventurerRank: domain.RankSilver, CoverageStatus: domain.CoverageActive},
+			allowedAmount:         80000,
+			paidAmount:            70400,
+			patientResponsibility: 9600,
+			adjustmentAmount:      20000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adjudicateClaimWithContext(&tt.claim, tt.context)
+
+			assert.Equal(t, domain.ClaimApproved, tt.claim.Status)
+			assert.Equal(t, tt.allowedAmount, tt.claim.AllowedAmountCents)
+			assert.Equal(t, tt.paidAmount, tt.claim.PaidAmountCents)
+			assert.Equal(t, tt.patientResponsibility, tt.claim.PatientResponsibilityCents)
+			assert.Equal(t, tt.adjustmentAmount, tt.claim.AdjustmentAmountCents)
+			assert.Empty(t, tt.claim.DenialReason)
+		})
+	}
+}
+
 func TestPercentageUsesIntegerMath(t *testing.T) {
 	assert.Equal(t, int64(33), percentage(100, 33))
 	assert.Equal(t, int64(0), percentage(99, 0))
@@ -326,6 +452,17 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
 	return db, mock, func() {
 		_ = db.Close()
 	}
+}
+
+func claimFinalizationQueryPattern() string {
+	return "SELECT c\\.id, c\\.adventurer_id, c\\.provider_id, c\\.incident_severity"
+}
+
+func claimFinalizationRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "status",
+		"adventurer_rank", "coverage_status", "provider_tier",
+	})
 }
 
 type jsonErrorArg struct {

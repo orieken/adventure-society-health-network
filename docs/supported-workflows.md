@@ -189,7 +189,8 @@ sequenceDiagram
 
 - `837` is the claim submission.
 - `277CA` acknowledges that the payer accepted the claim for processing.
-- `tx-worker` later adjudicates the claim.
+- `tx-worker` later adjudicates the claim using severity, billed amount, prior authorization, provider tier, adventurer rank, and coverage status.
+- Higher-tier providers and higher-rank adventurers can improve paid/allowed outcomes; pending coverage reduces payment, while inactive or suspended coverage denies the claim.
 
 ## 5. Claim Attachment Lifecycle
 
