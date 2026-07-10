@@ -631,6 +631,74 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	assert.Equal(t, []string{"OZ"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AttachmentTypes)
 }
 
+func TestSaveAndDeleteTradingPartnerInMemory(t *testing.T) {
+	partners := seedTradingPartners()
+	handler := newIntakeTestMux(intakeApp{tradingPartners: partners})
+
+	body := `{"name":"Crystal Tower Partner","senderId":"provider-crystal-tower","receiverId":"Adventure Society","allowedTransactionTypes":["270","275","837"],"routeTarget":"payer-core","status":"active"}`
+	createResponse := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(http.MethodPost, "/x12/trading-partners", strings.NewReader(body))
+	createRequest.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(createResponse, createRequest)
+
+	assert.Equal(t, http.StatusCreated, createResponse.Code)
+	var created domain.TradingPartner
+	require.NoError(t, json.Unmarshal(decodeEnvelope(t, createResponse).Data, &created))
+	assert.Equal(t, "tp-provider-crystal-tower", created.ID)
+	assert.Equal(t, []string{"270", "275", "837"}, created.AllowedTransactionTypes)
+	assert.Contains(t, partners, created.ID)
+
+	updateResponse := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(http.MethodPut, "/x12/trading-partners/"+created.ID, strings.NewReader(`{"name":"Crystal Tower Partner","senderId":"provider-crystal-tower","receiverId":"Adventure Society","allowedTransactionTypes":["270"],"routeTarget":"payer-core","status":"inactive"}`))
+	updateRequest.SetPathValue("id", created.ID)
+	updateRequest.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(updateResponse, updateRequest)
+
+	assert.Equal(t, http.StatusOK, updateResponse.Code)
+	assert.Equal(t, "inactive", partners[created.ID].Status)
+	assert.Equal(t, []string{"270"}, partners[created.ID].AllowedTransactionTypes)
+
+	deleteResponse := httptest.NewRecorder()
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/x12/trading-partners/"+created.ID, nil)
+	deleteRequest.SetPathValue("id", created.ID)
+	handler.ServeHTTP(deleteResponse, deleteRequest)
+
+	assert.Equal(t, http.StatusOK, deleteResponse.Code)
+	assert.NotContains(t, partners, created.ID)
+}
+
+func TestSaveTradingPartnerValidatesRequiredFields(t *testing.T) {
+	handler := newIntakeTestMux(intakeApp{tradingPartners: seedTradingPartners()})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/trading-partners", strings.NewReader(`{"name":"Bad Partner"}`))
+	request.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "missing trading partner sender", decodeEnvelope(t, response).Error)
+}
+
+func TestSaveAndDeleteTradingPartnerPersistsToDatabase(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	app := intakeApp{db: db, tradingPartners: map[string]domain.TradingPartner{}}
+	partner := domain.TradingPartner{
+		ID: "tp-1", Name: "Partner One", SenderID: "sender-1", ReceiverID: "Adventure Society",
+		AllowedTransactionTypes: []string{"270", "837"}, RouteTarget: "payer-core", Status: "active",
+	}
+	mock.ExpectExec("INSERT INTO trading_partners").
+		WithArgs("tp-1", "Partner One", "sender-1", "Adventure Society", "270,837", "{}", "payer-core", "active").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	require.NoError(t, app.persistTradingPartner(partner))
+
+	mock.ExpectExec("DELETE FROM trading_partners").
+		WithArgs("tp-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, app.removeTradingPartner("tp-1"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestListMessagesWithoutDatabaseReturnsEmptyPage(t *testing.T) {
 	handler := newIntakeTestMux(intakeApp{})
 
@@ -951,6 +1019,9 @@ func newIntakeTestMux(app intakeApp) http.Handler {
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
 	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
 	mux.HandleFunc("GET /x12/trading-partners", app.listTradingPartners)
+	mux.HandleFunc("POST /x12/trading-partners", app.saveTradingPartner)
+	mux.HandleFunc("PUT /x12/trading-partners/{id}", app.saveTradingPartner)
+	mux.HandleFunc("DELETE /x12/trading-partners/{id}", app.deleteTradingPartner)
 	return mux
 }
 

@@ -204,6 +204,9 @@ func TestGatewayRoutesXMLMessageActionsAndTradingPartnersToEDIIntake(t *testing.
 		{http.MethodGet, "/v1/x12/messages/msg-1/export?format=json"},
 		{http.MethodPost, "/v1/x12/messages/msg-1/replay"},
 		{http.MethodGet, "/v1/x12/trading-partners"},
+		{http.MethodPost, "/v1/x12/trading-partners"},
+		{http.MethodPut, "/v1/x12/trading-partners/tp-1"},
+		{http.MethodDelete, "/v1/x12/trading-partners/tp-1"},
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(item.method, item.path, nil))
@@ -214,6 +217,9 @@ func TestGatewayRoutesXMLMessageActionsAndTradingPartnersToEDIIntake(t *testing.
 		"GET /x12/messages/msg-1/export?format=json",
 		"POST /x12/messages/msg-1/replay",
 		"GET /x12/trading-partners",
+		"POST /x12/trading-partners",
+		"PUT /x12/trading-partners/tp-1",
+		"DELETE /x12/trading-partners/tp-1",
 	}, paths)
 }
 

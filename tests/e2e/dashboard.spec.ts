@@ -95,6 +95,27 @@ test.describe("ASHN dashboard smoke", () => {
     }
   });
 
+  test("saves applies and deletes dashboard filter presets", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    await page.getByLabel("Transaction type").selectOption("275");
+    await page.getByLabel("Transaction status").selectOption("Accepted");
+    await page.getByLabel("Filter name").fill("Accepted 275s");
+    await page.getByRole("button", { name: "Save Filter" }).click();
+
+    await page.getByRole("button", { name: "Clear" }).click();
+    await expect(page.getByLabel("Transaction type")).toHaveValue("All");
+    await page.getByLabel("Saved filters").selectOption({ label: "Accepted 275s" });
+
+    await expect(page.getByLabel("Transaction type")).toHaveValue("275");
+    await expect(page.getByLabel("Transaction status")).toHaveValue("Accepted");
+
+    await page.getByRole("button", { name: "Delete Saved" }).click();
+    await expect(page.getByLabel("Saved filters")).not.toContainText("Accepted 275s");
+  });
+
   test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -106,6 +127,29 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByText("Claim claim-e2e-275")).toBeVisible();
     await expect(page.getByRole("button", { name: /275 OZ\/B4 attachment/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /packet-e2e-275 \(1\/2\)/i })).toBeVisible();
+  });
+
+  test("manages trading partner profiles", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Partners/i }).click();
+    await page.getByLabel("Partner name").fill("Crystal Tower Partner");
+    await page.getByLabel("Sender ID").fill("provider-crystal-tower");
+    await page.getByLabel("Receiver ID").fill("Adventure Society");
+    await page.getByLabel("Allowed X12 types").fill("270,275,837");
+    await page.getByRole("button", { name: /Create Partner/i }).click();
+
+    await expect(page.getByText("Crystal Tower Partner")).toBeVisible();
+    const crystalCard = page.locator(".partner-card").filter({ hasText: "Crystal Tower Partner" });
+    await crystalCard.getByRole("button", { name: "Edit" }).click();
+    await page.getByLabel("Partner name").fill("Crystal Tower Updated");
+    await page.getByRole("button", { name: /Update Partner/i }).click();
+
+    await expect(page.getByText("Crystal Tower Updated")).toBeVisible();
+    const updatedCard = page.locator(".partner-card").filter({ hasText: "Crystal Tower Updated" });
+    await updatedCard.getByRole("button", { name: "Delete" }).click();
+    await expect(page.getByText("Crystal Tower Updated")).not.toBeVisible();
   });
 
   test("supports manual approval for a pending 278 authorization", async ({ page }) => {
@@ -191,6 +235,17 @@ test.describe("ASHN dashboard smoke", () => {
 
 async function mockDashboardApi(page: Page) {
   let claimStatus = "Submitted";
+  const partnerProfiles = [
+    {
+      id: "tp-vitesse-temple",
+      name: "Temple of the Healer, Vitesse",
+      senderId: "provider-vitesse-temple",
+      receiverId: "Adventure Society",
+      allowedTransactionTypes: [...transactionTypes],
+      routeTarget: "payer-core",
+      status: "active"
+    }
+  ];
   await page.route("**/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -211,20 +266,37 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
+    if (path === "/v1/x12/trading-partners" && route.request().method() === "POST") {
+      const partner = route.request().postDataJSON() as typeof partnerProfiles[number];
+      const id = partner.id || `tp-${partner.senderId}`;
+      const saved = { ...partner, id };
+      partnerProfiles.push(saved);
+      await route.fulfill({ status: 201, json: { data: saved, lore: "Trading partner profile saved for routing." } });
+      return;
+    }
+
+    if (path.startsWith("/v1/x12/trading-partners/") && route.request().method() === "PUT") {
+      const id = decodeURIComponent(path.split("/").pop() ?? "");
+      const partner = route.request().postDataJSON() as typeof partnerProfiles[number];
+      const index = partnerProfiles.findIndex((item) => item.id === id);
+      const saved = { ...partner, id };
+      if (index >= 0) partnerProfiles[index] = saved;
+      await route.fulfill({ json: { data: saved, lore: "Trading partner profile saved for routing." } });
+      return;
+    }
+
+    if (path.startsWith("/v1/x12/trading-partners/") && route.request().method() === "DELETE") {
+      const id = decodeURIComponent(path.split("/").pop() ?? "");
+      const index = partnerProfiles.findIndex((item) => item.id === id);
+      if (index >= 0) partnerProfiles.splice(index, 1);
+      await route.fulfill({ json: { data: { id }, lore: "Trading partner profile removed from routing." } });
+      return;
+    }
+
     if (path === "/v1/x12/trading-partners") {
       await route.fulfill({
         json: {
-          data: [
-            {
-              id: "tp-vitesse-temple",
-              name: "Temple of the Healer, Vitesse",
-              senderId: "provider-vitesse-temple",
-              receiverId: "Adventure Society",
-              allowedTransactionTypes: [...transactionTypes],
-              routeTarget: "payer-core",
-              status: "active"
-            }
-          ]
+          data: partnerProfiles
         }
       });
       return;

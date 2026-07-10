@@ -126,6 +126,9 @@ func main() {
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
 	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
 	mux.HandleFunc("GET /x12/trading-partners", app.listTradingPartners)
+	mux.HandleFunc("POST /x12/trading-partners", app.saveTradingPartner)
+	mux.HandleFunc("PUT /x12/trading-partners/{id}", app.saveTradingPartner)
+	mux.HandleFunc("DELETE /x12/trading-partners/{id}", app.deleteTradingPartner)
 	addr := env("EDI_INTAKE_ADDR", ":8083")
 	log.Printf("[ASHN] edi-intake listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
@@ -670,6 +673,139 @@ func (a intakeApp) listTradingPartners(w http.ResponseWriter, _ *http.Request) {
 	respond(w, http.StatusOK, domain.Envelope{Data: partners, Lore: "Trading partner seals and routing rules were opened for inspection."})
 }
 
+func (a intakeApp) saveTradingPartner(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var partner domain.TradingPartner
+	if err := json.NewDecoder(r.Body).Decode(&partner); err != nil {
+		fail(w, http.StatusBadRequest, "invalid json", "The partner profile scroll could not be read.")
+		return
+	}
+	if pathID := strings.TrimSpace(r.PathValue("id")); pathID != "" {
+		partner.ID = pathID
+	}
+	partner = normalizeTradingPartner(partner)
+	if err := validatePartnerProfile(partner); err != nil {
+		fail(w, http.StatusBadRequest, err.Error(), "The trading partner profile is missing required routing seals.")
+		return
+	}
+	if err := a.persistTradingPartner(partner); err != nil {
+		fail(w, http.StatusConflict, "partner save failed", err.Error())
+		return
+	}
+	if a.tradingPartners != nil {
+		a.tradingPartners[partner.ID] = partner
+	}
+	status := http.StatusCreated
+	if r.Method == http.MethodPut {
+		status = http.StatusOK
+	}
+	respond(w, status, domain.Envelope{Data: partner, Lore: "Trading partner profile saved for routing."})
+}
+
+func (a intakeApp) deleteTradingPartner(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		fail(w, http.StatusBadRequest, "missing trading partner id", "The routing seal could not be found.")
+		return
+	}
+	if err := a.removeTradingPartner(id); err != nil {
+		fail(w, http.StatusConflict, "partner delete failed", err.Error())
+		return
+	}
+	if a.tradingPartners != nil {
+		delete(a.tradingPartners, id)
+	}
+	respond(w, http.StatusOK, domain.Envelope{Data: map[string]string{"id": id}, Lore: "Trading partner profile removed from routing."})
+}
+
+func normalizeTradingPartner(partner domain.TradingPartner) domain.TradingPartner {
+	partner.ID = strings.TrimSpace(partner.ID)
+	partner.Name = strings.TrimSpace(partner.Name)
+	partner.SenderID = strings.TrimSpace(partner.SenderID)
+	partner.ReceiverID = strings.TrimSpace(partner.ReceiverID)
+	partner.RouteTarget = strings.TrimSpace(partner.RouteTarget)
+	partner.Status = strings.TrimSpace(partner.Status)
+	if partner.ID == "" && partner.SenderID != "" {
+		partner.ID = "tp-" + strings.ToLower(strings.ReplaceAll(partner.SenderID, "_", "-"))
+	}
+	if partner.RouteTarget == "" {
+		partner.RouteTarget = "payer-core"
+	}
+	if partner.Status == "" {
+		partner.Status = "active"
+	}
+	allowed := []string{}
+	for _, txType := range partner.AllowedTransactionTypes {
+		if trimmed := strings.TrimSpace(txType); trimmed != "" {
+			allowed = append(allowed, trimmed)
+		}
+	}
+	partner.AllowedTransactionTypes = allowed
+	return partner
+}
+
+func validatePartnerProfile(partner domain.TradingPartner) error {
+	if partner.Name == "" {
+		return fmt.Errorf("missing trading partner name")
+	}
+	if partner.SenderID == "" {
+		return fmt.Errorf("missing trading partner sender")
+	}
+	if partner.ID == "" {
+		return fmt.Errorf("missing trading partner id")
+	}
+	if partner.ReceiverID == "" {
+		return fmt.Errorf("missing trading partner receiver")
+	}
+	if len(partner.AllowedTransactionTypes) == 0 {
+		return fmt.Errorf("missing allowed transaction types")
+	}
+	if !strings.EqualFold(partner.RouteTarget, "payer-core") {
+		return fmt.Errorf("unsupported trading partner route")
+	}
+	return nil
+}
+
+func (a intakeApp) persistTradingPartner(partner domain.TradingPartner) error {
+	if a.db == nil {
+		return nil
+	}
+	profile, err := json.Marshal(partner.ValidationProfile)
+	if err != nil {
+		return err
+	}
+	_, err = a.db.Exec(`INSERT INTO trading_partners (id, name, sender_id, receiver_id, allowed_transaction_types, validation_profile, route_target, status)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+		ON CONFLICT (sender_id) DO UPDATE SET
+			id = EXCLUDED.id,
+			name = EXCLUDED.name,
+			receiver_id = EXCLUDED.receiver_id,
+			allowed_transaction_types = EXCLUDED.allowed_transaction_types,
+			validation_profile = EXCLUDED.validation_profile,
+			route_target = EXCLUDED.route_target,
+			status = EXCLUDED.status`,
+		partner.ID, partner.Name, partner.SenderID, partner.ReceiverID, strings.Join(partner.AllowedTransactionTypes, ","), string(profile), partner.RouteTarget, partner.Status)
+	return err
+}
+
+func (a intakeApp) removeTradingPartner(id string) error {
+	if a.db == nil {
+		return nil
+	}
+	result, err := a.db.Exec(`DELETE FROM trading_partners WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("trading partner not found")
+	}
+	return nil
+}
+
 func (a intakeApp) record999(relatedID string, transactionType string, receiverID string, accepted bool, errorText string) {
 	if relatedID == "" {
 		return
@@ -1096,7 +1232,12 @@ func ediOpenAPI() map[string]any {
 				"post": {Summary: "Replay XML intake message", Tags: []string{"xml", "replay"}},
 			},
 			"/x12/trading-partners": {
-				"get": {Summary: "List trading partner profiles", Tags: []string{"trading partners", "x12"}},
+				"get":  {Summary: "List trading partner profiles", Tags: []string{"trading partners", "x12"}},
+				"post": {Summary: "Create trading partner profile", Tags: []string{"trading partners", "x12"}, RequestBody: true},
+			},
+			"/x12/trading-partners/{id}": {
+				"put":    {Summary: "Update trading partner profile", Tags: []string{"trading partners", "x12"}, RequestBody: true},
+				"delete": {Summary: "Delete trading partner profile", Tags: []string{"trading partners", "x12"}},
 			},
 		},
 	})

@@ -120,6 +120,15 @@ h2 {
   gap: 14px;
 }
 
+.partner-form {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+}
+
+.partner-form .actions {
+  align-self: end;
+}
+
 .panel,
 .status-card,
 .metric-card {
@@ -724,6 +733,17 @@ pre {
   align-items: end;
 }
 
+.saved-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  border: 1px solid rgba(246, 185, 90, 0.18);
+  border-radius: 20px;
+  background: rgba(246, 185, 90, 0.06);
+  padding: 14px;
+}
+
 .wide-filter {
   min-width: 0;
   grid-column: span 2;
@@ -808,8 +828,10 @@ pre {
   .grid,
   .stats-grid,
   .partner-grid,
+  .partner-form,
   .history-grid,
   .filters-grid,
+  .saved-filter-bar,
   .detail-grid {
     grid-template-columns: 1fr;
   }

@@ -37,6 +37,7 @@ ASHN supports both **business-state APIs** and an **EDI-style transaction ledger
 | Claim status | `276 → 277` | `GET /v1/claims/{id}/status`, XML `276` | Ledger, timeline | Creates request/response status pair. |
 | Payment/remittance | `835` | `POST /v1/claims/{id}/payment`, XML `835` | Workflow card, claims panel, ledger, detail drawer | Includes allowed, paid, adjustment, denial fields. |
 | XML intake audit | `999` plus routed transaction | `POST /v1/x12/xml` | XML Intake tab, export/replay | Accepted/rejected XML submissions create audit records and acknowledgments. |
+| Trading partner management | Routing profiles | `GET/POST/PUT/DELETE /v1/x12/trading-partners` | Partners tab create/update/delete form | Manages sender/receiver IDs, allowed X12 types, status, and route target. |
 | Export/replay | JSON/XML/X12 exports | `/export`, `/replay` endpoints | Detail drawer buttons | Supports demo reset, replay, and artifact inspection. |
 
 ## 1. Enrollment Lifecycle

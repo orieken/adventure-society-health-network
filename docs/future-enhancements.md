@@ -118,13 +118,13 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add routing rules by transaction type and partner.
 - [x] Add partner-specific validation profiles.
 - [x] Add dashboard visibility for partner configuration.
-- [ ] Add create/update/delete partner management screens.
+- [x] Add create/update/delete partner management screens.
 - [x] Add partner-specific companion-guide validation rules.
 
 ### P2 — Dashboard Enhancements
 
 - [ ] Add a transaction timeline view grouped by adventurer or claim.
-- [ ] Add saved filters for transaction type, status, provider, and date range.
+- [x] Add saved filters for transaction type, status, provider, and date range.
 - [ ] Add raw payload tabs: JSON, XML, and X12.
 - [x] Add XML intake audit visibility with raw XML detail.
 - [x] Add transaction export to JSON, XML, and X12.

@@ -26,6 +26,29 @@ type TradingPartner = {
   };
 };
 
+type PartnerFormState = {
+  id: string;
+  name: string;
+  senderId: string;
+  receiverId: string;
+  allowedTransactionTypes: string;
+  routeTarget: string;
+  status: string;
+};
+
+type SavedFilter = {
+  id: string;
+  name: string;
+  tab: DashboardTab;
+  searchTerm: string;
+  transactionType: string;
+  transactionStatus: string;
+  claimStatus: string;
+  provider: string;
+  auditStatus: string;
+  auditType: string;
+};
+
 type Adventurer = {
   id: string;
   name: string;
@@ -126,6 +149,16 @@ const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837"
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
+const savedFiltersStorageKey = "ashn.savedFilters.v1";
+const initialPartnerForm: PartnerFormState = {
+  id: "",
+  name: "",
+  senderId: "",
+  receiverId: "Adventure Society",
+  allowedTransactionTypes: "270,275,276,278,837",
+  routeTarget: "payer-core",
+  status: "active"
+};
 const dashboardTabs: { id: DashboardTab; label: string; detail: string }[] = [
   { id: "workflow", label: "Workflow", detail: "Run the demo flow" },
   { id: "timeline", label: "Timeline", detail: "Follow transaction chains" },
@@ -140,6 +173,18 @@ function providerLabel(providerId: string, providers: Provider[]) {
   return providers.find((provider) => provider.id === providerId)?.name ?? providerId;
 }
 
+function partnerFromForm(form: PartnerFormState): TradingPartner {
+  return {
+    id: form.id.trim(),
+    name: form.name.trim(),
+    senderId: form.senderId.trim(),
+    receiverId: form.receiverId.trim(),
+    allowedTransactionTypes: form.allowedTransactionTypes.split(",").map((type) => type.trim()).filter(Boolean),
+    routeTarget: form.routeTarget.trim() || "payer-core",
+    status: form.status.trim() || "active"
+  };
+}
+
 function buildQuery(values: Record<string, string | number>) {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) => {
@@ -152,6 +197,21 @@ function buildQuery(values: Record<string, string | number>) {
 function pageSummary(page: PageInfo) {
   if (page.count === 0) return "Showing 0";
   return `Showing ${page.offset + 1}-${page.offset + page.count}`;
+}
+
+function loadSavedFilters(): SavedFilter[] {
+  try {
+    const raw = window.localStorage.getItem(savedFiltersStorageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as SavedFilter[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeSavedFilters(filters: SavedFilter[]) {
+  window.localStorage.setItem(savedFiltersStorageKey, JSON.stringify(filters));
 }
 
 function App() {
@@ -188,6 +248,10 @@ function App() {
   const [auditStatusFilter, setAuditStatusFilter] = useState("All");
   const [auditTypeFilter, setAuditTypeFilter] = useState("All");
   const [activeTab, setActiveTab] = useState<DashboardTab>("workflow");
+  const [partnerForm, setPartnerForm] = useState<PartnerFormState>(initialPartnerForm);
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(loadSavedFilters);
+  const [savedFilterName, setSavedFilterName] = useState("");
+  const [selectedSavedFilterId, setSelectedSavedFilterId] = useState("");
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -214,6 +278,10 @@ function App() {
     }, dashboardRefreshMs);
     return () => window.clearInterval(interval);
   }, [adventurerOffset, auditOffset, auditStatusFilter, auditTypeFilter, claimOffset, claimStatusFilter, providerFilter, searchTerm, transactionOffset, transactionStatusFilter, transactionTypeFilter]);
+
+  useEffect(() => {
+    storeSavedFilters(savedFilters);
+  }, [savedFilters]);
 
   async function refresh(pushProviderEvent = false) {
     const adventurerQuery = buildQuery({ limit: adventurerPageSize, offset: adventurerOffset, q: searchTerm });
@@ -288,6 +356,69 @@ function App() {
     setAuditOffset(0);
   }
 
+  function currentFilterState(name: string): SavedFilter {
+    return {
+      id: selectedSavedFilterId || `filter-${Date.now()}`,
+      name: name.trim(),
+      tab: activeTab,
+      searchTerm,
+      transactionType: transactionTypeFilter,
+      transactionStatus: transactionStatusFilter,
+      claimStatus: claimStatusFilter,
+      provider: providerFilter,
+      auditStatus: auditStatusFilter,
+      auditType: auditTypeFilter
+    };
+  }
+
+  function saveCurrentFilter() {
+    const name = savedFilterName.trim() || `${activeTab} filter`;
+    const filter = currentFilterState(name);
+    setSavedFilters((current) => {
+      const existingIndex = current.findIndex((item) => item.id === filter.id);
+      if (existingIndex === -1) return [filter, ...current].slice(0, 12);
+      return current.map((item, index) => (index === existingIndex ? filter : item));
+    });
+    setSelectedSavedFilterId(filter.id);
+    setSavedFilterName(filter.name);
+  }
+
+  function applySavedFilter(id: string) {
+    const filter = savedFilters.find((item) => item.id === id);
+    if (!filter) return;
+    setSelectedSavedFilterId(id);
+    setSavedFilterName(filter.name);
+    setActiveTab(filterTabs.includes(filter.tab) ? filter.tab : "ledger");
+    setSearchTerm(filter.searchTerm);
+    setTransactionTypeFilter(filter.transactionType);
+    setTransactionStatusFilter(filter.transactionStatus);
+    setClaimStatusFilter(filter.claimStatus);
+    setProviderFilter(filter.provider);
+    setAuditStatusFilter(filter.auditStatus);
+    setAuditTypeFilter(filter.auditType);
+    resetLedgerOffsets();
+  }
+
+  function deleteSavedFilter() {
+    if (!selectedSavedFilterId) return;
+    setSavedFilters((current) => current.filter((item) => item.id !== selectedSavedFilterId));
+    setSelectedSavedFilterId("");
+    setSavedFilterName("");
+  }
+
+  function clearFilters() {
+    setSearchTerm("");
+    setTransactionTypeFilter("All");
+    setTransactionStatusFilter("All");
+    setClaimStatusFilter("All");
+    setProviderFilter("All");
+    setAuditStatusFilter("All");
+    setAuditTypeFilter("All");
+    setSelectedSavedFilterId("");
+    setSavedFilterName("");
+    resetLedgerOffsets();
+  }
+
   function settledValue<T>(result: PromiseSettledResult<Envelope<T>>) {
     return result.status === "fulfilled" ? result.value : undefined;
   }
@@ -329,6 +460,42 @@ function App() {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
+  }
+
+  async function saveTradingPartner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    const partner = partnerFromForm(partnerForm);
+    const path = partner.id ? `/v1/x12/trading-partners/${encodeURIComponent(partner.id)}` : "/v1/x12/trading-partners";
+    const result = await request<TradingPartner>(path, {
+      method: partner.id ? "PUT" : "POST",
+      body: JSON.stringify(partner)
+    });
+    pushEvent(result);
+    setPartnerForm(initialPartnerForm);
+    await refresh();
+    setBusy(false);
+  }
+
+  async function deleteTradingPartner(partnerId: string) {
+    setBusy(true);
+    const result = await request<Record<string, string>>(`/v1/x12/trading-partners/${encodeURIComponent(partnerId)}`, { method: "DELETE" });
+    pushEvent(result);
+    if (partnerForm.id === partnerId) setPartnerForm(initialPartnerForm);
+    await refresh();
+    setBusy(false);
+  }
+
+  function editTradingPartner(partner: TradingPartner) {
+    setPartnerForm({
+      id: partner.id,
+      name: partner.name,
+      senderId: partner.senderId,
+      receiverId: partner.receiverId,
+      allowedTransactionTypes: partner.allowedTransactionTypes.join(","),
+      routeTarget: partner.routeTarget,
+      status: partner.status
+    });
   }
 
   async function replayTransaction(transactionId: string) {
@@ -610,15 +777,44 @@ function App() {
         <div className="ledger-title">
           <div>
             <h2>Trading Partners</h2>
-            <p className="muted">Sender/receiver IDs, allowed X12 types, and current routing targets.</p>
+            <p className="muted">Create, update, delete, and inspect sender/receiver routing profiles.</p>
           </div>
           <span className="muted">{tradingPartners.length} profiles</span>
         </div>
+        <form className="partner-form" onSubmit={saveTradingPartner}>
+          <label>
+            Partner name
+            <input value={partnerForm.name} onChange={(event) => setPartnerForm({ ...partnerForm, name: event.target.value })} placeholder="Crystal Tower Partner" />
+          </label>
+          <label>
+            Sender ID
+            <input value={partnerForm.senderId} onChange={(event) => setPartnerForm({ ...partnerForm, senderId: event.target.value })} placeholder="provider-crystal-tower" />
+          </label>
+          <label>
+            Receiver ID
+            <input value={partnerForm.receiverId} onChange={(event) => setPartnerForm({ ...partnerForm, receiverId: event.target.value })} />
+          </label>
+          <label>
+            Allowed X12 types
+            <input value={partnerForm.allowedTransactionTypes} onChange={(event) => setPartnerForm({ ...partnerForm, allowedTransactionTypes: event.target.value })} />
+          </label>
+          <label>
+            Status
+            <select value={partnerForm.status} onChange={(event) => setPartnerForm({ ...partnerForm, status: event.target.value })}>
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </label>
+          <div className="actions compact-actions">
+            <button disabled={busy}>{partnerForm.id ? "Update Partner" : "Create Partner"}</button>
+            <button className="secondary" type="button" onClick={() => setPartnerForm(initialPartnerForm)}>Clear</button>
+          </div>
+        </form>
         <div className="partner-grid">
           {tradingPartners.length === 0 ? (
             <p className="muted">No trading partner profiles are loaded.</p>
           ) : (
-            tradingPartners.map((partner) => <TradingPartnerCard key={partner.id} partner={partner} />)
+            tradingPartners.map((partner) => <TradingPartnerCard key={partner.id} partner={partner} busy={busy} onEdit={editTradingPartner} onDelete={deleteTradingPartner} />)
           )}
         </div>
       </section>
@@ -745,21 +941,26 @@ function App() {
       <section className="panel filters-panel">
         <div className="ledger-title">
           <h2>Search & Filters</h2>
-          <button
-            className="secondary"
-            onClick={() => {
-              setSearchTerm("");
-              setTransactionTypeFilter("All");
-              setTransactionStatusFilter("All");
-              setClaimStatusFilter("All");
-              setProviderFilter("All");
-              setAuditStatusFilter("All");
-              setAuditTypeFilter("All");
-              resetLedgerOffsets();
-            }}
-          >
-            Clear
-          </button>
+          <button className="secondary" onClick={clearFilters}>Clear</button>
+        </div>
+        <div className="saved-filter-bar">
+          <label>
+            Saved filters
+            <select value={selectedSavedFilterId} onChange={(event) => applySavedFilter(event.target.value)}>
+              <option value="">Choose preset</option>
+              {savedFilters.map((filter) => (
+                <option value={filter.id} key={filter.id}>{filter.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Filter name
+            <input value={savedFilterName} onChange={(event) => setSavedFilterName(event.target.value)} placeholder="High-value 837s" />
+          </label>
+          <div className="actions compact-actions">
+            <button type="button" onClick={saveCurrentFilter}>Save Filter</button>
+            <button className="danger" type="button" disabled={!selectedSavedFilterId} onClick={deleteSavedFilter}>Delete Saved</button>
+          </div>
         </div>
         <div className="filters-grid">
           <label className="wide-filter">
@@ -1032,7 +1233,17 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
   );
 }
 
-function TradingPartnerCard({ partner }: { partner: TradingPartner }) {
+function TradingPartnerCard({
+  partner,
+  busy,
+  onEdit,
+  onDelete
+}: {
+  partner: TradingPartner;
+  busy: boolean;
+  onEdit: (partner: TradingPartner) => void;
+  onDelete: (partnerId: string) => void;
+}) {
   const profile = partner.validationProfile;
   return (
     <article className="partner-card">
@@ -1051,6 +1262,10 @@ function TradingPartnerCard({ partner }: { partner: TradingPartner }) {
           {profile.maxEmbeddedContentBytes ? ` · ${Math.round(profile.maxEmbeddedContentBytes / 1024)} KB embedded limit` : ""}
         </p>
       ) : null}
+      <div className="actions compact-actions">
+        <button className="secondary" disabled={busy} onClick={() => onEdit(partner)}>Edit</button>
+        <button className="danger" disabled={busy} onClick={() => onDelete(partner.id)}>Delete</button>
+      </div>
     </article>
   );
 }
