@@ -117,6 +117,8 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 		{http.MethodPost, "/v1/claims/claim-1/payment"},
 		{http.MethodGet, "/v1/transactions/tx-1"},
 		{http.MethodGet, "/v1/transactions/tx-1/export?format=x12"},
+		{http.MethodGet, "/v1/transactions/tx-275/document-reference"},
+		{http.MethodGet, "/v1/transactions/tx-275/document-reference/content"},
 		{http.MethodPost, "/v1/transactions/tx-1/replay"},
 		{http.MethodPost, "/v1/transactions/tx-275/attachment-review"},
 		{http.MethodGet, "/v1/jobs?limit=8"},
@@ -138,6 +140,8 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 		"POST /claims/claim-1/payment",
 		"GET /transactions/tx-1",
 		"GET /transactions/tx-1/export?format=x12",
+		"GET /transactions/tx-275/document-reference",
+		"GET /transactions/tx-275/document-reference/content",
 		"POST /transactions/tx-1/replay",
 		"POST /transactions/tx-275/attachment-review",
 		"GET /jobs?limit=8",
@@ -650,6 +654,7 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	assert.Contains(t, paths, "/v1/health")
 	assert.Contains(t, paths, "/v1/x12/xml")
 	assert.Contains(t, paths, "/v1/transactions/{id}/export")
+	assert.Contains(t, paths, "/v1/transactions/{id}/document-reference")
 	components := spec["components"].(map[string]any)
 	securitySchemes := components["securitySchemes"].(map[string]any)
 	assert.Contains(t, securitySchemes, "bearerAuth")

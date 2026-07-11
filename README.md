@@ -1,6 +1,6 @@
 # ASHN — Adventure Society Health Network
 
-ASHN is a lore-themed healthcare EDI simulator that makes X12-style payer/provider workflows visible. It now supports JSON/XML intake, trading partner validation, raw X12 generation, acknowledgments, async authorization/adjudication jobs, claim and prior-auth attachments, a 275 documentation workbench, export/replay tools, and a dashboard for learning how the transaction chain fits together.
+ASHN is a lore-themed healthcare EDI simulator that makes X12-style payer/provider workflows visible. It now supports JSON/XML intake, trading partner validation, raw X12 generation, acknowledgments, async authorization/adjudication jobs, claim and prior-auth attachments, 275 document-vault receipts, export/replay tools, and a dashboard for learning how the transaction chain fits together.
 
 Docs:
 
@@ -84,6 +84,7 @@ Service logs are emitted as structured JSON events with stable fields such as `t
 - How XML/JSON intake, trading partner validation, acknowledgments, raw X12, and durable audit trails can coexist in one workflow.
 - How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.
 - How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
+- How external 275 document references are resolved as safe vault receipts without server-side fetching arbitrary URLs.
 - How opt-in gateway API keys protect partner-facing routes without blocking public health checks.
 - How gateway rate limiting protects public/demo endpoints while leaving health and CORS checks available.
 - How request and correlation IDs make multi-service EDI flows traceable.

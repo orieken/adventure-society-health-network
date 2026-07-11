@@ -235,6 +235,7 @@ flowchart TD
 - A valid `275` clears the documentation hold back to `Pending` so adjudication can continue.
 - The `275` transaction remains EDI `Accepted`, while `attachmentReviewStatus` tracks business review as `Received`, `Accepted`, or `Rejected`.
 - Attachments can embed content or reference external documents through `documentReferenceId` and `documentReferenceUrl`.
+- `GET /v1/transactions/{id}/document-reference` exposes a safe 275 vault receipt; embedded content can be downloaded from `/document-reference/content`.
 - Multi-attachment packets can submit repeated supporting documents as separate `275` transactions sharing `packetId`, `packetSequence`, and `packetCount`.
 - `edi-intake` rejects partner profile violations before forwarding, including unsupported attachment/report/content codes, bad control-number prefixes, oversized embedded content, and unsupported `278` service/severity values.
 - Raw X12 includes claim `REF*1K` or authorization `REF*G1`, packet `REF*F8`, plus `REF*6R`, `PWK`, `LQ*AT`, `K3`, and optional `BIN`.
@@ -386,7 +387,7 @@ A `275` can be syntactically accepted but clinically rejected as insufficient. T
 
 ### 4. External Document Reference Mode
 
-Baseline support now exists. Attachments can reference external documents instead of embedding content in `BIN`:
+Baseline support now exists. Attachments can reference external documents instead of embedding content in `BIN`, and ASHN exposes safe vault receipt metadata without fetching arbitrary external URLs:
 
 ```mermaid
 flowchart LR
@@ -396,7 +397,7 @@ flowchart LR
     Metadata --> Payer["payer-core review"]
 ```
 
-This would model common enterprise patterns where large PDFs/images are stored elsewhere and the EDI transaction carries metadata plus a retrieval pointer.
+This models common enterprise patterns where large PDFs/images are stored elsewhere and the EDI transaction carries metadata plus a retrieval pointer. The dashboard transaction drawer can inspect the vault receipt, and embedded-content attachments can be downloaded directly.
 
 ### 5. Multi-Attachment Bundles
 

@@ -127,6 +127,23 @@ type Transaction = {
   createdAt: string;
 };
 
+type DocumentReference = {
+  transactionId: string;
+  claimId?: string;
+  authorizationTransactionId?: string;
+  attachmentType?: string;
+  attachmentControlNumber?: string;
+  reportTypeCode?: string;
+  contentType?: string;
+  description?: string;
+  documentReferenceId?: string;
+  documentReferenceUrl?: string;
+  embeddedContentAvailable: boolean;
+  retrievalMode: string;
+  retrievalStatus: string;
+  retrievalInstructions: string;
+};
+
 type TimelineGroup = {
   id: string;
   title: string;
@@ -537,6 +554,16 @@ function App() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+
+  async function inspectDocumentReference(transaction: Transaction) {
+    setBusy(true);
+    try {
+      const result = await request<DocumentReference>(`/v1/transactions/${transaction.id}/document-reference`);
+      pushEvent(result);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveTradingPartner(event: FormEvent<HTMLFormElement>) {
@@ -1281,6 +1308,8 @@ function App() {
                 <button disabled={busy} onClick={() => replayTransaction(selectedTransaction.id)}>Replay Transaction</button>
                 {selectedTransaction.type === "275" && (
                   <>
+                    <button className="secondary" disabled={busy || !hasDocumentReference(selectedTransaction)} onClick={() => inspectDocumentReference(selectedTransaction)}>Inspect Vault Receipt</button>
+                    <button className="secondary" disabled={!payloadString(selectedTransaction, "content")} onClick={() => downloadFromPath(`/v1/transactions/${selectedTransaction.id}/document-reference/content`)}>Download Embedded Doc</button>
                     <button disabled={busy} onClick={() => reviewAttachment("Accepted")}>Accept Attachment</button>
                     <button className="danger" disabled={busy} onClick={() => reviewAttachment("Rejected")}>Reject Attachment</button>
                   </>
@@ -1294,7 +1323,7 @@ function App() {
                   <DetailItem label="Review Reason" value={payloadString(selectedTransaction, "attachmentReviewReason") ?? "—"} />
                   <DetailItem label="Packet" value={attachmentPacketLabel(selectedTransaction) ?? "—"} />
                   <DetailItem label="Document Ref" value={payloadString(selectedTransaction, "documentReferenceId") ?? "—"} />
-                  <DetailItem label="Document URL" value={payloadString(selectedTransaction, "documentReferenceUrl") ?? "—"} />
+                  <DetailLink label="Document URL" value={payloadString(selectedTransaction, "documentReferenceUrl") ?? ""} />
                 </>
               )}
               <DetailItem label="Sender" value={selectedTransaction.senderId} />
@@ -1506,6 +1535,15 @@ function DetailItem({ label, value }: { label: string; value: string }) {
     <div className="detail-item">
       <span>{label}</span>
       <strong>{value || "—"}</strong>
+    </div>
+  );
+}
+
+function DetailLink({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="detail-item">
+      <span>{label}</span>
+      {value ? <a href={value} target="_blank" rel="noreferrer">{value}</a> : <strong>—</strong>}
     </div>
   );
 }
@@ -1804,6 +1842,14 @@ function payloadString(transaction: Transaction, key: string) {
   const payload = payloadRecord(transaction.payload);
   const value = payload?.[key];
   return typeof value === "string" && value ? value : undefined;
+}
+
+function hasDocumentReference(transaction: Transaction) {
+  return Boolean(
+    payloadString(transaction, "documentReferenceId") ||
+    payloadString(transaction, "documentReferenceUrl") ||
+    payloadString(transaction, "content")
+  );
 }
 
 function payloadNestedString(transaction: Transaction, parentKey: string, childKey: string) {

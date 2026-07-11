@@ -376,6 +376,93 @@ func TestAttachClaimInformationAcceptsExternalDocumentReference(t *testing.T) {
 	assert.Contains(t, string(envelope.Data), "doc-rim-001")
 }
 
+func TestTransactionDocumentReferenceResolvesExternalVaultPointer(t *testing.T) {
+	app := newTestStore()
+	app.transactions["tx-275-ref"] = domain.Transaction{
+		ID:         "tx-275-ref",
+		Type:       domain.Tx275,
+		Status:     domain.TxStatusAccepted,
+		SenderID:   "provider-rimaros-hospital",
+		ReceiverID: societyID,
+		Payload: json.RawMessage(`{
+			"claimId":"claim-1",
+			"attachmentType":"PN",
+			"attachmentControlNumber":"RIM-REF-1",
+			"reportTypeCode":"03",
+			"contentType":"application/pdf",
+			"description":"External operative notes",
+			"documentReferenceId":"doc-rim-001",
+			"documentReferenceUrl":"s3://ashn-vault/rim/doc-rim-001.pdf"
+		}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/transactions/tx-275-ref/document-reference", nil))
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	var reference domain.DocumentReference
+	require.NoError(t, json.Unmarshal(envelope.Data, &reference))
+	assert.Equal(t, "tx-275-ref", reference.TransactionID)
+	assert.Equal(t, "doc-rim-001", reference.DocumentReferenceID)
+	assert.Equal(t, "s3", reference.RetrievalMode)
+	assert.Equal(t, "external-reference", reference.RetrievalStatus)
+	assert.False(t, reference.EmbeddedContentAvailable)
+	assert.Contains(t, reference.RetrievalInstructions, "authorized document-vault credentials")
+}
+
+func TestTransactionDocumentReferenceDownloadsEmbeddedContent(t *testing.T) {
+	app := newTestStore()
+	app.transactions["tx-275-embedded"] = domain.Transaction{
+		ID:         "tx-275-embedded",
+		Type:       domain.Tx275,
+		Status:     domain.TxStatusAccepted,
+		SenderID:   "provider-vitesse-temple",
+		ReceiverID: societyID,
+		Payload: json.RawMessage(`{
+			"claimId":"claim-1",
+			"attachmentType":"OZ",
+			"attachmentControlNumber":"ATTACH-1",
+			"reportTypeCode":"B4",
+			"contentType":"text/plain",
+			"description":"Encounter notes",
+			"content":"Patient survived a dragonfire incident."
+		}`),
+		CreatedAt: time.Now().UTC(),
+	}
+	mux := newPayerTestMux(app)
+
+	referenceResponse := httptest.NewRecorder()
+	mux.ServeHTTP(referenceResponse, httptest.NewRequest(http.MethodGet, "/transactions/tx-275-embedded/document-reference", nil))
+	assert.Equal(t, http.StatusOK, referenceResponse.Code)
+	var envelope testEnvelope
+	require.NoError(t, json.Unmarshal(referenceResponse.Body.Bytes(), &envelope))
+	var reference domain.DocumentReference
+	require.NoError(t, json.Unmarshal(envelope.Data, &reference))
+	assert.True(t, reference.EmbeddedContentAvailable)
+	assert.Equal(t, "embedded", reference.RetrievalMode)
+
+	contentResponse := httptest.NewRecorder()
+	mux.ServeHTTP(contentResponse, httptest.NewRequest(http.MethodGet, "/transactions/tx-275-embedded/document-reference/content", nil))
+	assert.Equal(t, http.StatusOK, contentResponse.Code)
+	assert.Contains(t, contentResponse.Header().Get("Content-Type"), "text/plain")
+	assert.Equal(t, "Patient survived a dragonfire incident.", contentResponse.Body.String())
+}
+
+func TestTransactionDocumentReferenceRejectsNonAttachmentTransactions(t *testing.T) {
+	app := newTestStore()
+	app.transactions["tx-837"] = domain.Transaction{ID: "tx-837", Type: domain.Tx837, Status: domain.TxStatusAccepted, Payload: json.RawMessage(`{}`)}
+	mux := newPayerTestMux(app)
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/transactions/tx-837/document-reference", nil))
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "invalid attachment transaction", decodeEnvelope(t, response).Error)
+}
+
 func TestAttachClaimInformationAcceptsAttachmentPacket(t *testing.T) {
 	app := newTestStore()
 	app.claims["claim-1"] = domain.Claim{
@@ -1186,6 +1273,8 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("POST /transactions", app.recordTransaction)
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	mux.HandleFunc("GET /transactions/{id}/export", app.exportTransaction)
+	mux.HandleFunc("GET /transactions/{id}/document-reference", app.getTransactionDocumentReference)
+	mux.HandleFunc("GET /transactions/{id}/document-reference/content", app.downloadTransactionDocumentContent)
 	mux.HandleFunc("POST /transactions/{id}/replay", app.replayTransaction)
 	mux.HandleFunc("POST /transactions/{id}/attachment-review", app.reviewAttachment)
 	mux.HandleFunc("GET /jobs", app.listJobs)

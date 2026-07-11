@@ -305,8 +305,8 @@ Recommended next build sequence:
 2. Add request IDs and correlation IDs across all services.
 3. Add structured logs and basic OpenTelemetry traces.
 4. Add migration tests and seed-data reset tests.
-5. Deepen document-vault retrieval for external 275 references.
-6. Add optional raw X12 file-drop or segment parsing intake.
+5. Add optional raw X12 file-drop or segment parsing intake.
+6. Add richer partner-specific variants and service-line claim rules.
 
 **Talk track:**  
 The next phase is about moving from integration lab to operationally understandable system: secure partner access, traceable requests, reliable demo data, and richer external-document handling.

@@ -144,6 +144,23 @@ type Transaction struct {
 	CreatedAt  time.Time         `json:"createdAt"`
 }
 
+type DocumentReference struct {
+	TransactionID              string `json:"transactionId"`
+	ClaimID                    string `json:"claimId,omitempty"`
+	AuthorizationTransactionID string `json:"authorizationTransactionId,omitempty"`
+	AttachmentType             string `json:"attachmentType,omitempty"`
+	AttachmentControlNumber    string `json:"attachmentControlNumber,omitempty"`
+	ReportTypeCode             string `json:"reportTypeCode,omitempty"`
+	ContentType                string `json:"contentType,omitempty"`
+	Description                string `json:"description,omitempty"`
+	DocumentReferenceID        string `json:"documentReferenceId,omitempty"`
+	DocumentReferenceURL       string `json:"documentReferenceUrl,omitempty"`
+	EmbeddedContentAvailable   bool   `json:"embeddedContentAvailable"`
+	RetrievalMode              string `json:"retrievalMode"`
+	RetrievalStatus            string `json:"retrievalStatus"`
+	RetrievalInstructions      string `json:"retrievalInstructions"`
+}
+
 type InboundMessage struct {
 	ID               string    `json:"id"`
 	PartnerID        string    `json:"partnerId,omitempty"`

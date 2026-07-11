@@ -145,7 +145,7 @@ For prior authorization, the dashboard and API can submit `POST /auth-requests/{
 
 ASHN also separates transaction acceptance from business review. A new `275` starts with `attachmentReviewStatus: Received`; reviewers can later call `POST /transactions/{id}/attachment-review` to mark the supporting documentation `Accepted` or `Rejected` without changing the original EDI transaction status.
 
-Attachments can include embedded `content` or reference an external document with `documentReferenceId` and `documentReferenceUrl`. External references are useful for PDF/image-sized artifacts; generated X12 records the pointer in `K3*Document-Reference` and omits `BIN` when no embedded content is supplied.
+Attachments can include embedded `content` or reference an external document with `documentReferenceId` and `documentReferenceUrl`. External references are useful for PDF/image-sized artifacts; generated X12 records the pointer in `K3*Document-Reference` and omits `BIN` when no embedded content is supplied. `GET /transactions/{id}/document-reference` resolves the vault receipt metadata for a `275` without server-side fetching arbitrary URLs, while `GET /transactions/{id}/document-reference/content` downloads embedded content when present.
 
 ASHN also supports multi-attachment packets. A packet is represented as multiple `275` transactions that share a `packetId`, with `packetSequence` and `packetCount` showing each document's position in the packet. JSON callers can post an `attachments[]` packet to the existing claim or authorization attachment endpoints, and XML callers can use `<AttachmentPacket packetId="...">` with repeated `<Attachment>` children. Raw X12 emits `REF*F8` with the packet identifier and sequence/count marker.
 
@@ -322,6 +322,5 @@ For the completed foundation and remaining implementation backlog, see [ASHN Fut
 Good next expansions include:
 
 - model `820` premium payment in the visible workflow
-- deepen document-vault retrieval for external `275` references
 - add optional raw X12 segment parsing or file-drop intake
 - add richer service-line and diagnosis mappings for claims

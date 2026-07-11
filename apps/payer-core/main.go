@@ -100,6 +100,8 @@ func main() {
 	mux.HandleFunc("POST /transactions", app.recordTransaction)
 	mux.HandleFunc("GET /transactions/{id}", app.getTransaction)
 	mux.HandleFunc("GET /transactions/{id}/export", app.exportTransaction)
+	mux.HandleFunc("GET /transactions/{id}/document-reference", app.getTransactionDocumentReference)
+	mux.HandleFunc("GET /transactions/{id}/document-reference/content", app.downloadTransactionDocumentContent)
 	mux.HandleFunc("POST /transactions/{id}/replay", app.replayTransaction)
 	mux.HandleFunc("POST /transactions/{id}/attachment-review", app.reviewAttachment)
 	mux.HandleFunc("GET /jobs", app.listJobs)
@@ -726,6 +728,105 @@ func (s *store) exportTransaction(w http.ResponseWriter, r *http.Request) {
 	default:
 		payload, _ := json.MarshalIndent(tx, "", "  ")
 		download(w, "application/json; charset=utf-8", fmt.Sprintf("ashn-%s-%s.json", tx.Type, tx.ID), payload)
+	}
+}
+
+func (s *store) getTransactionDocumentReference(w http.ResponseWriter, r *http.Request) {
+	reference, ok := s.documentReferenceForTransaction(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	respond(w, http.StatusOK, domain.Envelope{
+		Data: reference,
+		Lore: "The Society document vault resolved the 275 reference without fetching external scrolls.",
+	})
+}
+
+func (s *store) downloadTransactionDocumentContent(w http.ResponseWriter, r *http.Request) {
+	tx, reference, payload, ok := s.documentReferencePayload(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	content := strings.TrimSpace(fmt.Sprint(payload["content"]))
+	if content == "" {
+		fail(w, http.StatusNotFound, "document content unavailable", "This 275 points to an external vault reference; ASHN will not fetch arbitrary outside scrolls.")
+		return
+	}
+	contentType := reference.ContentType
+	if contentType == "" {
+		contentType = "text/plain"
+	}
+	filename := fmt.Sprintf("ashn-%s-document.txt", tx.ID)
+	download(w, contentType+"; charset=utf-8", filename, []byte(content))
+}
+
+func (s *store) documentReferenceForTransaction(w http.ResponseWriter, transactionID string) (domain.DocumentReference, bool) {
+	_, reference, _, ok := s.documentReferencePayload(w, transactionID)
+	return reference, ok
+}
+
+func (s *store) documentReferencePayload(w http.ResponseWriter, transactionID string) (domain.Transaction, domain.DocumentReference, map[string]any, bool) {
+	tx, ok := s.findTransaction(transactionID)
+	if !ok {
+		fail(w, http.StatusNotFound, "transaction not found", "The transaction rune is absent from the ledger.")
+		return domain.Transaction{}, domain.DocumentReference{}, nil, false
+	}
+	if tx.Type != domain.Tx275 {
+		fail(w, http.StatusBadRequest, "invalid attachment transaction", "Only 275 patient information runes can resolve document references.")
+		return domain.Transaction{}, domain.DocumentReference{}, nil, false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment payload", "The document vault could not read this 275 payload.")
+		return domain.Transaction{}, domain.DocumentReference{}, nil, false
+	}
+	reference := domain.DocumentReference{
+		TransactionID:              tx.ID,
+		ClaimID:                    payloadStringValue(payload, "claimId"),
+		AuthorizationTransactionID: payloadStringValue(payload, "authorizationTransactionId"),
+		AttachmentType:             payloadStringValue(payload, "attachmentType"),
+		AttachmentControlNumber:    payloadStringValue(payload, "attachmentControlNumber"),
+		ReportTypeCode:             payloadStringValue(payload, "reportTypeCode"),
+		ContentType:                payloadStringValue(payload, "contentType"),
+		Description:                payloadStringValue(payload, "description"),
+		DocumentReferenceID:        payloadStringValue(payload, "documentReferenceId"),
+		DocumentReferenceURL:       payloadStringValue(payload, "documentReferenceUrl"),
+		EmbeddedContentAvailable:   strings.TrimSpace(payloadStringValue(payload, "content")) != "",
+	}
+	if reference.DocumentReferenceID == "" && reference.DocumentReferenceURL == "" && !reference.EmbeddedContentAvailable {
+		fail(w, http.StatusNotFound, "document reference not found", "This 275 does not include a document reference or embedded document content.")
+		return domain.Transaction{}, domain.DocumentReference{}, nil, false
+	}
+	if reference.EmbeddedContentAvailable {
+		reference.RetrievalMode = "embedded"
+		reference.RetrievalStatus = "available"
+		reference.RetrievalInstructions = fmt.Sprintf("Download embedded content from /transactions/%s/document-reference/content.", tx.ID)
+	} else {
+		reference.RetrievalMode = externalReferenceMode(reference.DocumentReferenceURL)
+		reference.RetrievalStatus = "external-reference"
+		reference.RetrievalInstructions = "ASHN records the vault pointer for review; clients should retrieve it with their authorized document-vault credentials."
+	}
+	return tx, reference, payload, true
+}
+
+func payloadStringValue(payload map[string]any, key string) string {
+	value, ok := payload[key]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func externalReferenceMode(referenceURL string) string {
+	switch {
+	case strings.HasPrefix(referenceURL, "s3://"):
+		return "s3"
+	case strings.HasPrefix(referenceURL, "gs://"):
+		return "gcs"
+	case strings.HasPrefix(referenceURL, "https://"):
+		return "https"
+	default:
+		return "external"
 	}
 }
 
@@ -1638,6 +1739,12 @@ func payerOpenAPI() map[string]any {
 			},
 			"/transactions/{id}/export": {
 				"get": {Summary: "Export transaction as JSON, XML, or X12", Tags: []string{"transactions", "export"}},
+			},
+			"/transactions/{id}/document-reference": {
+				"get": {Summary: "Resolve 275 document reference metadata", Tags: []string{"transactions", "attachments"}},
+			},
+			"/transactions/{id}/document-reference/content": {
+				"get": {Summary: "Download embedded 275 document content", Tags: []string{"transactions", "attachments", "export"}},
 			},
 			"/transactions/{id}/replay": {
 				"post": {Summary: "Replay transaction", Tags: []string{"transactions", "replay"}},

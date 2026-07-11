@@ -10,7 +10,7 @@ This keeps `payer-core` focused on business state while giving us a clean place 
 
 ## Recommended Next Milestone
 
-Harden ASHN from a visible simulator into a stronger integration lab: API authentication, request/correlation IDs, structured logs, basic traces, migration/seed reset tests, rate limiting, and deeper document-vault behavior for external 275 references.
+Harden ASHN from a visible simulator into a stronger integration lab: API authentication, request/correlation IDs, structured logs, basic traces, migration/seed reset tests, rate limiting, and safe document-vault receipts for external 275 references.
 
 ## Priority Backlog
 
@@ -113,6 +113,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Allow `275` attachments to link to pending `278` prior authorization reviews.
 - [x] Add attachment review outcomes distinct from transaction acceptance.
 - [x] Support external document references for large PDFs/images instead of embedded `BIN` content.
+- [x] Add safe document-vault receipt endpoints for external `275` references and embedded content downloads.
 - [x] Support multi-attachment packets grouped under a claim or authorization.
 - [x] Move payer-specific `275` validation rules into trading partner profile data.
 - [x] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
@@ -189,11 +190,10 @@ Example `270` eligibility inquiry:
 3. Add structured logs that include transaction IDs, partner IDs, claim IDs, authorization IDs, and replay IDs.
 4. Add basic OpenTelemetry traces for intake, routing, queue processing, and replay.
 5. Add migration tests and seed-data reset tests for reliable demos.
-6. Deepen document-vault retrieval for external `275` references.
-7. Add optional raw X12 file-drop or segment parsing intake once the canonical XML/JSON path remains stable.
+6. Add optional raw X12 file-drop or segment parsing intake once the canonical XML/JSON path remains stable.
 
 ## Decision Summary
 
-ASHN uses canonical XML/JSON through the public gateway and a dedicated `edi-intake` service. The XML contract stays small, strongly validated, fully audited, and easy to demo. Accepted work flows into existing `payer-core` endpoints instead of bypassing business rules. The next frontier is operational hardening, document-vault realism, partner-specific variants, and optional raw X12 segment parsing.
+ASHN uses canonical XML/JSON through the public gateway and a dedicated `edi-intake` service. The XML contract stays small, strongly validated, fully audited, and easy to demo. Accepted work flows into existing `payer-core` endpoints instead of bypassing business rules. The next frontier is partner-specific variants, optional raw X12 segment parsing, and richer document-vault integrations.
 
 That path gets us closer to real enterprise EDI without burying the project in full X12 implementation complexity too early.

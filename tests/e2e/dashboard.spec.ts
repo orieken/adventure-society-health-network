@@ -292,6 +292,20 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(drawer.locator(".detail-item").filter({ hasText: "Document Ref" }).getByText("doc-e2e-275")).toBeVisible();
     await expect(drawer.locator(".detail-item").filter({ hasText: "Document URL" }).getByText("https://docs.example.test/doc-e2e-275.pdf")).toBeVisible();
 
+    const receiptResponse = page.waitForResponse((response) => response.url().includes("/v1/transactions/tx-e2e-275/document-reference"));
+    await drawer.getByRole("button", { name: /Inspect Vault Receipt/i }).click();
+    await receiptResponse;
+    await drawer.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latestEvent = page.locator(".event").first();
+    await expect(latestEvent.locator("p").filter({ hasText: "document vault resolved" })).toBeVisible();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("external-reference")).toBeVisible();
+    await expect(latestEvent.getByText("doc-e2e-275")).toBeVisible();
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    await page.getByLabel("Transaction type").selectOption("275");
+    await page.getByText("tx-e2e-275").click();
     await drawer.getByRole("button", { name: /Reject Attachment/i }).click();
     await expect(reviewRow.getByText("Rejected", { exact: true })).toBeVisible();
     await expect(drawer.locator(".detail-item").filter({ hasText: "Review Reason" }).getByText("Supporting documentation is insufficient for business review.")).toBeVisible();
@@ -651,6 +665,30 @@ async function mockDashboardApi(page: Page) {
             createdAt: "2026-07-09T15:00:00Z",
             updatedAt: "2026-07-09T15:02:00Z"
           }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/transactions/tx-e2e-275/document-reference") {
+      await route.fulfill({
+        json: {
+          data: {
+            transactionId: "tx-e2e-275",
+            claimId: "claim-e2e-275",
+            attachmentType: "OZ",
+            attachmentControlNumber: "ATTACH-E2E-275",
+            reportTypeCode: "B4",
+            contentType: "application/pdf",
+            description: "E2E vault document",
+            documentReferenceId: "doc-e2e-275",
+            documentReferenceUrl: "https://docs.example.test/doc-e2e-275.pdf",
+            embeddedContentAvailable: false,
+            retrievalMode: "https",
+            retrievalStatus: "external-reference",
+            retrievalInstructions: "Use authorized document-vault credentials."
+          },
+          lore: "The Society document vault resolved the 275 reference without fetching external scrolls."
         }
       });
       return;
