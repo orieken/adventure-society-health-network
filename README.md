@@ -24,7 +24,7 @@ Run DB-backed integration tests:
 make test-integration
 ```
 
-This target requires Docker to be running because it starts Postgres before executing the integration suite.
+This target requires Docker to be running because it starts Postgres before executing the integration suite. It applies the migration, verifies schema/seed reset behavior, runs the payer-core Postgres workflow, and exercises XML intake through the gateway/intake path.
 
 ## Run The Whole Stack
 
@@ -72,6 +72,8 @@ Every service echoes and propagates `X-Request-ID` and `X-Correlation-ID`. Clien
 Services also accept, emit, and propagate W3C `traceparent` and `tracestate` headers for basic OpenTelemetry-compatible trace context. Each service creates a local span ID, forwards trace context downstream, and includes `traceId`, `spanId`, and `parentSpanId` in structured request logs.
 
 Service logs are emitted as structured JSON events with stable fields such as `time`, `level`, `msg`, `service`, `requestId`, `correlationId`, transaction/job IDs, and relevant status/error details. This keeps local demos readable while making Render/Docker logs easier to filter.
+
+`make demo-reset` drops the local Postgres volume, starts a fresh database, reapplies `000001_init.up.sql`, and restores known seed data such as six providers and three trading partners.
 
 ## What It Exposes For Learning
 

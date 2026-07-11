@@ -86,7 +86,7 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, processed)
 	assertClaimStatus(t, db, claim.ID, domain.ClaimApproved)
-	assertClaimAdjudication(t, db, claim.ID, 100000, 85000, 15000, 25000, "")
+	assertClaimAdjudication(t, db, claim.ID, 106250, 97750, 8500, 18750, "")
 
 	payment := serveJSON(t, mux, http.MethodPost, "/claims/"+claim.ID+"/payment", domain.PaymentRequest{PaymentAmountCents: 100000})
 	require.Equal(t, http.StatusOK, payment.Code)
@@ -128,14 +128,14 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	var remittance map[string]any
 	require.NoError(t, json.Unmarshal(transactions[0].Payload, &remittance))
 	assert.Equal(t, float64(125000), remittance["billedAmountCents"])
-	assert.Equal(t, float64(100000), remittance["allowedAmountCents"])
-	assert.Equal(t, float64(85000), remittance["paymentAmountCents"])
-	assert.Equal(t, float64(15000), remittance["patientResponsibilityCents"])
-	assert.Equal(t, float64(25000), remittance["adjustmentAmountCents"])
+	assert.Equal(t, float64(106250), remittance["allowedAmountCents"])
+	assert.Equal(t, float64(97750), remittance["paymentAmountCents"])
+	assert.Equal(t, float64(8500), remittance["patientResponsibilityCents"])
+	assert.Equal(t, float64(18750), remittance["adjustmentAmountCents"])
 	assert.Contains(t, transactions[0].RawX12, "ISA*")
 	assert.Contains(t, transactions[0].RawX12, "ST*835")
 	assert.Contains(t, transactions[0].RawX12, "CLP*")
-	assert.Contains(t, transactions[0].RawX12, "*1250.00*850.00*150.00*")
+	assert.Contains(t, transactions[0].RawX12, "*1250.00*977.50*85.00*")
 	require.NotNil(t, transactionsEnvelope.Page)
 	assert.False(t, transactionsEnvelope.Page.HasMore)
 

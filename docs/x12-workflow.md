@@ -322,8 +322,7 @@ For the completed foundation and remaining implementation backlog, see [ASHN Fut
 Good next expansions include:
 
 - model `820` premium payment in the visible workflow
-- add API authentication, request IDs, structured logs, and traces
-- add migration tests and seed-data reset tests
+- add rate limiting for public/demo endpoints
 - deepen document-vault retrieval for external `275` references
 - add optional raw X12 segment parsing or file-drop intake
 - add richer service-line and diagnosis mappings for claims

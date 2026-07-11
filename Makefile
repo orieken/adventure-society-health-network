@@ -24,6 +24,7 @@ test:
 
 test-integration: db migrate
 	mkdir -p .gocache
+	ASHN_INTEGRATION=1 DATABASE_URL="postgres://ashn_user:ashn_password@localhost:5432/ashn?sslmode=disable" GOCACHE=$(PWD)/.gocache go test ./apps/migrate -run Integration -count=1 -v
 	ASHN_INTEGRATION=1 DATABASE_URL="postgres://ashn_user:ashn_password@localhost:5432/ashn?sslmode=disable" GOCACHE=$(PWD)/.gocache go test ./apps/payer-core -run Integration -count=1 -v
 	DATABASE_URL="postgres://ashn_user:ashn_password@localhost:5432/ashn?sslmode=disable" ./scripts/xml-intake-integration.sh
 
