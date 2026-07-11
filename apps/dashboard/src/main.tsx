@@ -206,6 +206,23 @@ const payloadTabs: { id: PayloadTab; label: string }[] = [
   { id: "xml", label: "XML" },
   { id: "x12", label: "X12" }
 ];
+const sampleRawX12 = [
+  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000777*0*T*:~",
+  "GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000777*X*005010X837P~",
+  "ST*837*000000777~",
+  "BHT*0019*00*000000777*20260708*1200*CH~",
+  "HL*1**20*1~",
+  "NM1*41*2*provider-vitesse-temple*****46*provider-vitesse-temple~",
+  "NM1*85*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+  "HL*2*1*22*0~",
+  "NM1*IL*1*adv-e2e-dashboard****MI*adv-e2e-dashboard~",
+  "CLM*claim-raw-demo*1250.00***11:B:1*Y*A*Y*I~",
+  "HI*ABK:S062X9A~",
+  "SV1*HC:ASHN1*1250.00*UN*1***1~",
+  "SE*12*000000777~",
+  "GE*1*000000777~",
+  "IEA*1*000000777~"
+].join("\n");
 const savedFiltersStorageKey = "ashn.savedFilters.v1";
 const initialPartnerForm: PartnerFormState = {
   id: "",
@@ -310,6 +327,7 @@ function App() {
   const [savedFilterName, setSavedFilterName] = useState("");
   const [selectedSavedFilterId, setSelectedSavedFilterId] = useState("");
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("json");
+  const [rawX12Draft, setRawX12Draft] = useState(sampleRawX12);
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -561,6 +579,22 @@ function App() {
     try {
       const result = await request<DocumentReference>(`/v1/transactions/${transaction.id}/document-reference`);
       pushEvent(result);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitRawX12(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await request(`/v1/x12/raw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/edi-x12" },
+        body: rawX12Draft
+      });
+      pushEvent(result);
+      await refresh(true);
     } finally {
       setBusy(false);
     }
@@ -1273,19 +1307,37 @@ function App() {
       )}
 
       {activeTab === "xml" && (
-      <section className="panel ledger">
-        <div className="ledger-title">
-          <h2>XML Intake Audits</h2>
-          <span className="muted">from edi-intake</span>
+      <section className="history-grid intake-grid">
+        <form className="panel raw-x12-panel" onSubmit={submitRawX12}>
+          <div className="ledger-title">
+            <div>
+              <h2>Raw X12 Intake</h2>
+              <p className="muted">Paste delimiter-based `837` or `275` text and map it into canonical ASHN workflow.</p>
+            </div>
+            <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>
+          </div>
+          <label>
+            Raw X12
+            <textarea value={rawX12Draft} onChange={(event) => setRawX12Draft(event.target.value)} rows={12} spellCheck={false} />
+          </label>
+          <div className="actions compact-actions">
+            <button type="submit" disabled={busy || !rawX12Draft.trim()}>Submit Raw X12</button>
+          </div>
+        </form>
+        <div className="panel ledger">
+          <div className="ledger-title">
+            <h2>XML / Raw Intake Audits</h2>
+            <span className="muted">from edi-intake</span>
+          </div>
+          {inboundMessages.length === 0 ? (
+            <p className="muted">No intake messages match the current filters.</p>
+          ) : (
+            inboundMessages.map((message) => (
+              <InboundMessageRow key={message.id} message={message} onSelect={openInboundMessageDetail} />
+            ))
+          )}
+          <Pager page={auditPage} onPrevious={() => setAuditOffset(Math.max(0, auditPage.offset - auditPage.limit))} onNext={() => setAuditOffset(auditPage.offset + auditPage.limit)} />
         </div>
-        {inboundMessages.length === 0 ? (
-          <p className="muted">No XML intake messages match the current filters.</p>
-        ) : (
-          inboundMessages.map((message) => (
-            <InboundMessageRow key={message.id} message={message} onSelect={openInboundMessageDetail} />
-          ))
-        )}
-        <Pager page={auditPage} onPrevious={() => setAuditOffset(Math.max(0, auditPage.offset - auditPage.limit))} onNext={() => setAuditOffset(auditPage.offset + auditPage.limit)} />
       </section>
       )}
 
@@ -1295,7 +1347,7 @@ function App() {
           <div className="ledger-title">
             <div>
               <p className="eyebrow">Selected Record</p>
-              <h2>{selectedTransaction ? "Transaction Detail" : selectedInboundMessage ? "XML Intake Detail" : "Claim Detail"}</h2>
+              <h2>{selectedTransaction ? "Transaction Detail" : selectedInboundMessage ? "Intake Detail" : "Claim Detail"}</h2>
             </div>
             <button className="secondary" onClick={closeDetail}>Close</button>
           </div>
@@ -1397,7 +1449,7 @@ function App() {
               <div className="detail-actions">
                 <button className="secondary" onClick={() => downloadFromPath(`/v1/x12/messages/${selectedInboundMessage.id}/export?format=xml`)}>Export XML</button>
                 <button className="secondary" onClick={() => downloadFromPath(`/v1/x12/messages/${selectedInboundMessage.id}/export?format=json`)}>Export JSON</button>
-                <button disabled={busy} onClick={() => replayInboundMessage(selectedInboundMessage.id)}>Replay XML</button>
+                <button disabled={busy} onClick={() => replayInboundMessage(selectedInboundMessage.id)}>Replay Intake</button>
               </div>
               <DetailItem label="Status" value={selectedInboundMessage.status} />
               <DetailItem label="Type" value={selectedInboundMessage.transactionType ?? "—"} />
@@ -1407,7 +1459,7 @@ function App() {
               <DetailItem label="ID" value={selectedInboundMessage.id} />
               {selectedInboundMessage.error && <DetailItem label="Error" value={selectedInboundMessage.error} />}
               <PayloadBlock
-                title="Raw XML"
+                title="Raw Intake Payload"
                 value={selectedInboundMessage.rawPayload}
                 onCopy={copyText}
               />

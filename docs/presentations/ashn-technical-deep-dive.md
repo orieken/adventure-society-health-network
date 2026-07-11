@@ -305,7 +305,7 @@ Recommended next build sequence:
 2. Add request IDs and correlation IDs across all services.
 3. Add structured logs and basic OpenTelemetry traces.
 4. Add migration tests and seed-data reset tests.
-5. Add optional raw X12 file-drop or segment parsing intake.
+5. Expand raw X12 coverage and add optional file-drop intake.
 6. Add richer partner-specific variants and service-line claim rules.
 
 **Talk track:**  

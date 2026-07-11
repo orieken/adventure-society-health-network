@@ -4,9 +4,9 @@ This backlog captures what ASHN already supports and the next useful build paths
 
 ## Current Foundation
 
-ASHN now has a working EDI intake boundary that accepts canonical XML and JSON payloads, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
+ASHN now has a working EDI intake boundary that accepts canonical XML/JSON payloads plus first-pass raw X12 `837`/`275`, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
 
-This keeps `payer-core` focused on business state while giving us a clean place to experiment with external data formats, trading partner rules, replay, and future raw X12 intake.
+This keeps `payer-core` focused on business state while giving us a clean place to experiment with external data formats, trading partner rules, replay, and broader raw X12 intake.
 
 ## Recommended Next Milestone
 
@@ -47,10 +47,10 @@ Why this deserves a new service:
 - XML and X12 parsing concerns are different from payer business logic.
 - External payload validation should not clutter `payer-core`.
 - It gives us a realistic integration boundary for partner submissions.
-- It can later support raw X12, XML, JSON, file drops, and async queues.
+- It supports XML, JSON, first-pass raw X12, and can later add file drops and async queues.
 - `payer-core` remains the source of truth for business rules, state transitions, transaction generation, and async jobs.
 
-Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. For ASHN, XML is a good next step because it is easier to inspect, validate, demo, and map into our domain model before we add raw X12 segment parsing.
+Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. ASHN now uses XML/JSON for readable canonical demos and a small raw X12 parser for `837` and `275` segment intake.
 
 ## XML Intake Architecture Decisions
 
@@ -190,10 +190,10 @@ Example `270` eligibility inquiry:
 3. Add structured logs that include transaction IDs, partner IDs, claim IDs, authorization IDs, and replay IDs.
 4. Add basic OpenTelemetry traces for intake, routing, queue processing, and replay.
 5. Add migration tests and seed-data reset tests for reliable demos.
-6. Add optional raw X12 file-drop or segment parsing intake once the canonical XML/JSON path remains stable.
+6. Expand raw X12 parsing beyond the current `837` and `275` subset and add optional file-drop intake.
 
 ## Decision Summary
 
-ASHN uses canonical XML/JSON through the public gateway and a dedicated `edi-intake` service. The XML contract stays small, strongly validated, fully audited, and easy to demo. Accepted work flows into existing `payer-core` endpoints instead of bypassing business rules. The next frontier is partner-specific variants, optional raw X12 segment parsing, and richer document-vault integrations.
+ASHN uses canonical XML/JSON plus first-pass raw X12 through the public gateway and a dedicated `edi-intake` service. The canonical contract stays small, strongly validated, fully audited, and easy to demo. Accepted work flows into existing `payer-core` endpoints instead of bypassing business rules. The next frontier is partner-specific variants, broader raw X12 coverage, and richer document-vault integrations.
 
 That path gets us closer to real enterprise EDI without burying the project in full X12 implementation complexity too early.

@@ -129,6 +129,87 @@ func TestAcceptTransactionRoutesCanonicalJSONClaimToPayerCore(t *testing.T) {
 	assert.Equal(t, "JSON claim submitted.", decodeEnvelope(t, response).Lore)
 }
 
+func TestAcceptRawX12RoutesClaimToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var claimRequest domain.ClaimRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&claimRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Data:        domain.Claim{ID: "claim-raw-1", AdventurerID: claimRequest.AdventurerID, ProviderID: claimRequest.ProviderID, Status: domain.ClaimSubmitted},
+				Lore:        "Raw X12 claim submitted.",
+				Transaction: &domain.Transaction{Type: domain.Tx837, Status: domain.TxStatusAccepted},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx837, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw837Fixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/claims", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "adv-raw-1", claimRequest.AdventurerID)
+	assert.Equal(t, "provider-vitesse-temple", claimRequest.ProviderID)
+	assert.Equal(t, domain.SeverityDiamond, claimRequest.IncidentSeverity)
+	assert.Equal(t, int64(125000), claimRequest.AmountCents)
+	assert.Equal(t, "Raw X12 claim submitted.", decodeEnvelope(t, response).Lore)
+}
+
+func TestAcceptRawX12RoutesAttachmentToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var attachmentRequest domain.AttachmentRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims/claim-raw-1/attachments":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&attachmentRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Lore:        "Raw X12 attachment accepted.",
+				Transaction: &domain.Transaction{Type: domain.Tx275, Status: domain.TxStatusAccepted, RelatedID: "claim-raw-1"},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx275, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw275Fixture()))
+	request.Header.Set("Content-Type", "text/plain")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/claims/claim-raw-1/attachments", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "OZ", attachmentRequest.AttachmentType)
+	assert.Equal(t, "ATTACH-RAW-1", attachmentRequest.AttachmentControlNumber)
+	assert.Equal(t, "B4", attachmentRequest.ReportTypeCode)
+	assert.Equal(t, "EL", attachmentRequest.TransmissionCode)
+	assert.Equal(t, "text/plain", attachmentRequest.ContentType)
+	assert.Equal(t, "Raw resurrection notes", attachmentRequest.Description)
+	assert.Equal(t, "Patient survived raw X12 dragonfire.", attachmentRequest.Content)
+}
+
 func TestAcceptXMLRoutesClaimStatusToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -365,6 +446,33 @@ func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
 	}
 }
 
+func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
+	claim, err := parseInboundRawX12([]byte(raw837Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "837", claim.Type)
+	assert.Equal(t, "provider-vitesse-temple", claim.Sender.ID)
+	require.NotNil(t, claim.Claim)
+	assert.Equal(t, "adv-raw-1", claim.Claim.AdventurerID)
+	assert.Equal(t, "125000", claim.Claim.AmountCents)
+
+	attachment, err := parseInboundRawX12([]byte(raw275Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "275", attachment.Type)
+	require.NotNil(t, attachment.Attachment)
+	assert.Equal(t, "claim-raw-1", attachment.Attachment.ClaimID)
+	assert.Equal(t, "ATTACH-RAW-1", attachment.Attachment.AttachmentControlNumber)
+}
+
+func TestInboundRawX12RejectsUnsupportedAndInvalidPayloads(t *testing.T) {
+	_, err := parseInboundRawX12([]byte(`ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000001*0*T*:~GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000001*X*005010X999A1~ST*999*000000001~SE*2*000000001~`))
+	require.Error(t, err)
+	assert.Equal(t, "raw X12 transaction type 999 not implemented", err.Error())
+
+	_, err = parseInboundRawX12([]byte(`ST*837*0001~NM1*IL*1*adv-raw-1****MI*adv-raw-1~`))
+	require.Error(t, err)
+	assert.Equal(t, "missing CLM claim segment", err.Error())
+}
+
 func acknowledgedTypeFromPayload(t *testing.T, payload json.RawMessage) domain.TransactionType {
 	t.Helper()
 	var body struct {
@@ -389,7 +497,7 @@ func TestAcceptXMLRejectsUnsupportedContentType(t *testing.T) {
 
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
-	request.Header.Set("Content-Type", "text/plain")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusUnsupportedMediaType, response.Code)
@@ -831,7 +939,7 @@ func TestForwardHandlesRequestCreationDownstreamAndRejectedResponses(t *testing.
 		return jsonResponse(http.StatusBadRequest, domain.ErrorEnvelope{Error: "bad request"})
 	})}}.forward(response, request, http.MethodPost, "/claims", map[string]string{"ok": "true"})
 	assert.Equal(t, http.StatusBadRequest, status)
-	assert.Equal(t, "payer-core rejected XML-derived request", message)
+	assert.Equal(t, "payer-core rejected intake-derived request", message)
 }
 
 func TestRecord999HandlesRejectedPersistenceResponse(t *testing.T) {
@@ -1008,6 +1116,7 @@ func TestEDIOpenAPIIncludesIntakeRoutes(t *testing.T) {
 	paths := spec["paths"].(map[string]any)
 	assert.Contains(t, paths, "/x12/transactions")
 	assert.Contains(t, paths, "/x12/xml")
+	assert.Contains(t, paths, "/x12/raw")
 	assert.Contains(t, paths, "/x12/messages/{id}/replay")
 	assert.Contains(t, paths, "/x12/trading-partners")
 }
@@ -1017,6 +1126,7 @@ func newIntakeTestMux(app intakeApp) http.Handler {
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/transactions", app.acceptTransaction)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
+	mux.HandleFunc("POST /x12/raw", app.acceptTransaction)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
 	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
@@ -1069,4 +1179,49 @@ func newIntakeMockDBWithPing(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {
 
 func messageRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "partner_id", "content_type", "transaction_type", "raw_payload", "status", "error", "downstream_status", "created_at"})
+}
+
+func raw837Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000001*0*T*:~",
+		"GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000001*X*005010X837P~",
+		"ST*837*000000001~",
+		"BHT*0019*00*000000001*20260708*1200*CH~",
+		"HL*1**20*1~",
+		"NM1*41*2*provider-vitesse-temple*****46*provider-vitesse-temple~",
+		"NM1*85*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+		"HL*2*1*22*0~",
+		"NM1*IL*1*adv-raw-1****MI*adv-raw-1~",
+		"CLM*claim-raw-1*1250.00***11:B:1*Y*A*Y*I~",
+		"HI*ABK:S062X9A~",
+		"SV1*HC:ASHN1*1250.00*UN*1***1~",
+		"SE*12*000000001~",
+		"GE*1*000000001~",
+		"IEA*1*000000001~",
+	}, "\n")
+}
+
+func raw275Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000002*0*T*:~",
+		"GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000002*X*005010X275A1~",
+		"ST*275*000000002~",
+		"BHT*0019*00*000000002*20260708*1200*CH~",
+		"TRN*1*tx-raw-275*provider-vitesse-temple~",
+		"HL*1**20*1~",
+		"NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+		"HL*2*1*22*0~",
+		"NM1*IL*1*adv-raw-1****MI*adv-raw-1~",
+		"REF*1K*claim-raw-1~",
+		"REF*6R*ATTACH-RAW-1~",
+		"REF*F8*packet-raw-1-OF-1~",
+		"PWK*B4*EL***AC*ATTACH-RAW-1~",
+		"LQ*AT*OZ~",
+		"K3*Content-Type: text/plain~",
+		"NTE*ADD*Raw resurrection notes~",
+		"BIN*38*Patient survived raw X12 dragonfire.~",
+		"SE*18*000000002~",
+		"GE*1*000000002~",
+		"IEA*1*000000002~",
+	}, "\n")
 }

@@ -101,6 +101,8 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.proxy(w, r, g.ediURL, path)
 	case path == "/x12/xml" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.ediURL, path)
+	case path == "/x12/raw" && r.Method == http.MethodPost:
+		g.proxy(w, r, g.ediURL, path)
 	case path == "/x12/messages" && r.Method == http.MethodGet:
 		g.proxy(w, r, g.ediURL, path)
 	case strings.HasPrefix(path, "/x12/messages/") && (r.Method == http.MethodGet || r.Method == http.MethodPost):
@@ -348,6 +350,7 @@ func apiGatewayOpenAPI() map[string]any {
 			"/v1/jobs/{id}/replay":         {"post": {Summary: "Replay a dead-lettered async job", Tags: []string{"async jobs", "replay"}}},
 			"/v1/x12/transactions":         {"post": {Summary: "Accept canonical ASHN transaction intake as XML or JSON", Tags: []string{"intake", "x12"}, RequestBody: true}},
 			"/v1/x12/xml":                  {"post": {Summary: "Accept XML intake compatibility route", Tags: []string{"xml", "x12"}, RequestBody: true}},
+			"/v1/x12/raw":                  {"post": {Summary: "Accept raw delimiter-based X12 intake", Tags: []string{"raw x12", "x12"}, RequestBody: true}},
 			"/v1/x12/messages":             {"get": {Summary: "List XML intake audits", Tags: []string{"xml"}}},
 			"/v1/x12/messages/{id}/export": {"get": {Summary: "Export XML intake audit", Tags: []string{"xml", "export"}}},
 			"/v1/x12/messages/{id}/replay": {"post": {Summary: "Replay XML intake", Tags: []string{"xml", "replay"}}},

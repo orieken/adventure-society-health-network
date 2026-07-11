@@ -173,9 +173,15 @@ func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
 	jsonRequest.Header.Set("Content-Type", "application/json")
 	handler.ServeHTTP(jsonResponseRecorder, jsonRequest)
 
+	rawResponseRecorder := httptest.NewRecorder()
+	rawRequest := httptest.NewRequest(http.MethodPost, "/v1/x12/raw", strings.NewReader(`ST*837*0001~SE*2*0001~`))
+	rawRequest.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(rawResponseRecorder, rawRequest)
+
 	assert.Equal(t, http.StatusCreated, jsonResponseRecorder.Code)
-	assert.Equal(t, []string{"/x12/xml", "/x12/transactions"}, downstreamPaths)
-	assert.Equal(t, []string{"application/xml", "application/json"}, downstreamContentTypes)
+	assert.Equal(t, http.StatusCreated, rawResponseRecorder.Code)
+	assert.Equal(t, []string{"/x12/xml", "/x12/transactions", "/x12/raw"}, downstreamPaths)
+	assert.Equal(t, []string{"application/xml", "application/json", "application/edi-x12"}, downstreamContentTypes)
 }
 
 func TestGatewayPropagatesRequestAndCorrelationIDs(t *testing.T) {
@@ -653,6 +659,7 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	paths := spec["paths"].(map[string]any)
 	assert.Contains(t, paths, "/v1/health")
 	assert.Contains(t, paths, "/v1/x12/xml")
+	assert.Contains(t, paths, "/v1/x12/raw")
 	assert.Contains(t, paths, "/v1/transactions/{id}/export")
 	assert.Contains(t, paths, "/v1/transactions/{id}/document-reference")
 	components := spec["components"].(map[string]any)

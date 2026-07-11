@@ -114,6 +114,14 @@ h2 {
   margin-top: 24px;
 }
 
+.intake-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+}
+
+.raw-x12-panel {
+  align-content: start;
+}
+
 .partner-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -370,7 +378,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 14px;
@@ -379,6 +388,14 @@ select {
   font: inherit;
   padding: 12px 14px;
   outline: none;
+}
+
+textarea {
+  min-height: 260px;
+  resize: vertical;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  line-height: 1.45;
+  text-transform: none;
 }
 
 option {

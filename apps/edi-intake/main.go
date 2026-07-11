@@ -123,6 +123,7 @@ func main() {
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("POST /x12/transactions", app.acceptTransaction)
 	mux.HandleFunc("POST /x12/xml", app.acceptTransaction)
+	mux.HandleFunc("POST /x12/raw", app.acceptTransaction)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
 	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
@@ -150,7 +151,7 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, errUnsupportedContentType) {
 		messageID := a.auditInboundMessage(contentType, "", "", rawPayload, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
 		a.record999(r, messageID, "", "", false, "unsupported content type")
-		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe accepts canonical ASHN XML or JSON scrolls.")
+		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe accepts canonical ASHN XML, JSON, or raw X12 scrolls.")
 		return
 	}
 	if err != nil {
@@ -206,6 +207,8 @@ func parseInboundPayload(contentType string, body []byte) (inboundTransaction, e
 		return parseInboundXML(body)
 	case isJSONContent(contentType):
 		return parseInboundJSON(body)
+	case isRawX12Content(contentType):
+		return parseInboundRawX12(body)
 	default:
 		return inboundTransaction{}, errUnsupportedContentType
 	}
@@ -239,12 +242,256 @@ func parseInboundJSON(body []byte) (inboundTransaction, error) {
 	return inbound, nil
 }
 
+func parseInboundRawX12(body []byte) (inboundTransaction, error) {
+	segments := parseRawX12Segments(string(body))
+	if len(segments) == 0 {
+		return inboundTransaction{}, fmt.Errorf("missing X12 segments")
+	}
+	segmentMap := map[string][][]string{}
+	for _, segment := range segments {
+		if len(segment) == 0 {
+			continue
+		}
+		segmentMap[segment[0]] = append(segmentMap[segment[0]], segment)
+	}
+	st := firstRawSegment(segmentMap, "ST")
+	if len(st) < 2 || strings.TrimSpace(st[1]) == "" {
+		return inboundTransaction{}, fmt.Errorf("missing ST transaction set")
+	}
+	inbound := inboundTransaction{
+		Type:     strings.TrimSpace(st[1]),
+		Sender:   party{ID: rawSenderID(segmentMap)},
+		Receiver: party{ID: rawReceiverID(segmentMap)},
+	}
+	switch domain.TransactionType(inbound.Type) {
+	case domain.Tx837:
+		claim, err := raw837Claim(segmentMap, inbound.Sender.ID)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.Claim = &claim
+	case domain.Tx275:
+		attachment, err := raw275Attachment(segmentMap, inbound.Sender.ID)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.Attachment = &attachment
+	default:
+		return inbound, fmt.Errorf("raw X12 transaction type %s not implemented", inbound.Type)
+	}
+	return inbound, nil
+}
+
+func parseRawX12Segments(raw string) [][]string {
+	parts := strings.Split(raw, "~")
+	segments := make([][]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.ReplaceAll(part, "\n", ""))
+		if part == "" {
+			continue
+		}
+		elements := strings.Split(part, "*")
+		for index := range elements {
+			elements[index] = strings.TrimSpace(elements[index])
+		}
+		segments = append(segments, elements)
+	}
+	return segments
+}
+
+func firstRawSegment(segmentMap map[string][][]string, id string) []string {
+	segments := segmentMap[id]
+	if len(segments) == 0 {
+		return nil
+	}
+	return segments[0]
+}
+
+func rawSenderID(segmentMap map[string][][]string) string {
+	if gs := firstRawSegment(segmentMap, "GS"); len(gs) > 2 {
+		return strings.TrimSpace(gs[2])
+	}
+	if isa := firstRawSegment(segmentMap, "ISA"); len(isa) > 6 {
+		return strings.TrimSpace(isa[6])
+	}
+	return ""
+}
+
+func rawReceiverID(segmentMap map[string][][]string) string {
+	if gs := firstRawSegment(segmentMap, "GS"); len(gs) > 3 {
+		return strings.TrimSpace(gs[3])
+	}
+	if isa := firstRawSegment(segmentMap, "ISA"); len(isa) > 8 {
+		return strings.TrimSpace(isa[8])
+	}
+	return ""
+}
+
+func raw837Claim(segmentMap map[string][][]string, senderID string) (xmlClaim, error) {
+	clm := firstRawSegment(segmentMap, "CLM")
+	if len(clm) < 3 {
+		return xmlClaim{}, fmt.Errorf("missing CLM claim segment")
+	}
+	claim := xmlClaim{
+		ProviderID:       firstNonEmpty(rawNM1ID(segmentMap, "85"), rawNM1ID(segmentMap, "41"), senderID),
+		AdventurerID:     rawNM1ID(segmentMap, "IL"),
+		IncidentSeverity: rawSeverity(segmentMap),
+		AmountCents:      rawAmountCents(clm[2]),
+	}
+	if claim.AdventurerID == "" {
+		return xmlClaim{}, fmt.Errorf("missing subscriber NM1 segment")
+	}
+	if claim.ProviderID == "" {
+		return xmlClaim{}, fmt.Errorf("missing provider NM1 segment")
+	}
+	if claim.AmountCents == "" {
+		return xmlClaim{}, fmt.Errorf("invalid CLM amount")
+	}
+	if claim.IncidentSeverity == "" {
+		claim.IncidentSeverity = string(domain.SeverityNormal)
+	}
+	return claim, nil
+}
+
+func raw275Attachment(segmentMap map[string][][]string, senderID string) (xmlAttachment, error) {
+	attachment := xmlAttachment{
+		ProviderID:       firstNonEmpty(rawNM1ID(segmentMap, "1P"), senderID),
+		ContentType:      "text/plain",
+		Description:      "Raw X12 patient information attachment",
+		TransmissionCode: "EL",
+	}
+	for _, ref := range segmentMap["REF"] {
+		if len(ref) < 3 {
+			continue
+		}
+		switch strings.TrimSpace(ref[1]) {
+		case "1K":
+			attachment.ClaimID = strings.TrimSpace(ref[2])
+		case "G1":
+			attachment.AuthorizationTransactionID = strings.TrimSpace(ref[2])
+		case "6R":
+			if attachment.AttachmentControlNumber == "" {
+				attachment.AttachmentControlNumber = strings.TrimSpace(ref[2])
+			}
+		case "F8":
+			attachment.PacketID, attachment.PacketSequence, attachment.PacketCount = rawPacketReference(ref[2])
+		}
+	}
+	if pwk := firstRawSegment(segmentMap, "PWK"); len(pwk) > 2 {
+		attachment.ReportTypeCode = strings.TrimSpace(pwk[1])
+		attachment.TransmissionCode = strings.TrimSpace(pwk[2])
+		if len(pwk) > 6 && attachment.AttachmentControlNumber == "" {
+			attachment.AttachmentControlNumber = strings.TrimSpace(pwk[6])
+		}
+	}
+	if lq := firstRawSegment(segmentMap, "LQ"); len(lq) > 2 {
+		attachment.AttachmentType = strings.TrimSpace(lq[2])
+	}
+	if nte := firstRawSegment(segmentMap, "NTE"); len(nte) > 2 {
+		attachment.Description = strings.TrimSpace(nte[2])
+	}
+	if k3 := firstRawSegment(segmentMap, "K3"); len(k3) > 1 {
+		applyRawK3(&attachment, k3[1])
+	}
+	if bin := firstRawSegment(segmentMap, "BIN"); len(bin) > 2 {
+		attachment.Content = strings.TrimSpace(bin[2])
+	}
+	if attachment.DocumentReferenceURL == "" && attachment.Content == "" {
+		attachment.Content = "Raw X12 attachment metadata only."
+	}
+	if attachment.ProviderID == "" {
+		return xmlAttachment{}, fmt.Errorf("missing provider NM1 segment")
+	}
+	return attachment, nil
+}
+
+func rawNM1ID(segmentMap map[string][][]string, entityCode string) string {
+	for _, nm1 := range segmentMap["NM1"] {
+		if len(nm1) < 4 || !strings.EqualFold(nm1[1], entityCode) {
+			continue
+		}
+		if len(nm1) > 9 && strings.TrimSpace(nm1[9]) != "" {
+			return strings.TrimSpace(nm1[9])
+		}
+		return strings.TrimSpace(nm1[3])
+	}
+	return ""
+}
+
+func rawSeverity(segmentMap map[string][][]string) string {
+	for _, hi := range segmentMap["HI"] {
+		for _, element := range hi[1:] {
+			parts := strings.SplitN(element, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			switch strings.TrimSpace(parts[1]) {
+			case "S610":
+				return string(domain.SeverityNormal)
+			case "T509":
+				return string(domain.SeverityAwakened)
+			case "S062X9A":
+				return string(domain.SeverityDiamond)
+			}
+		}
+	}
+	return string(domain.SeverityNormal)
+}
+
+func rawAmountCents(value string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return ""
+	}
+	if strings.Contains(normalized, ".") {
+		amount, err := strconv.ParseFloat(normalized, 64)
+		if err != nil || amount <= 0 {
+			return ""
+		}
+		return strconv.FormatInt(int64(amount*100+0.5), 10)
+	}
+	amount, err := strconv.ParseInt(normalized, 10, 64)
+	if err != nil || amount <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(amount*100, 10)
+}
+
+func rawPacketReference(value string) (string, int, int) {
+	value = strings.TrimSpace(value)
+	parts := strings.Split(value, "-")
+	if len(parts) >= 4 && strings.EqualFold(parts[len(parts)-2], "OF") {
+		sequence, _ := strconv.Atoi(parts[len(parts)-3])
+		count, _ := strconv.Atoi(parts[len(parts)-1])
+		return strings.Join(parts[:len(parts)-3], "-"), sequence, count
+	}
+	return value, 0, 0
+}
+
+func applyRawK3(attachment *xmlAttachment, value string) {
+	value = strings.TrimSpace(value)
+	switch {
+	case strings.HasPrefix(value, "Document-Reference:"):
+		reference := strings.TrimSpace(strings.TrimPrefix(value, "Document-Reference:"))
+		if strings.HasPrefix(reference, "https://") || strings.HasPrefix(reference, "s3://") || strings.HasPrefix(reference, "gs://") {
+			attachment.DocumentReferenceURL = reference
+		} else {
+			attachment.DocumentReferenceID = reference
+		}
+	case strings.HasPrefix(value, "Content-Type:"):
+		attachment.ContentType = strings.TrimSpace(strings.TrimPrefix(value, "Content-Type:"))
+	}
+}
+
 func invalidPayloadError(contentType string) string {
 	if isXMLContent(contentType) {
 		return "invalid xml"
 	}
 	if isJSONContent(contentType) {
 		return "invalid json"
+	}
+	if isRawX12Content(contentType) {
+		return "invalid raw x12"
 	}
 	return "invalid payload"
 }
@@ -517,7 +764,7 @@ func (a intakeApp) forward(w http.ResponseWriter, inbound *http.Request, method,
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 	if resp.StatusCode >= 400 {
-		return resp.StatusCode, "payer-core rejected XML-derived request"
+		return resp.StatusCode, "payer-core rejected intake-derived request"
 	}
 	return resp.StatusCode, ""
 }
@@ -1087,6 +1334,11 @@ func isJSONContent(contentType string) bool {
 	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 }
 
+func isRawX12Content(contentType string) bool {
+	mediaType := mediaType(contentType)
+	return mediaType == "text/plain" || mediaType == "application/edi-x12" || mediaType == "application/x12"
+}
+
 func mediaType(contentType string) string {
 	return strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 }
@@ -1224,6 +1476,9 @@ func ediOpenAPI() map[string]any {
 			},
 			"/x12/xml": {
 				"post": {Summary: "Accept XML transaction intake compatibility route", Tags: []string{"xml", "x12"}, RequestBody: true},
+			},
+			"/x12/raw": {
+				"post": {Summary: "Accept raw delimiter-based X12 intake", Tags: []string{"raw x12", "x12"}, RequestBody: true},
 			},
 			"/x12/messages": {
 				"get": {Summary: "List XML intake audit messages", Tags: []string{"xml", "audit"}},

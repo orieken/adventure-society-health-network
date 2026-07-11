@@ -66,8 +66,8 @@ ASHN is a working local system:
 
 - Go services for gateway, payer, provider, and EDI intake
 - Postgres-backed transaction ledger and inbound XML audit
-- XML intake that maps external submissions into payer workflows
-- Raw X12 generation, display, copy, and download
+- XML/JSON/raw X12 intake that maps external submissions into payer workflows
+- Raw X12 generation, parsing, display, copy, and download
 - Dashboard filtering, pagination, and detail views
 - Unit and DB-backed integration tests
 
@@ -113,4 +113,4 @@ The dashboard shows every event in the ledger, including 275 documentation packe
 It combines a memorable metaphor, a real service architecture, and a searchable transaction ledger so teams can see how payer, provider, claim, acknowledgment, and payment workflows fit together.
 
 **Talk track:**  
-Our next step is to expand the integration lab with richer partner variants, optional raw X12 intake, and deeper claim/service-line realism.
+Our next step is to expand the integration lab with richer partner variants, broader raw X12 coverage, and deeper claim/service-line realism.

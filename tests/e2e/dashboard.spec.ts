@@ -124,6 +124,24 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByLabel("Saved filters")).not.toContainText("Accepted 275s");
   });
 
+  test("submits raw X12 intake from the XML tab", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await expect(page.getByRole("heading", { name: /Raw X12 Intake/i })).toBeVisible();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*837");
+
+    const rawResponse = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await rawResponse;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latestEvent = page.locator(".event").first();
+    await expect(latestEvent.locator("p").filter({ hasText: "Raw X12 claim submitted." })).toBeVisible();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("tx-e2e-raw-837")).toBeVisible();
+  });
+
   test("exports the loaded transaction ledger to CSV", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -689,6 +707,23 @@ async function mockDashboardApi(page: Page) {
             retrievalInstructions: "Use authorized document-vault credentials."
           },
           lore: "The Society document vault resolved the 275 reference without fetching external scrolls."
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/x12/raw") {
+      expect(route.request().headers()["content-type"]).toContain("application/edi-x12");
+      await route.fulfill({
+        status: 201,
+        json: {
+          data: { id: "claim-e2e-raw", status: "Submitted" },
+          lore: "Raw X12 claim submitted.",
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.type === "837"),
+            id: "tx-e2e-raw-837",
+            payload: { x12: "837 raw dashboard intake fixture", claimId: "claim-e2e-raw" }
+          }
         }
       });
       return;

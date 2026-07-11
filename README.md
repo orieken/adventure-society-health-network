@@ -1,6 +1,6 @@
 # ASHN — Adventure Society Health Network
 
-ASHN is a lore-themed healthcare EDI simulator that makes X12-style payer/provider workflows visible. It now supports JSON/XML intake, trading partner validation, raw X12 generation, acknowledgments, async authorization/adjudication jobs, claim and prior-auth attachments, 275 document-vault receipts, export/replay tools, and a dashboard for learning how the transaction chain fits together.
+ASHN is a lore-themed healthcare EDI simulator that makes X12-style payer/provider workflows visible. It now supports JSON/XML/raw X12 intake, trading partner validation, raw X12 generation, acknowledgments, async authorization/adjudication jobs, claim and prior-auth attachments, 275 document-vault receipts, export/replay tools, and a dashboard for learning how the transaction chain fits together.
 
 Docs:
 
@@ -24,7 +24,7 @@ Run DB-backed integration tests:
 make test-integration
 ```
 
-This target requires Docker to be running because it starts Postgres before executing the integration suite. It applies the migration, verifies schema/seed reset behavior, runs the payer-core Postgres workflow, and exercises XML intake through the gateway/intake path.
+This target requires Docker to be running because it starts Postgres before executing the integration suite. It applies the migration, verifies schema/seed reset behavior, runs the payer-core Postgres workflow, and exercises intake through the gateway/intake path.
 
 ## Run The Whole Stack
 
@@ -60,10 +60,10 @@ The stack also starts `tx-worker`, which asynchronously reviews queued `278` aut
 
 Service logs are written under `.dev/logs/` while `make dev-stack` is running.
 
-The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSON intake is available through the gateway at `POST /v1/x12/transactions`, with `POST /v1/x12/xml` kept as the XML compatibility route.
+The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSON intake is available through the gateway at `POST /v1/x12/transactions`, `POST /v1/x12/xml` is kept as the XML compatibility route, and `POST /v1/x12/raw` accepts first-pass raw X12 `837`/`275` text.
 Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`.
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
-XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
+Intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
 
 API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-separated list of accepted keys; protected `/v1` routes then accept either `Authorization: Bearer <key>` or `X-ASHN-API-Key: <key>`. `GET /v1/health` stays public for health checks. If the dashboard talks to an authenticated gateway, set `VITE_ASHN_API_KEY` to the same demo key at build/runtime.
 

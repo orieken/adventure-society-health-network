@@ -8,7 +8,7 @@ This guide shows the workflows currently supported by Adventure Society Health N
 flowchart LR
     Dashboard["Dashboard / Demo Operator"] --> Gateway["api-gateway"]
     CLI["ashn-cli"] --> Gateway
-    Partner["Trading Partner XML"] --> Gateway
+    Partner["Trading Partner XML / Raw X12"] --> Gateway
 
     Gateway --> Payer["payer-core"]
     Gateway --> Intake["edi-intake"]
@@ -16,7 +16,7 @@ flowchart LR
 
     Intake --> Payer
     Payer --> Ledger[("Postgres Ledger")]
-    Intake --> Audit[("Inbound XML Audit")]
+    Intake --> Audit[("Inbound Intake Audit")]
     Worker["tx-worker"] --> Ledger
 
     Ledger --> Dashboard
@@ -32,11 +32,11 @@ ASHN supports both **business-state APIs** and an **EDI-style transaction ledger
 | Enrollment | `834` | `POST /v1/adventurers`, XML `834` | Workflow card, ledger, timeline | Creates adventurer and enrollment transaction. |
 | Eligibility | `270 → 271` | `POST /v1/eligibility`, XML `270` | Workflow card, ledger, timeline | Returns active/inactive coverage. |
 | Prior authorization | `278 → 275` | `POST /v1/auth-requests`, `POST /v1/auth-requests/{id}/attachments`, `POST /v1/auth-requests/{id}/decision`, XML `278`, XML `275` | Workflow card, manual review widget, ledger, timeline | Starts pending; supporting 275 documentation can attach before manual/worker decision. |
-| Claim submission | `837 → 277CA` | `POST /v1/claims`, XML `837` | Workflow card, claims panel, ledger, timeline | Emits claim and claim acknowledgment. |
-| Claim attachment | `277 → 275` | `POST /v1/claims/{id}/documentation-request`, `POST /v1/claims/{id}/attachments`, XML `275` | Claim detail action, ledger, timeline attachment label, raw X12 detail | Payer can request documentation; 275 clears the hold. |
+| Claim submission | `837 → 277CA` | `POST /v1/claims`, XML `837`, raw X12 `837` | Workflow card, claims panel, ledger, timeline | Emits claim and claim acknowledgment. |
+| Claim attachment | `277 → 275` | `POST /v1/claims/{id}/documentation-request`, `POST /v1/claims/{id}/attachments`, XML `275`, raw X12 `275` | Claim detail action, ledger, timeline attachment label, raw X12 detail | Payer can request documentation; 275 clears the hold. |
 | Claim status | `276 → 277` | `GET /v1/claims/{id}/status`, XML `276` | Ledger, timeline | Creates request/response status pair. |
 | Payment/remittance | `835` | `POST /v1/claims/{id}/payment`, XML `835` | Workflow card, claims panel, ledger, detail drawer | Includes allowed, paid, adjustment, denial fields. |
-| XML intake audit | `999` plus routed transaction | `POST /v1/x12/xml` | XML Intake tab, export/replay | Accepted/rejected XML submissions create audit records and acknowledgments. |
+| Intake audit | `999` plus routed transaction | `POST /v1/x12/xml`, `POST /v1/x12/transactions`, `POST /v1/x12/raw` | XML Intake tab, raw X12 form, export/replay | Accepted/rejected XML, JSON, and raw X12 submissions create audit records and acknowledgments. |
 | Trading partner management | Routing profiles | `GET/POST/PUT/DELETE /v1/x12/trading-partners` | Partners tab create/update/delete form | Manages sender/receiver IDs, allowed X12 types, status, and route target. |
 | Export/replay | JSON/XML/X12 exports | `/export`, `/replay` endpoints | Detail drawer buttons | Supports demo reset, replay, and artifact inspection. |
 

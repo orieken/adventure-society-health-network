@@ -135,6 +135,8 @@ In ASHN, the claim includes:
 
 The mock payload also adds a severity description so the fantasy event maps back to the claim type: normal wounds, awakened-tier injuries, or diamond-tier catastrophic cases.
 
+Raw delimiter-based `837` intake is available at `POST /v1/x12/raw` with `Content-Type: application/edi-x12` or `text/plain`. The first parser pass reads ASHN-style envelope segments (`ISA`, `GS`, `ST`, `SE`, `GE`, `IEA`), detects the transaction type from `ST01`, extracts claim data from `NM1`, `CLM`, and `HI`, audits the original raw payload, emits a `999`, and forwards the canonical claim request to `payer-core`.
+
 ### 5. Patient Information Attachments: `275`
 
 Some claims and prior authorization requests need extra supporting documentation. ASHN models this with a `275 Patient Information` transaction linked back to either the claim's original `837` transaction or the prior authorization `278` transaction through `relatedId`.
@@ -148,6 +150,8 @@ ASHN also separates transaction acceptance from business review. A new `275` sta
 Attachments can include embedded `content` or reference an external document with `documentReferenceId` and `documentReferenceUrl`. External references are useful for PDF/image-sized artifacts; generated X12 records the pointer in `K3*Document-Reference` and omits `BIN` when no embedded content is supplied. `GET /transactions/{id}/document-reference` resolves the vault receipt metadata for a `275` without server-side fetching arbitrary URLs, while `GET /transactions/{id}/document-reference/content` downloads embedded content when present.
 
 ASHN also supports multi-attachment packets. A packet is represented as multiple `275` transactions that share a `packetId`, with `packetSequence` and `packetCount` showing each document's position in the packet. JSON callers can post an `attachments[]` packet to the existing claim or authorization attachment endpoints, and XML callers can use `<AttachmentPacket packetId="...">` with repeated `<Attachment>` children. Raw X12 emits `REF*F8` with the packet identifier and sequence/count marker.
+
+Raw delimiter-based `275` intake is also supported at `POST /v1/x12/raw`. The parser extracts claim/auth correlation from `REF*1K` or `REF*G1`, attachment control from `REF*6R`/`PWK`, packet metadata from `REF*F8`, attachment type from `LQ*AT`, document references from `K3`, notes from `NTE`, and embedded content from `BIN`.
 
 In ASHN, a provider can submit:
 
@@ -322,5 +326,5 @@ For the completed foundation and remaining implementation backlog, see [ASHN Fut
 Good next expansions include:
 
 - model `820` premium payment in the visible workflow
-- add optional raw X12 segment parsing or file-drop intake
+- expand raw X12 parsing beyond the current `837` and `275` subset
 - add richer service-line and diagnosis mappings for claims

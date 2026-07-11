@@ -266,6 +266,36 @@ test.describe("ASHN mutating demo contracts", () => {
     });
     expect(xmlIntake.status()).toBe(201);
 
+    const rawControl = String(Date.now()).slice(-9).padStart(9, "0");
+    const rawClaimId = `claim-raw-${rawControl}`;
+    const rawX12 = [
+      `ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*${rawControl}*0*T*:~`,
+      `GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*${rawControl}*X*005010X837P~`,
+      `ST*837*${rawControl}~`,
+      `BHT*0019*00*${rawControl}*20260708*1200*CH~`,
+      "HL*1**20*1~",
+      "NM1*41*2*provider-vitesse-temple*****46*provider-vitesse-temple~",
+      "NM1*85*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+      "HL*2*1*22*0~",
+      `NM1*IL*1*${enrolled.data?.id}****MI*${enrolled.data?.id}~`,
+      `CLM*${rawClaimId}*1250.00***11:B:1*Y*A*Y*I~`,
+      "HI*ABK:S062X9A~",
+      "SV1*HC:ASHN1*1250.00*UN*1***1~",
+      `SE*12*${rawControl}~`,
+      `GE*1*${rawControl}~`,
+      `IEA*1*${rawControl}~`
+    ].join("\n");
+    const rawIntake = await request.post(`${serviceUrls.apiGateway}/v1/x12/raw`, {
+      headers: {
+        "Content-Type": "application/edi-x12"
+      },
+      data: rawX12
+    });
+    expect(rawIntake.status()).toBe(201);
+    const rawEnvelope = (await rawIntake.json()) as Envelope<{ id: string }>;
+    expect(rawEnvelope.transaction?.type).toBe("837");
+    expect(rawEnvelope.data?.id).toBeTruthy();
+
     const ledger = await request.get(`${serviceUrls.apiGateway}/v1/transactions?limit=5&type=837`);
     expect(ledger.ok()).toBeTruthy();
 
