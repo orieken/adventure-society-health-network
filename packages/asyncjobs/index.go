@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
+	"ashn/packages/ashnlog"
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
 )
@@ -125,10 +125,10 @@ func ProcessDue(db *sql.DB, limit int) (int, error) {
 		}
 		if err := processJob(db, job); err != nil {
 			markFailed(db, job, err)
-			log.Printf("[ASHN] async job failed id=%s type=%s entity=%s err=%v", job.ID, job.Type, job.EntityID, err)
+			ashnlog.Error("async_job_failed", err, "jobId", job.ID, "jobType", job.Type, "entityId", job.EntityID)
 		} else {
 			markCompleted(db, job)
-			log.Printf("[ASHN] async job completed id=%s type=%s entity=%s", job.ID, job.Type, job.EntityID)
+			ashnlog.Info("async_job_completed", "jobId", job.ID, "jobType", job.Type, "entityId", job.EntityID)
 		}
 		processed++
 	}

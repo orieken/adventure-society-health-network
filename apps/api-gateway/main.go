@@ -4,13 +4,13 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"ashn/packages/ashnlog"
 	"ashn/packages/domain"
 	"ashn/packages/openapidocs"
 	"ashn/packages/requestmeta"
@@ -43,8 +43,8 @@ func main() {
 	mux.HandleFunc("DELETE /v1/", g.route)
 	mux.HandleFunc("OPTIONS /v1/", g.route)
 	addr := env("API_GATEWAY_ADDR", ":8080")
-	log.Printf("[ASHN] api-gateway listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("api-gateway", cors(logRequests(mux)))))
+	ashnlog.Info("service_listening", "service", "api-gateway", "addr", addr)
+	ashnlog.Fatal("service_stopped", http.ListenAndServe(addr, requestmeta.Middleware("api-gateway", cors(logRequests(mux)))), "service", "api-gateway")
 }
 
 func (g gateway) route(w http.ResponseWriter, r *http.Request) {
@@ -377,7 +377,7 @@ func parseAPIKeys(value string) []string {
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
+		ashnlog.Request("api-gateway", r)
 		next.ServeHTTP(w, r)
 	})
 }

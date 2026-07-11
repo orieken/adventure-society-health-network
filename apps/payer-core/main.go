@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"ashn/packages/ashnlog"
 	"ashn/packages/asyncjobs"
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
@@ -105,8 +105,8 @@ func main() {
 	mux.HandleFunc("GET /jobs", app.listJobs)
 	mux.HandleFunc("POST /jobs/{id}/replay", app.replayJob)
 	addr := env("PAYER_CORE_ADDR", ":8081")
-	log.Printf("[ASHN] payer-core listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("payer-core", logRequests(mux))))
+	ashnlog.Info("service_listening", "service", "payer-core", "addr", addr)
+	ashnlog.Fatal("service_stopped", http.ListenAndServe(addr, requestmeta.Middleware("payer-core", logRequests(mux))), "service", "payer-core")
 }
 
 func (s *store) listAdventurers(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +118,7 @@ func (s *store) listAdventurers(w http.ResponseWriter, r *http.Request) {
 			respond(w, http.StatusOK, domain.Envelope{Data: adventurers, Lore: "The Society opened its recent adventurer registry.", Page: &pageInfo})
 			return
 		}
-		log.Printf("[ASHN] postgres adventurer list failed; using memory: %v", err)
+		ashnlog.Error("postgres_adventurer_list_failed_using_memory", err, "service", "payer-core")
 	}
 	s.mu.RLock()
 	adventurers := make([]domain.Adventurer, 0, len(s.adventurers))
@@ -323,7 +323,7 @@ func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
 			respond(w, http.StatusOK, domain.Envelope{Data: claims, Lore: "Recent claim scrolls were pulled from the Society ledger.", Page: &pageInfo})
 			return
 		}
-		log.Printf("[ASHN] postgres claim list failed; using memory: %v", err)
+		ashnlog.Error("postgres_claim_list_failed_using_memory", err, "service", "payer-core")
 	}
 	s.mu.RLock()
 	claims := make([]domain.Claim, 0, len(s.claims))
@@ -752,7 +752,7 @@ func (s *store) listTransactions(w http.ResponseWriter, r *http.Request) {
 			respond(w, http.StatusOK, domain.Envelope{Data: transactions, Lore: "Recent EDI runes were pulled from the transaction ledger.", Page: &pageInfo})
 			return
 		}
-		log.Printf("[ASHN] postgres transaction list failed; using memory: %v", err)
+		ashnlog.Error("postgres_transaction_list_failed_using_memory", err, "service", "payer-core")
 	}
 	s.mu.RLock()
 	transactions := make([]domain.Transaction, 0, len(s.transactions))
@@ -886,7 +886,7 @@ func (s *store) findClaim(id string) (domain.Claim, bool) {
 			return claim, true
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[ASHN] postgres claim lookup failed; using memory: %v", err)
+			ashnlog.Error("postgres_claim_lookup_failed_using_memory", err, "service", "payer-core")
 		}
 	}
 	s.mu.RLock()
@@ -907,7 +907,7 @@ func (s *store) findTransaction(id string) (domain.Transaction, bool) {
 			return tx, true
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[ASHN] postgres transaction lookup failed; using memory: %v", err)
+			ashnlog.Error("postgres_transaction_lookup_failed_using_memory", err, "service", "payer-core")
 		}
 	}
 	s.mu.RLock()
@@ -942,7 +942,7 @@ func (s *store) authorizationForClaim(transactionID, adventurerID, providerID st
 			return status, reason, true
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[ASHN] postgres auth lookup failed; using transaction status: %v", err)
+			ashnlog.Error("postgres_auth_lookup_failed_using_transaction_status", err, "service", "payer-core")
 		}
 	}
 	return string(tx.Status), reason, true
@@ -950,7 +950,7 @@ func (s *store) authorizationForClaim(transactionID, adventurerID, providerID st
 
 func (s *store) enqueueJob(jobType, entityID string, delay time.Duration) {
 	if err := asyncjobs.Enqueue(s.db, jobType, entityID, delay); err != nil {
-		log.Printf("[ASHN] async job enqueue failed type=%s entity=%s: %v", jobType, entityID, err)
+		ashnlog.Error("async_job_enqueue_failed", err, "service", "payer-core", "jobType", jobType, "entityId", entityID)
 	}
 }
 
@@ -987,7 +987,7 @@ func (s *store) saveAdventurer(adventurer domain.Adventurer) {
 		_, err := s.db.Exec(`INSERT INTO adventurers (id, name, rank, guild, region, coverage_status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, rank = EXCLUDED.rank, guild = EXCLUDED.guild, region = EXCLUDED.region, coverage_status = EXCLUDED.coverage_status`,
 			adventurer.ID, adventurer.Name, adventurer.Rank, adventurer.Guild, adventurer.Region, adventurer.CoverageStatus)
 		if err != nil {
-			log.Printf("[ASHN] postgres adventurer persistence failed: %v", err)
+			ashnlog.Error("postgres_adventurer_persistence_failed", err, "service", "payer-core", "adventurerId", adventurer.ID)
 		}
 	}
 }
@@ -1000,7 +1000,7 @@ func (s *store) saveClaim(claim domain.Claim) {
 		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, status = EXCLUDED.status`,
 			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, claim.Status)
 		if err != nil {
-			log.Printf("[ASHN] postgres claim persistence failed: %v", err)
+			ashnlog.Error("postgres_claim_persistence_failed", err, "service", "payer-core", "claimId", claim.ID)
 		}
 	}
 }
@@ -1013,10 +1013,10 @@ func (s *store) saveTransaction(tx domain.Transaction) {
 		_, err := s.db.Exec(`INSERT INTO transactions (id, type, status, sender_id, receiver_id, payload, raw_x12, related_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9) ON CONFLICT (id) DO NOTHING`,
 			tx.ID, tx.Type, tx.Status, tx.SenderID, tx.ReceiverID, []byte(tx.Payload), tx.RawX12, tx.RelatedID, tx.CreatedAt)
 		if err != nil {
-			log.Printf("[ASHN] postgres transaction persistence failed: %v", err)
+			ashnlog.Error("postgres_transaction_persistence_failed", err, "service", "payer-core", "transactionId", tx.ID)
 		}
 	}
-	log.Printf("[ASHN] transaction=%s type=%s status=%s lore=%s", tx.ID, tx.Type, tx.Status, lore.ThemeTransaction(tx.Type, tx.SenderID, tx.ReceiverID))
+	ashnlog.Info("transaction_saved", "service", "payer-core", "transactionId", tx.ID, "type", tx.Type, "status", tx.Status, "lore", lore.ThemeTransaction(tx.Type, tx.SenderID, tx.ReceiverID))
 }
 
 func (s *store) updateTransaction(tx domain.Transaction) error {
@@ -1029,7 +1029,7 @@ func (s *store) updateTransaction(tx domain.Transaction) error {
 	_, err := s.db.Exec(`UPDATE transactions SET status = $1, payload = $2, raw_x12 = $3, related_id = NULLIF($4, '') WHERE id = $5`,
 		tx.Status, []byte(tx.Payload), tx.RawX12, tx.RelatedID, tx.ID)
 	if err != nil {
-		log.Printf("[ASHN] postgres transaction update failed: %v", err)
+		ashnlog.Error("postgres_transaction_update_failed", err, "service", "payer-core", "transactionId", tx.ID)
 		return err
 	}
 	return nil
@@ -1047,24 +1047,24 @@ func (s *store) updateAuthorizationDecision(tx domain.Transaction, reason string
 	}
 	s.mu.Unlock()
 	if s.db == nil {
-		log.Printf("[ASHN] authorization=%s decision=%s reason=%s", tx.ID, tx.Status, reason)
+		ashnlog.Info("authorization_decision_recorded", "service", "payer-core", "transactionId", tx.ID, "decision", tx.Status, "reason", reason)
 		return nil
 	}
 	_, err := s.db.Exec(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`, string(tx.Status), tx.ID)
 	if err != nil {
-		log.Printf("[ASHN] postgres auth decision update failed: %v", err)
+		ashnlog.Error("postgres_auth_decision_update_failed", err, "service", "payer-core", "transactionId", tx.ID)
 		return err
 	}
 	_, err = s.db.Exec(`UPDATE transactions SET status = $1, raw_x12 = $2 WHERE id = $3 AND type = $4`, string(tx.Status), tx.RawX12, tx.ID, string(domain.Tx278))
 	if err != nil {
-		log.Printf("[ASHN] postgres auth transaction update failed: %v", err)
+		ashnlog.Error("postgres_auth_transaction_update_failed", err, "service", "payer-core", "transactionId", tx.ID)
 		return err
 	}
 	if _, err = s.db.Exec(`UPDATE claims SET authorization_status = $1, authorization_reason = NULLIF($2, '') WHERE authorization_transaction_id = $3`, string(tx.Status), reason, tx.ID); err != nil {
-		log.Printf("[ASHN] postgres linked claim auth update failed: %v", err)
+		ashnlog.Error("postgres_linked_claim_auth_update_failed", err, "service", "payer-core", "transactionId", tx.ID)
 		return err
 	}
-	log.Printf("[ASHN] authorization=%s decision=%s reason=%s", tx.ID, tx.Status, reason)
+	ashnlog.Info("authorization_decision_recorded", "service", "payer-core", "transactionId", tx.ID, "decision", tx.Status, "reason", reason)
 	return nil
 }
 
@@ -1073,15 +1073,15 @@ func (s *store) updateClaimStatus(claim domain.Claim) error {
 	s.claims[claim.ID] = claim
 	s.mu.Unlock()
 	if s.db == nil {
-		log.Printf("[ASHN] claim=%s status=%s", claim.ID, claim.Status)
+		ashnlog.Info("claim_status_updated", "service", "payer-core", "claimId", claim.ID, "status", claim.Status)
 		return nil
 	}
 	_, err := s.db.Exec(`UPDATE claims SET status = $1 WHERE id = $2`, string(claim.Status), claim.ID)
 	if err != nil {
-		log.Printf("[ASHN] postgres claim status update failed: %v", err)
+		ashnlog.Error("postgres_claim_status_update_failed", err, "service", "payer-core", "claimId", claim.ID)
 		return err
 	}
-	log.Printf("[ASHN] claim=%s status=%s", claim.ID, claim.Status)
+	ashnlog.Info("claim_status_updated", "service", "payer-core", "claimId", claim.ID, "status", claim.Status)
 	return nil
 }
 
@@ -1092,7 +1092,7 @@ func (s *store) saveEnrollment(adventurerID, transactionID, status string) {
 	_, err := s.db.Exec(`INSERT INTO enrollments (id, adventurer_id, transaction_id, status) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
 		domain.NewID(), adventurerID, transactionID, status)
 	if err != nil {
-		log.Printf("[ASHN] postgres enrollment persistence failed: %v", err)
+		ashnlog.Error("postgres_enrollment_persistence_failed", err, "service", "payer-core", "adventurerId", adventurerID, "transactionId", transactionID)
 	}
 }
 
@@ -1103,26 +1103,26 @@ func (s *store) saveAuthRequest(adventurerID, providerID, transactionID, service
 	_, err := s.db.Exec(`INSERT INTO auth_requests (id, adventurer_id, provider_id, transaction_id, service_type, incident_severity, status) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
 		domain.NewID(), adventurerID, providerID, transactionID, serviceType, severity, status)
 	if err != nil {
-		log.Printf("[ASHN] postgres auth request persistence failed: %v", err)
+		ashnlog.Error("postgres_auth_request_persistence_failed", err, "service", "payer-core", "adventurerId", adventurerID, "providerId", providerID, "transactionId", transactionID)
 	}
 }
 
 func runEmbeddedWorker(db *sql.DB) {
 	if db == nil {
-		log.Printf("[ASHN] embedded worker disabled: database unavailable")
+		ashnlog.Info("embedded_worker_disabled_database_unavailable", "service", "payer-core")
 		return
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	log.Printf("[ASHN] embedded tx-worker started")
+	ashnlog.Info("embedded_worker_started", "service", "payer-core")
 	for range ticker.C {
 		processed, err := asyncjobs.ProcessDue(db, 5)
 		if err != nil {
-			log.Printf("[ASHN] embedded tx-worker failed: %v", err)
+			ashnlog.Error("embedded_worker_failed", err, "service", "payer-core")
 			continue
 		}
 		if processed > 0 {
-			log.Printf("[ASHN] embedded tx-worker processed %d job(s)", processed)
+			ashnlog.Info("embedded_worker_processed_jobs", "service", "payer-core", "count", processed)
 		}
 	}
 }
@@ -1131,14 +1131,14 @@ func applyMigration(db *sql.DB) {
 	migrationPath := env("ASHN_MIGRATION_PATH", "infra/migrations/000001_init.up.sql")
 	migration, err := os.ReadFile(migrationPath)
 	if err != nil {
-		log.Printf("[ASHN] auto migration read failed: %v", err)
+		ashnlog.Error("auto_migration_read_failed", err, "service", "payer-core", "path", migrationPath)
 		return
 	}
 	if _, err := db.Exec(string(migration)); err != nil {
-		log.Printf("[ASHN] auto migration failed: %v", err)
+		ashnlog.Error("auto_migration_failed", err, "service", "payer-core", "path", migrationPath)
 		return
 	}
-	log.Printf("[ASHN] auto migration applied")
+	ashnlog.Info("auto_migration_applied", "service", "payer-core", "path", migrationPath)
 }
 
 func seedProviders() map[string]domain.Provider {
@@ -1162,7 +1162,7 @@ func loadProviders(db *sql.DB) map[string]domain.Provider {
 	}
 	rows, err := db.Query(`SELECT id, name, provider_type, tier_rank, region FROM providers ORDER BY name`)
 	if err != nil {
-		log.Printf("[ASHN] postgres provider load failed; using seed providers: %v", err)
+		ashnlog.Error("postgres_provider_load_failed_using_seed", err, "service", "payer-core")
 		return seedProviders()
 	}
 	defer rows.Close()
@@ -1170,20 +1170,20 @@ func loadProviders(db *sql.DB) map[string]domain.Provider {
 	for rows.Next() {
 		var provider domain.Provider
 		if err := rows.Scan(&provider.ID, &provider.Name, &provider.ProviderType, &provider.TierRank, &provider.Region); err != nil {
-			log.Printf("[ASHN] postgres provider row skipped: %v", err)
+			ashnlog.Error("postgres_provider_row_skipped", err, "service", "payer-core")
 			continue
 		}
 		providers[provider.ID] = provider
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("[ASHN] postgres provider rows failed; using seed providers: %v", err)
+		ashnlog.Error("postgres_provider_rows_failed_using_seed", err, "service", "payer-core")
 		return seedProviders()
 	}
 	if len(providers) == 0 {
-		log.Printf("[ASHN] postgres provider table empty; using seed providers")
+		ashnlog.Info("postgres_provider_table_empty_using_seed", "service", "payer-core")
 		return seedProviders()
 	}
-	log.Printf("[ASHN] loaded %d providers from Postgres", len(providers))
+	ashnlog.Info("postgres_providers_loaded", "service", "payer-core", "count", len(providers))
 	return providers
 }
 
@@ -1194,22 +1194,22 @@ func loadAdventurers(db *sql.DB) map[string]domain.Adventurer {
 	}
 	rows, err := db.Query(`SELECT id, name, rank, guild, region, coverage_status FROM adventurers`)
 	if err != nil {
-		log.Printf("[ASHN] postgres adventurer load failed: %v", err)
+		ashnlog.Error("postgres_adventurer_load_failed", err, "service", "payer-core")
 		return adventurers
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var adventurer domain.Adventurer
 		if err := rows.Scan(&adventurer.ID, &adventurer.Name, &adventurer.Rank, &adventurer.Guild, &adventurer.Region, &adventurer.CoverageStatus); err != nil {
-			log.Printf("[ASHN] postgres adventurer row skipped: %v", err)
+			ashnlog.Error("postgres_adventurer_row_skipped", err, "service", "payer-core")
 			continue
 		}
 		adventurers[adventurer.ID] = adventurer
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("[ASHN] postgres adventurer rows failed: %v", err)
+		ashnlog.Error("postgres_adventurer_rows_failed", err, "service", "payer-core")
 	}
-	log.Printf("[ASHN] loaded %d adventurers from Postgres", len(adventurers))
+	ashnlog.Info("postgres_adventurers_loaded", "service", "payer-core", "count", len(adventurers))
 	return adventurers
 }
 
@@ -1220,22 +1220,22 @@ func loadClaims(db *sql.DB) map[string]domain.Claim {
 	}
 	rows, err := db.Query(`SELECT ` + claimSelectColumns + ` FROM claims`)
 	if err != nil {
-		log.Printf("[ASHN] postgres claim load failed: %v", err)
+		ashnlog.Error("postgres_claim_load_failed", err, "service", "payer-core")
 		return claims
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var claim domain.Claim
 		if err := rows.Scan(scanClaimDest(&claim)...); err != nil {
-			log.Printf("[ASHN] postgres claim row skipped: %v", err)
+			ashnlog.Error("postgres_claim_row_skipped", err, "service", "payer-core")
 			continue
 		}
 		claims[claim.ID] = claim
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("[ASHN] postgres claim rows failed: %v", err)
+		ashnlog.Error("postgres_claim_rows_failed", err, "service", "payer-core")
 	}
-	log.Printf("[ASHN] loaded %d claims from Postgres", len(claims))
+	ashnlog.Info("postgres_claims_loaded", "service", "payer-core", "count", len(claims))
 	return claims
 }
 
@@ -1267,22 +1267,22 @@ func loadTransactions(db *sql.DB) map[string]domain.Transaction {
 	}
 	rows, err := db.Query(`SELECT id, type, status, sender_id, receiver_id, payload, COALESCE(raw_x12, ''), COALESCE(related_id, ''), created_at FROM transactions`)
 	if err != nil {
-		log.Printf("[ASHN] postgres transaction load failed: %v", err)
+		ashnlog.Error("postgres_transaction_load_failed", err, "service", "payer-core")
 		return transactions
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var tx domain.Transaction
 		if err := rows.Scan(&tx.ID, &tx.Type, &tx.Status, &tx.SenderID, &tx.ReceiverID, &tx.Payload, &tx.RawX12, &tx.RelatedID, &tx.CreatedAt); err != nil {
-			log.Printf("[ASHN] postgres transaction row skipped: %v", err)
+			ashnlog.Error("postgres_transaction_row_skipped", err, "service", "payer-core")
 			continue
 		}
 		transactions[tx.ID] = tx
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("[ASHN] postgres transaction rows failed: %v", err)
+		ashnlog.Error("postgres_transaction_rows_failed", err, "service", "payer-core")
 	}
-	log.Printf("[ASHN] loaded %d transactions from Postgres", len(transactions))
+	ashnlog.Info("postgres_transactions_loaded", "service", "payer-core", "count", len(transactions))
 	return transactions
 }
 
@@ -1665,7 +1665,7 @@ func env(key, fallback string) string {
 func openDB() *sql.DB {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Printf("[ASHN] DATABASE_URL not set; payer-core using in-memory persistence")
+		ashnlog.Info("database_url_missing_using_memory", "service", "payer-core")
 		return nil
 	}
 	return openDBWith(dsn, sql.Open)
@@ -1674,21 +1674,21 @@ func openDB() *sql.DB {
 func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB {
 	db, err := open("postgres", dsn)
 	if err != nil {
-		log.Printf("[ASHN] postgres open failed; using in-memory persistence: %v", err)
+		ashnlog.Error("postgres_open_failed_using_memory", err, "service", "payer-core")
 		return nil
 	}
 	if err := db.Ping(); err != nil {
-		log.Printf("[ASHN] postgres ping failed; using in-memory persistence: %v", err)
+		ashnlog.Error("postgres_ping_failed_using_memory", err, "service", "payer-core")
 		_ = db.Close()
 		return nil
 	}
-	log.Printf("[ASHN] payer-core connected to Postgres")
+	ashnlog.Info("postgres_connected", "service", "payer-core")
 	return db
 }
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
+		ashnlog.Request("payer-core", r)
 		next.ServeHTTP(w, r)
 	})
 }

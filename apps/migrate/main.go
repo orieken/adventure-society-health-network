@@ -3,16 +3,17 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
+
+	"ashn/packages/ashnlog"
 
 	_ "github.com/lib/pq"
 )
 
 func main() {
 	if err := runMigrationFromEnv(); err != nil {
-		log.Fatal(err)
+		ashnlog.Fatal("migration_failed", err, "service", "migrate")
 	}
 }
 
@@ -48,6 +49,6 @@ func runMigration(dsn, migrationPath string, openDB func(string, string) (*sql.D
 	if _, err := db.Exec(string(migration)); err != nil {
 		return fmt.Errorf("[ASHN] migration failed: %w", err)
 	}
-	log.Println("[ASHN] migration applied")
+	ashnlog.Info("migration_applied", "service", "migrate", "path", migrationPath)
 	return nil
 }

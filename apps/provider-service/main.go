@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"os"
 
+	"ashn/packages/ashnlog"
 	"ashn/packages/domain"
 	"ashn/packages/openapidocs"
 	"ashn/packages/requestmeta"
@@ -34,8 +34,8 @@ func main() {
 	mux.HandleFunc("POST /providers/{id}/verify-eligibility", app.verifyEligibility)
 	mux.HandleFunc("POST /providers/{id}/submit-claim", app.submitClaim)
 	addr := env("PROVIDER_SERVICE_ADDR", ":8082")
-	log.Printf("[ASHN] provider-service listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("provider-service", logRequests(mux))))
+	ashnlog.Info("service_listening", "service", "provider-service", "addr", addr)
+	ashnlog.Fatal("service_stopped", http.ListenAndServe(addr, requestmeta.Middleware("provider-service", logRequests(mux))), "service", "provider-service")
 }
 
 func (a providerApp) listProviders(w http.ResponseWriter, _ *http.Request) {
@@ -133,7 +133,7 @@ func loadProviders(db *sql.DB) map[string]domain.Provider {
 	}
 	rows, err := db.Query(`SELECT id, name, provider_type, tier_rank, region FROM providers ORDER BY name`)
 	if err != nil {
-		log.Printf("[ASHN] postgres provider load failed; using seed providers: %v", err)
+		ashnlog.Error("postgres_provider_load_failed_using_seed", err, "service", "provider-service")
 		return seedProviders()
 	}
 	defer rows.Close()
@@ -141,20 +141,20 @@ func loadProviders(db *sql.DB) map[string]domain.Provider {
 	for rows.Next() {
 		var provider domain.Provider
 		if err := rows.Scan(&provider.ID, &provider.Name, &provider.ProviderType, &provider.TierRank, &provider.Region); err != nil {
-			log.Printf("[ASHN] postgres provider row skipped: %v", err)
+			ashnlog.Error("postgres_provider_row_skipped", err, "service", "provider-service")
 			continue
 		}
 		providers[provider.ID] = provider
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("[ASHN] postgres provider rows failed; using seed providers: %v", err)
+		ashnlog.Error("postgres_provider_rows_failed_using_seed", err, "service", "provider-service")
 		return seedProviders()
 	}
 	if len(providers) == 0 {
-		log.Printf("[ASHN] postgres provider table empty; using seed providers")
+		ashnlog.Info("postgres_provider_table_empty_using_seed", "service", "provider-service")
 		return seedProviders()
 	}
-	log.Printf("[ASHN] loaded %d providers from Postgres", len(providers))
+	ashnlog.Info("postgres_providers_loaded", "service", "provider-service", "count", len(providers))
 	return providers
 }
 
@@ -214,7 +214,7 @@ func env(key, fallback string) string {
 func openDB() *sql.DB {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Printf("[ASHN] DATABASE_URL not set; provider-service using seed providers")
+		ashnlog.Info("database_url_missing_using_seed", "service", "provider-service")
 		return nil
 	}
 	return openDBWith(dsn, sql.Open)
@@ -223,21 +223,21 @@ func openDB() *sql.DB {
 func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB {
 	db, err := open("postgres", dsn)
 	if err != nil {
-		log.Printf("[ASHN] postgres open failed; using seed providers: %v", err)
+		ashnlog.Error("postgres_open_failed_using_seed", err, "service", "provider-service")
 		return nil
 	}
 	if err := db.Ping(); err != nil {
-		log.Printf("[ASHN] postgres ping failed; using seed providers: %v", err)
+		ashnlog.Error("postgres_ping_failed_using_seed", err, "service", "provider-service")
 		_ = db.Close()
 		return nil
 	}
-	log.Printf("[ASHN] provider-service connected to Postgres")
+	ashnlog.Info("postgres_connected", "service", "provider-service")
 	return db
 }
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
+		ashnlog.Request("provider-service", r)
 		next.ServeHTTP(w, r)
 	})
 }

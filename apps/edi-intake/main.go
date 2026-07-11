@@ -8,12 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
+	"ashn/packages/ashnlog"
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
 	"ashn/packages/openapidocs"
@@ -131,8 +131,8 @@ func main() {
 	mux.HandleFunc("PUT /x12/trading-partners/{id}", app.saveTradingPartner)
 	mux.HandleFunc("DELETE /x12/trading-partners/{id}", app.deleteTradingPartner)
 	addr := env("EDI_INTAKE_ADDR", ":8083")
-	log.Printf("[ASHN] edi-intake listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("edi-intake", logRequests(mux))))
+	ashnlog.Info("service_listening", "service", "edi-intake", "addr", addr)
+	ashnlog.Fatal("service_stopped", http.ListenAndServe(addr, requestmeta.Middleware("edi-intake", logRequests(mux))), "service", "edi-intake")
 }
 
 func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
@@ -658,7 +658,7 @@ func (a intakeApp) auditInboundMessage(contentType, partnerID, transactionType, 
 	_, err := a.db.Exec(`INSERT INTO inbound_messages (id, partner_id, content_type, transaction_type, raw_payload, status, error, downstream_status) VALUES ($1, NULLIF($2, ''), $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), $8)`,
 		id, partnerID, contentType, transactionType, rawPayload, status, errorText, downstreamStatus)
 	if err != nil {
-		log.Printf("[ASHN] postgres inbound message audit failed: %v", err)
+		ashnlog.Error("postgres_inbound_message_audit_failed", err, "service", "edi-intake", "messageId", id, "transactionType", transactionType)
 	}
 	return id
 }
@@ -818,24 +818,24 @@ func (a intakeApp) record999(inbound *http.Request, relatedID string, transactio
 	ack := edimock.Generate999(relatedID, domain.TransactionType(transactionType), "edi-intake", receiverID, accepted, errorText)
 	payload, err := json.Marshal(ack)
 	if err != nil {
-		log.Printf("[ASHN] 999 marshal failed: %v", err)
+		ashnlog.Error("ack_999_marshal_failed", err, "service", "edi-intake", "relatedId", relatedID)
 		return
 	}
 	req, err := http.NewRequest(http.MethodPost, a.payerURL+"/transactions", bytes.NewReader(payload))
 	if err != nil {
-		log.Printf("[ASHN] 999 request creation failed: %v", err)
+		ashnlog.Error("ack_999_request_creation_failed", err, "service", "edi-intake", "relatedId", relatedID)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	requestmeta.Propagate(inbound, req)
 	resp, err := a.httpClient().Do(req)
 	if err != nil {
-		log.Printf("[ASHN] 999 persistence failed: %v", err)
+		ashnlog.Error("ack_999_persistence_failed", err, "service", "edi-intake", "relatedId", relatedID)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		log.Printf("[ASHN] 999 persistence rejected by payer-core: %s", resp.Status)
+		ashnlog.Info("ack_999_persistence_rejected", "service", "edi-intake", "relatedId", relatedID, "status", resp.Status)
 	}
 }
 
@@ -848,7 +848,7 @@ func (a intakeApp) listMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	messages, pageInfo, err := a.queryMessages(page, parseMessageFilters(r))
 	if err != nil {
-		log.Printf("[ASHN] postgres inbound message list failed: %v", err)
+		ashnlog.Error("postgres_inbound_message_list_failed", err, "service", "edi-intake")
 		fail(w, http.StatusInternalServerError, "message list failed", "The intake archive could not be opened.")
 		return
 	}
@@ -919,7 +919,7 @@ func (a intakeApp) findMessage(id string) (domain.InboundMessage, bool) {
 		Scan(&message.ID, &message.PartnerID, &message.ContentType, &message.TransactionType, &message.RawPayload, &message.Status, &message.Error, &message.DownstreamStatus, &message.CreatedAt)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[ASHN] postgres inbound message lookup failed: %v", err)
+			ashnlog.Error("postgres_inbound_message_lookup_failed", err, "service", "edi-intake", "messageId", id)
 		}
 		return domain.InboundMessage{}, false
 	}
@@ -1135,7 +1135,7 @@ func loadTradingPartners(db *sql.DB) map[string]domain.TradingPartner {
 	}
 	rows, err := db.Query(`SELECT id, name, sender_id, receiver_id, allowed_transaction_types, validation_profile::text, route_target, status FROM trading_partners ORDER BY name`)
 	if err != nil {
-		log.Printf("[ASHN] postgres trading partner load failed; using seed partners: %v", err)
+		ashnlog.Error("postgres_trading_partner_load_failed_using_seed", err, "service", "edi-intake")
 		return seedTradingPartners()
 	}
 	defer rows.Close()
@@ -1145,24 +1145,24 @@ func loadTradingPartners(db *sql.DB) map[string]domain.TradingPartner {
 		var allowed string
 		var validationProfile string
 		if err := rows.Scan(&partner.ID, &partner.Name, &partner.SenderID, &partner.ReceiverID, &allowed, &validationProfile, &partner.RouteTarget, &partner.Status); err != nil {
-			log.Printf("[ASHN] postgres trading partner row skipped: %v", err)
+			ashnlog.Error("postgres_trading_partner_row_skipped", err, "service", "edi-intake")
 			continue
 		}
 		partner.AllowedTransactionTypes = splitCSV(allowed)
 		if err := json.Unmarshal([]byte(validationProfile), &partner.ValidationProfile); err != nil {
-			log.Printf("[ASHN] postgres trading partner profile skipped for %s: %v", partner.ID, err)
+			ashnlog.Error("postgres_trading_partner_profile_skipped", err, "service", "edi-intake", "partnerId", partner.ID)
 		}
 		partners[partner.ID] = partner
 	}
 	if err := rows.Err(); err != nil {
-		log.Printf("[ASHN] postgres trading partner rows failed; using seed partners: %v", err)
+		ashnlog.Error("postgres_trading_partner_rows_failed_using_seed", err, "service", "edi-intake")
 		return seedTradingPartners()
 	}
 	if len(partners) == 0 {
-		log.Printf("[ASHN] postgres trading partner table empty; using seed partners")
+		ashnlog.Info("postgres_trading_partner_table_empty_using_seed", "service", "edi-intake")
 		return seedTradingPartners()
 	}
-	log.Printf("[ASHN] loaded %d trading partners from Postgres", len(partners))
+	ashnlog.Info("postgres_trading_partners_loaded", "service", "edi-intake", "count", len(partners))
 	return partners
 }
 
@@ -1249,7 +1249,7 @@ func ediOpenAPI() map[string]any {
 func openDB() *sql.DB {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		log.Printf("[ASHN] DATABASE_URL not set; edi-intake audit persistence disabled")
+		ashnlog.Info("database_url_missing_audit_disabled", "service", "edi-intake")
 		return nil
 	}
 	return openDBWith(dsn, sql.Open)
@@ -1258,15 +1258,15 @@ func openDB() *sql.DB {
 func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB {
 	db, err := open("postgres", dsn)
 	if err != nil {
-		log.Printf("[ASHN] postgres open failed; edi-intake audit persistence disabled: %v", err)
+		ashnlog.Error("postgres_open_failed_audit_disabled", err, "service", "edi-intake")
 		return nil
 	}
 	if err := db.Ping(); err != nil {
-		log.Printf("[ASHN] postgres ping failed; edi-intake audit persistence disabled: %v", err)
+		ashnlog.Error("postgres_ping_failed_audit_disabled", err, "service", "edi-intake")
 		_ = db.Close()
 		return nil
 	}
-	log.Printf("[ASHN] edi-intake connected to Postgres")
+	ashnlog.Info("postgres_connected", "service", "edi-intake")
 	return db
 }
 
@@ -1279,7 +1279,7 @@ func env(key, fallback string) string {
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
+		ashnlog.Request("edi-intake", r)
 		next.ServeHTTP(w, r)
 	})
 }

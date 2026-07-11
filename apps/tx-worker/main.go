@@ -3,12 +3,12 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
+	"ashn/packages/ashnlog"
 	"ashn/packages/asyncjobs"
 	"ashn/packages/requestmeta"
 
@@ -18,13 +18,13 @@ import (
 func main() {
 	db := openDB()
 	if db == nil {
-		log.Fatal("[ASHN] tx-worker requires DATABASE_URL")
+		ashnlog.Fatal("database_url_required", nil, "service", "tx-worker")
 	}
 	defer db.Close()
 
 	interval := envDuration("TX_WORKER_INTERVAL", time.Second)
 	batchSize := envInt("TX_WORKER_BATCH_SIZE", 5)
-	log.Printf("[ASHN] tx-worker polling every %s with batch size %d", interval, batchSize)
+	ashnlog.Info("worker_polling_started", "service", "tx-worker", "interval", interval.String(), "batchSize", batchSize)
 
 	startHealthServer(env("TX_WORKER_ADDR", ":8084"))
 
@@ -41,9 +41,9 @@ func startHealthServer(addr string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	go func() {
-		log.Printf("[ASHN] tx-worker health listening on %s", addr)
+		ashnlog.Info("service_listening", "service", "tx-worker", "addr", addr)
 		if err := http.ListenAndServe(addr, requestmeta.Middleware("tx-worker", mux)); err != nil {
-			log.Printf("[ASHN] tx-worker health server stopped: %v", err)
+			ashnlog.Error("health_server_stopped", err, "service", "tx-worker")
 		}
 	}()
 }
@@ -56,11 +56,11 @@ func health(w http.ResponseWriter, _ *http.Request) {
 func process(db *sql.DB, batchSize int) {
 	processed, err := asyncjobs.ProcessDue(db, batchSize)
 	if err != nil {
-		log.Printf("[ASHN] tx-worker poll failed: %v", err)
+		ashnlog.Error("worker_poll_failed", err, "service", "tx-worker")
 		return
 	}
 	if processed > 0 {
-		log.Printf("[ASHN] tx-worker processed %d job(s)", processed)
+		ashnlog.Info("worker_processed_jobs", "service", "tx-worker", "count", processed)
 	}
 }
 
@@ -75,11 +75,11 @@ func openDB() *sql.DB {
 func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB {
 	db, err := open("postgres", dsn)
 	if err != nil {
-		log.Printf("[ASHN] postgres open failed: %v", err)
+		ashnlog.Error("postgres_open_failed", err, "service", "tx-worker")
 		return nil
 	}
 	if err := db.Ping(); err != nil {
-		log.Printf("[ASHN] postgres ping failed: %v", err)
+		ashnlog.Error("postgres_ping_failed", err, "service", "tx-worker")
 		_ = db.Close()
 		return nil
 	}
@@ -93,7 +93,7 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 	}
 	duration, err := time.ParseDuration(value)
 	if err != nil {
-		log.Printf("[ASHN] invalid %s=%q; using %s", key, value, fallback)
+		ashnlog.Error("invalid_duration_env_using_fallback", err, "service", "tx-worker", "key", key, "value", value, "fallback", fallback.String())
 		return fallback
 	}
 	return duration
@@ -106,7 +106,7 @@ func envInt(key string, fallback int) int {
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 {
-		log.Printf("[ASHN] invalid %s=%q; using %d", key, value, fallback)
+		ashnlog.Error("invalid_int_env_using_fallback", err, "service", "tx-worker", "key", key, "value", value, "fallback", fallback)
 		return fallback
 	}
 	return parsed

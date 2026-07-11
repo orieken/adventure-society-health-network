@@ -22,3 +22,5 @@ X-ASHN-API-Key: dev-secret
 ## Request Tracing
 
 The gateway accepts or creates `X-Request-ID` and `X-Correlation-ID`, returns both headers to the caller, and forwards them to downstream services. Provide `X-Correlation-ID` when grouping several calls into one demo or replay workflow.
+
+Logs are JSON events. Request logs include `service`, `method`, `path`, `requestId`, and `correlationId`; domain/service logs include IDs and status fields relevant to the event.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"log"
 	"net/http"
 	"strings"
 )
@@ -31,9 +30,6 @@ func Middleware(service string, next http.Handler) http.Handler {
 		}
 		w.Header().Set(RequestIDHeader, meta.RequestID)
 		w.Header().Set(CorrelationIDHeader, meta.CorrelationID)
-		if service != "" {
-			log.Printf("[ASHN] service=%s requestId=%s correlationId=%s", service, meta.RequestID, meta.CorrelationID)
-		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), metaContextKey, meta)))
 	})
 }

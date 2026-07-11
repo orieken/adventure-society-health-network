@@ -144,7 +144,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 - [x] Add API authentication for partner-facing endpoints.
 - [x] Add request IDs and correlation IDs across services.
-- [ ] Add structured logs.
+- [x] Add structured logs.
 - [ ] Add basic OpenTelemetry traces.
 - [x] Add health checks for every service in Docker Compose.
 - [ ] Add migration tests and seed-data reset tests.
