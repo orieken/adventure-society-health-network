@@ -1,12 +1,16 @@
 # ASHN Future Enhancements TODO
 
-This backlog captures the next useful build paths for ASHN after the current JSON-backed X12 simulation. The north star is to keep the project demoable while gradually moving closer to real healthcare EDI patterns.
+This backlog captures what ASHN already supports and the next useful build paths now that the project has moved beyond the original JSON-only simulator. The north star is to keep the project demoable while gradually moving closer to real healthcare EDI integration patterns.
+
+## Current Foundation
+
+ASHN now has a working EDI intake boundary that accepts canonical XML and JSON payloads, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
+
+This keeps `payer-core` focused on business state while giving us a clean place to experiment with external data formats, trading partner rules, replay, and future raw X12 intake.
 
 ## Recommended Next Milestone
 
-Build an **EDI intake service** that accepts XML payloads, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
-
-This keeps `payer-core` focused on business state while giving us a clean place to experiment with external data formats.
+Harden ASHN from a visible simulator into a stronger integration lab: API authentication, request/correlation IDs, structured logs, basic traces, migration/seed reset tests, rate limiting, and deeper document-vault behavior for external 275 references.
 
 ## Priority Backlog
 
@@ -146,9 +150,9 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [ ] Add migration tests and seed-data reset tests.
 - [ ] Add rate limiting for public/demo endpoints.
 
-## Proposed XML Shape
+## Canonical XML Shape
 
-The first XML contract should be intentionally simple and canonical. It does not need to mirror every real X12 segment on day one.
+The XML contract is intentionally simple and canonical. It does not try to mirror every real X12 segment; instead, it makes transaction intent, partner identity, validation, and audit behavior easy to inspect.
 
 Example `837` claim submission:
 
@@ -178,19 +182,19 @@ Example `270` eligibility inquiry:
 </AshnX12Transaction>
 ```
 
-## Proposed Implementation Order
+## Suggested Next Implementation Order
 
-1. Create `apps/edi-intake` with health check and XML parsing.
-2. Add domain structs for inbound XML envelopes.
-3. Add tests for XML decoding and validation.
-4. Add gateway route: `POST /v1/x12/xml`.
-5. Forward accepted XML requests into existing `payer-core` endpoints.
-6. Persist raw XML alongside generated transaction records.
-7. Add dashboard XML payload display.
-8. Add raw X12 generation after XML intake is stable.
+1. Add API authentication for partner-facing gateway and intake endpoints.
+2. Add request IDs and correlation IDs across `api-gateway`, `edi-intake`, `payer-core`, `provider-service`, and `tx-worker`.
+3. Add structured logs that include transaction IDs, partner IDs, claim IDs, authorization IDs, and replay IDs.
+4. Add basic OpenTelemetry traces for intake, routing, queue processing, and replay.
+5. Add migration tests and seed-data reset tests for reliable demos.
+6. Add rate limiting for public/demo endpoints.
+7. Deepen document-vault retrieval for external `275` references.
+8. Add optional raw X12 file-drop or segment parsing intake once the canonical XML/JSON path remains stable.
 
 ## Decision Summary
 
-Start with canonical ASHN XML through the public gateway and a dedicated `edi-intake` service. Keep the XML contract small, strongly validated, fully audited, and easy to demo. Forward accepted work into existing `payer-core` endpoints instead of bypassing business rules. Once that works, add raw X12 segment parsing, partner-specific XML variants, and richer content negotiation.
+ASHN uses canonical XML/JSON through the public gateway and a dedicated `edi-intake` service. The XML contract stays small, strongly validated, fully audited, and easy to demo. Accepted work flows into existing `payer-core` endpoints instead of bypassing business rules. The next frontier is operational hardening, document-vault realism, partner-specific variants, and optional raw X12 segment parsing.
 
 That path gets us closer to real enterprise EDI without burying the project in full X12 implementation complexity too early.

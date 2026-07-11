@@ -1,12 +1,12 @@
 # ASHN — Adventure Society Health Network
 
-ASHN is a lore-themed EDI healthcare transaction simulator. Phase 1 uses structured JSON payloads that mirror X12 transaction flow.
+ASHN is a lore-themed healthcare EDI simulator that makes X12-style payer/provider workflows visible. It now supports JSON/XML intake, trading partner validation, raw X12 generation, acknowledgments, async authorization/adjudication jobs, claim and prior-auth attachments, a 275 documentation workbench, export/replay tools, and a dashboard for learning how the transaction chain fits together.
 
 Docs:
 
 - `docs/elevator-pitch.md` — presentation-ready project summary
 - `docs/x12-workflow.md` — how ASHN maps healthcare X12 into the demo workflow
-- `docs/future-enhancements.md` — prioritized backlog, including the proposed XML EDI intake service
+- `docs/future-enhancements.md` — completed foundation plus remaining hardening backlog
 - `docs/presentations/` — elevator pitch and technical deep-dive presentation decks
 - `docs/deployment.md` — Render + Netlify deployment guide
 
@@ -51,9 +51,10 @@ The demo performs:
 1. `834` adventurer enrollment
 2. `270 → 271` eligibility verification
 3. `278` prior authorization
-4. `837` claim submission
-5. `276 → 277` claim status
-6. `835` payment/remittance
+4. `275` documentation attachment when payer review needs supporting records
+5. `837` claim submission
+6. `276 → 277` claim status
+7. `835` payment/remittance
 
 The stack also starts `tx-worker`, which asynchronously reviews queued `278` authorizations and claim adjudication jobs so statuses can change over time in the dashboard.
 
@@ -63,6 +64,14 @@ The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSO
 Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`.
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
+
+## What It Exposes For Learning
+
+- How payer, provider, gateway, intake, worker, and ledger service boundaries fit together.
+- How common healthcare EDI transaction types relate: `834`, `270/271`, `278`, `275`, `837`, `276/277`, `835`, `999`, and `277CA`.
+- How XML/JSON intake, trading partner validation, acknowledgments, raw X12, and durable audit trails can coexist in one workflow.
+- How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.
+- How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
 
 ## Docker Compose Backend
 

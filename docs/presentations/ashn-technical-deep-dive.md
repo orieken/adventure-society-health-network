@@ -301,15 +301,16 @@ This is a feature, not a flaw. The simulator keeps the core lifecycle understand
 
 Recommended next build sequence:
 
-1. Add visual links between related transactions.
-2. Expand companion-guide-like segment examples.
-3. Expand partner-specific validation rules.
-4. Add benefits, COB, and richer provider/member-specific adjudication rules.
-5. Add observability: request IDs, structured logs, traces.
-6. Add document-vault retrieval for external 275 references.
+1. Add API authentication for partner-facing endpoints.
+2. Add request IDs and correlation IDs across all services.
+3. Add structured logs and basic OpenTelemetry traces.
+4. Add migration tests and seed-data reset tests.
+5. Add rate limiting for public/demo endpoints.
+6. Deepen document-vault retrieval for external 275 references.
+7. Add optional raw X12 file-drop or segment parsing intake.
 
 **Talk track:**  
-The next phase is about moving from visible workflow to integration lab: more realistic routing, validation, async behavior, and operational visibility.
+The next phase is about moving from integration lab to operationally understandable system: secure partner access, traceable requests, reliable demo data, and richer external-document handling.
 
 ---
 
@@ -322,6 +323,7 @@ ASHN gives us a clean foundation:
 - A durable ledger for transaction history
 - XML intake and acknowledgment behavior
 - Raw X12 visibility for learning and demos
+- 275 documentation workbench, per-document review, and deficiency resubmission
 - Tests that protect the end-to-end workflow
 
 **Talk track:**  

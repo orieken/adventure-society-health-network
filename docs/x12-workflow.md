@@ -317,11 +317,13 @@ Behind the story, every step is a real service call and every X12-inspired event
 
 ## Future X12 Enhancements
 
-For the prioritized implementation backlog, including the proposed XML EDI intake service, see [ASHN Future Enhancements TODO](future-enhancements.md).
+For the completed foundation and remaining implementation backlog, see [ASHN Future Enhancements TODO](future-enhancements.md).
 
 Good next expansions include:
 
 - model `820` premium payment in the visible workflow
-- add full companion-guide validation profiles per trading partner
-- add retry, dead-letter, and replay controls for async job processing
+- add API authentication, request IDs, structured logs, and traces
+- add migration tests and seed-data reset tests
+- deepen document-vault retrieval for external `275` references
+- add optional raw X12 segment parsing or file-drop intake
 - add richer service-line and diagnosis mappings for claims

@@ -365,7 +365,7 @@ sequenceDiagram
     Payer->>Ledger: 278 Approved/Denied after review
 ```
 
-Baseline support now exists: the dashboard and APIs can emit a `275` linked to a pending `278`. The next iteration should show attachment review state separately from the final authorization decision.
+Baseline support now exists: the dashboard and APIs can emit a `275` linked to a pending `278`, and attachment review state is tracked separately from final authorization decision state. The next iteration should add an auth-specific workbench that mirrors the claim documentation workbench.
 
 ### 3. Attachment Review Outcomes
 
@@ -400,7 +400,7 @@ This would model common enterprise patterns where large PDFs/images are stored e
 
 ### 5. Multi-Attachment Bundles
 
-Allow one claim or auth to receive multiple attachment documents:
+Baseline support now exists through checklist packets and deficiency resubmission. Continue expanding one claim or auth receiving multiple attachment documents:
 
 - operative note
 - discharge summary
@@ -412,7 +412,7 @@ The dashboard could show a compact “attachment packet” timeline grouped unde
 
 ### 6. Payer-Specific Attachment Matrix
 
-Move the current hardcoded rules into trading partner/profile data:
+Baseline support now exists through partner-specific companion-guide validation rules. Continue expanding trading partner/profile data:
 
 - allowed attachment types
 - allowed report type codes

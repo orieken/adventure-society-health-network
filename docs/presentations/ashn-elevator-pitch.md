@@ -102,7 +102,7 @@ After treatment, they submit an `837` claim. The Society returns a `277CA` ackno
 
 The healer checks status with `276 → 277`, and the Society pays through an `835`.
 
-The dashboard shows every event in the ledger, including raw X12 and XML intake audit records.”
+The dashboard shows every event in the ledger, including 275 documentation packets, raw X12, replay tools, and XML intake audit records.”
 
 ---
 
@@ -113,4 +113,4 @@ The dashboard shows every event in the ledger, including raw X12 and XML intake 
 It combines a memorable metaphor, a real service architecture, and a searchable transaction ledger so teams can see how payer, provider, claim, acknowledgment, and payment workflows fit together.
 
 **Talk track:**  
-Our next step is to keep moving from simulator to integration lab: stronger validation, async processing, trading partner routing, and richer adjudication logic.
+Our next step is to harden the integration lab: API auth, correlation IDs, structured logs, traces, migration safety, rate limits, and deeper document-vault behavior for external 275 references.

@@ -17,6 +17,8 @@ An adventurer joins the Society, gets coverage, visits a healer after a dangerou
 
 The dashboard shows each step as both a lore-flavored event and a real EDI-inspired transaction record.
 
+The current build also exposes XML/JSON intake, trading partner validation, raw X12 payloads, acknowledgments, asynchronous processing, export/replay controls, and 275 documentation review flows so learners can see both the business story and the integration mechanics.
+
 For a deeper breakdown of how each X12 transaction fits into the project, see [ASHN X12 Workflow Breakdown](x12-workflow.md).
 
 ## Why It Matters
@@ -26,6 +28,10 @@ Healthcare EDI is important but hard to learn because the flow is invisible and 
 - a Go API gateway and service architecture
 - payer and provider service boundaries
 - Postgres-backed transaction history
+- XML/JSON intake with raw X12 visibility
+- trading partner routing and validation
+- asynchronous authorization and adjudication state changes
+- 275 documentation requests, per-document review, deficiency follow-up, and resubmission
 - a CLI and dashboard for demos
 - repeatable local scripts for setup, reset, and workflow execution
 - tests around the core HTTP contracts
@@ -38,7 +44,7 @@ It is not trying to be a production clearinghouse. It is a teaching, prototyping
 
 Then Farros arrives at the Temple of the Healer in Vitesse. Before treatment, the temple checks whether coverage is active. That is our `270` eligibility inquiry and `271` eligibility response.
 
-Because the incident is severe, the temple requests prior authorization for resurrection using a `278`.
+Because the incident is severe, the temple requests prior authorization for resurrection using a `278`. If the Society needs supporting records, the provider can submit a `275` attachment packet and respond to document-specific deficiency requests.
 
 After treatment, the temple submits an incident claim with an `837`. The provider can check the claim’s current status with `276 → 277`. Finally, the Society pays the claim and sends an `835` remittance advice.
 
@@ -46,4 +52,4 @@ Every one of those events is persisted in Postgres and visible in the dashboard 
 
 ## Closing Line
 
-ASHN makes healthcare EDI tangible: a real transaction workflow, a memorable fantasy metaphor, and a working local system that demonstrates how payer, provider, claim, payment, and ledger concepts fit together.
+ASHN makes healthcare EDI tangible: a real transaction workflow, a memorable fantasy metaphor, and a working local system that demonstrates how payer, provider, claim, authorization, attachment, payment, audit, and ledger concepts fit together.
