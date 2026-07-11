@@ -169,6 +169,7 @@ type TransactionJob = {
 };
 
 const apiUrl = import.meta.env.VITE_ASHN_API_URL ?? "http://localhost:8080";
+const apiKey = String(import.meta.env.VITE_ASHN_API_KEY ?? "");
 const adventurerPageSize = 10;
 const claimPageSize = 10;
 const transactionPageSize = 25;
@@ -481,12 +482,20 @@ function App() {
   async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
     const response = await fetch(`${apiUrl}${path}`, {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {})
-      }
+      headers: requestHeaders(init?.headers)
     });
     return (await response.json()) as Envelope<T>;
+  }
+
+  function requestHeaders(initHeaders?: HeadersInit) {
+    const headers = new Headers(initHeaders);
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    if (apiKey && !headers.has("X-ASHN-API-Key")) {
+      headers.set("X-ASHN-API-Key", apiKey);
+    }
+    return headers;
   }
 
   function pushEvent(event: Envelope) {
@@ -513,12 +522,21 @@ function App() {
     downloadText("ashn-ledger-transactions.csv", transactionsToCSV(recentTransactions));
   }
 
-  function downloadFromPath(path: string) {
+  async function downloadFromPath(path: string) {
+    const headers = new Headers();
+    if (apiKey) {
+      headers.set("X-ASHN-API-Key", apiKey);
+    }
+    const response = await fetch(`${apiUrl}${path}`, { headers });
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
-    anchor.href = `${apiUrl}${path}`;
+    anchor.href = url;
+    anchor.download = downloadFilename(response, path);
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function saveTradingPartner(event: FormEvent<HTMLFormElement>) {
@@ -1830,6 +1848,16 @@ function transactionPayloadView(transaction: Transaction, tab: PayloadTab) {
     filename: `ashn-${transaction.type}-${transaction.id}.json`,
     canDownload: true
   };
+}
+
+function downloadFilename(response: Response, path: string) {
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  if (match?.[1]) {
+    return match[1];
+  }
+  const format = new URL(path, "http://ashn.local").searchParams.get("format") ?? "json";
+  return `ashn-export.${format}`;
 }
 
 function transactionsToCSV(transactions: Transaction[]) {

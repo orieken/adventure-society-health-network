@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "ASHN is a lore-themed EDI healthcare transaction simulator. Phase 1 uses structured JSON payloads that mirror X12 transaction flow.",
+  "description": "ASHN is a lore-themed healthcare EDI simulator with XML/JSON intake, raw X12 visibility, async processing, and dashboard workflows.",
   "directories": {
     "doc": "docs"
   },

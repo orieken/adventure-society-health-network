@@ -142,7 +142,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P3 — Security and Operational Readiness
 
-- [ ] Add API authentication for partner-facing endpoints.
+- [x] Add API authentication for partner-facing endpoints.
 - [ ] Add request IDs and correlation IDs across services.
 - [ ] Add structured logs.
 - [ ] Add basic OpenTelemetry traces.

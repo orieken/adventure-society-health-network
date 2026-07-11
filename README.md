@@ -65,6 +65,8 @@ Trading partner profiles and routing rules are available at `GET /v1/x12/trading
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
 
+API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-separated list of accepted keys; protected `/v1` routes then accept either `Authorization: Bearer <key>` or `X-ASHN-API-Key: <key>`. `GET /v1/health` stays public for health checks. If the dashboard talks to an authenticated gateway, set `VITE_ASHN_API_KEY` to the same demo key at build/runtime.
+
 ## What It Exposes For Learning
 
 - How payer, provider, gateway, intake, worker, and ledger service boundaries fit together.
@@ -72,6 +74,7 @@ XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?
 - How XML/JSON intake, trading partner validation, acknowledgments, raw X12, and durable audit trails can coexist in one workflow.
 - How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.
 - How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
+- How opt-in gateway API keys protect partner-facing routes without blocking public health checks.
 
 ## Docker Compose Backend
 

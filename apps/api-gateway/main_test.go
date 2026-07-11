@@ -171,6 +171,89 @@ func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
 	assert.Equal(t, []string{"application/xml", "application/json"}, downstreamContentTypes)
 }
 
+func TestGatewayAuthIsDisabledWhenNoAPIKeysAreConfigured(t *testing.T) {
+	called := false
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		assert.Equal(t, "/x12/xml", r.URL.Path)
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "Intake accepted."})
+	})}
+	handler := gatewayHandler(gateway{ediURL: "http://edi-intake", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.True(t, called)
+}
+
+func TestGatewayRequiresConfiguredAPIKeyForV1Routes(t *testing.T) {
+	called := false
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		called = true
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "Intake accepted."})
+	})}
+	handler := gatewayHandler(gateway{ediURL: "http://edi-intake", client: client, apiKeys: []string{"society-secret"}})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
+	assert.False(t, called)
+	assert.Equal(t, "unauthorized", decodeGatewayEnvelope(t, response).Error)
+	assert.Contains(t, response.Header().Get("WWW-Authenticate"), "Bearer")
+}
+
+func TestGatewayAcceptsBearerOrAPIKeyHeader(t *testing.T) {
+	paths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.URL.Path)
+		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "Authorized."})
+	})}
+	handler := gatewayHandler(gateway{ediURL: "http://edi-intake", client: client, apiKeys: []string{"society-secret"}})
+
+	bearerResponse := httptest.NewRecorder()
+	bearerRequest := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
+	bearerRequest.Header.Set("Authorization", "Bearer society-secret")
+	handler.ServeHTTP(bearerResponse, bearerRequest)
+
+	headerResponse := httptest.NewRecorder()
+	headerRequest := httptest.NewRequest(http.MethodPost, "/v1/x12/transactions", strings.NewReader(`{"type":"837"}`))
+	headerRequest.Header.Set("X-ASHN-API-Key", "society-secret")
+	handler.ServeHTTP(headerResponse, headerRequest)
+
+	assert.Equal(t, http.StatusOK, bearerResponse.Code)
+	assert.Equal(t, http.StatusOK, headerResponse.Code)
+	assert.Equal(t, []string{"/x12/xml", "/x12/transactions"}, paths)
+}
+
+func TestGatewayHealthAndPreflightBypassAPIKey(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		assert.Equal(t, "/health", r.URL.Path)
+		return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
+	})}
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", client: client, apiKeys: []string{"society-secret"}})
+
+	healthResponse := httptest.NewRecorder()
+	handler.ServeHTTP(healthResponse, httptest.NewRequest(http.MethodGet, "/v1/health", nil))
+
+	optionsResponse := httptest.NewRecorder()
+	handler.ServeHTTP(optionsResponse, httptest.NewRequest(http.MethodOptions, "/v1/x12/xml", nil))
+
+	assert.Equal(t, http.StatusOK, healthResponse.Code)
+	assert.Equal(t, http.StatusNoContent, optionsResponse.Code)
+}
+
+func TestGatewayAPIKeyParsingAndBearerToken(t *testing.T) {
+	assert.Equal(t, []string{"alpha", "beta"}, parseAPIKeys(" alpha, ,beta "))
+	assert.Equal(t, "secret", bearerToken("Bearer secret"))
+	assert.Equal(t, "secret", bearerToken("bearer secret"))
+	assert.Empty(t, bearerToken("Basic secret"))
+	assert.Empty(t, bearerToken("Bearer"))
+}
+
 func TestGatewayRoutesXMLAuditMessagesToEDIIntake(t *testing.T) {
 	var downstreamURI string
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -218,6 +301,32 @@ func TestGatewayRoutesXMLMessageActionsAndTradingPartnersToEDIIntake(t *testing.
 		"POST /x12/messages/msg-1/replay",
 		"GET /x12/trading-partners",
 		"POST /x12/trading-partners",
+		"PUT /x12/trading-partners/tp-1",
+		"DELETE /x12/trading-partners/tp-1",
+	}, paths)
+}
+
+func TestGatewayMuxRegistersTradingPartnerMutationMethods(t *testing.T) {
+	paths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "edi route"})
+	})}
+	handler := gatewayMainHandler(gateway{ediURL: "http://edi-intake", client: client})
+
+	for _, item := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPut, "/v1/x12/trading-partners/tp-1"},
+		{http.MethodDelete, "/v1/x12/trading-partners/tp-1"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(item.method, item.path, nil))
+		assert.Equal(t, http.StatusOK, response.Code)
+	}
+
+	assert.Equal(t, []string{
 		"PUT /x12/trading-partners/tp-1",
 		"DELETE /x12/trading-partners/tp-1",
 	}, paths)
@@ -408,11 +517,25 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	assert.Contains(t, paths, "/v1/health")
 	assert.Contains(t, paths, "/v1/x12/xml")
 	assert.Contains(t, paths, "/v1/transactions/{id}/export")
+	components := spec["components"].(map[string]any)
+	securitySchemes := components["securitySchemes"].(map[string]any)
+	assert.Contains(t, securitySchemes, "bearerAuth")
+	assert.Contains(t, securitySchemes, "apiKeyAuth")
 }
 
 func gatewayHandler(g gateway) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/", g.route)
+	return cors(mux)
+}
+
+func gatewayMainHandler(g gateway) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/", g.route)
+	mux.HandleFunc("POST /v1/", g.route)
+	mux.HandleFunc("PUT /v1/", g.route)
+	mux.HandleFunc("DELETE /v1/", g.route)
+	mux.HandleFunc("OPTIONS /v1/", g.route)
 	return cors(mux)
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"log"
@@ -21,6 +22,7 @@ type gateway struct {
 	client                 *http.Client
 	coldStartRetryAttempts int
 	coldStartRetryDelay    time.Duration
+	apiKeys                []string
 }
 
 func main() {
@@ -29,12 +31,15 @@ func main() {
 		providerURL: env("PROVIDER_SERVICE_URL", "http://localhost:8082"),
 		ediURL:      env("EDI_INTAKE_URL", "http://localhost:8083"),
 		client:      &http.Client{Timeout: 35 * time.Second},
+		apiKeys:     parseAPIKeys(env("ASHN_API_KEYS", "")),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN API Gateway Docs"))
 	mux.HandleFunc("GET /openapi.json", openapidocs.JSONHandler(apiGatewayOpenAPI()))
 	mux.HandleFunc("GET /v1/", g.route)
 	mux.HandleFunc("POST /v1/", g.route)
+	mux.HandleFunc("PUT /v1/", g.route)
+	mux.HandleFunc("DELETE /v1/", g.route)
 	mux.HandleFunc("OPTIONS /v1/", g.route)
 	addr := env("API_GATEWAY_ADDR", ":8080")
 	log.Printf("[ASHN] api-gateway listening on %s", addr)
@@ -47,6 +52,11 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/v1")
+	if g.requiresAPIKey(path, r.Method) && !g.authorized(r) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="ashn-api"`)
+		fail(w, http.StatusUnauthorized, "unauthorized", "The gateway ward rejected the courier seal.")
+		return
+	}
 	switch {
 	case path == "/health" && r.Method == http.MethodGet:
 		g.health(w)
@@ -213,8 +223,40 @@ func (g gateway) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
+func (g gateway) requiresAPIKey(path, method string) bool {
+	if len(g.apiKeys) == 0 || method == http.MethodOptions {
+		return false
+	}
+	return !(path == "/health" && method == http.MethodGet)
+}
+
+func (g gateway) authorized(r *http.Request) bool {
+	return g.validAPIKey(bearerToken(r.Header.Get("Authorization"))) || g.validAPIKey(r.Header.Get("X-ASHN-API-Key"))
+}
+
+func (g gateway) validAPIKey(candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	for _, key := range g.apiKeys {
+		if subtle.ConstantTimeCompare([]byte(candidate), []byte(key)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func bearerToken(header string) string {
+	scheme, value, ok := strings.Cut(strings.TrimSpace(header), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
 func apiGatewayOpenAPI() map[string]any {
-	return openapidocs.Spec(openapidocs.Service{
+	spec := openapidocs.Spec(openapidocs.Service{
 		Title:       "ASHN API Gateway",
 		Description: "Public facade for the Adventure Society Health Network demo APIs.",
 		Version:     "0.1.0",
@@ -268,12 +310,26 @@ func apiGatewayOpenAPI() map[string]any {
 			"/v1/providers/{id}/verify-eligibility": {"post": {Summary: "Verify eligibility through provider workflow", Tags: []string{"providers", "eligibility"}, RequestBody: true}},
 		},
 	})
+	spec["components"] = map[string]any{
+		"securitySchemes": map[string]any{
+			"bearerAuth": map[string]string{
+				"type":   "http",
+				"scheme": "bearer",
+			},
+			"apiKeyAuth": map[string]string{
+				"type": "apiKey",
+				"in":   "header",
+				"name": "X-ASHN-API-Key",
+			},
+		},
+	}
+	return spec
 }
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-ASHN-API-Key")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		next.ServeHTTP(w, r)
 	})
@@ -304,6 +360,17 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func parseAPIKeys(value string) []string {
+	keys := []string{}
+	for _, item := range strings.Split(value, ",") {
+		key := strings.TrimSpace(item)
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func logRequests(next http.Handler) http.Handler {
