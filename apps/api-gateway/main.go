@@ -13,6 +13,7 @@ import (
 
 	"ashn/packages/domain"
 	"ashn/packages/openapidocs"
+	"ashn/packages/requestmeta"
 )
 
 type gateway struct {
@@ -43,7 +44,7 @@ func main() {
 	mux.HandleFunc("OPTIONS /v1/", g.route)
 	addr := env("API_GATEWAY_ADDR", ":8080")
 	log.Printf("[ASHN] api-gateway listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, cors(logRequests(mux))))
+	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("api-gateway", cors(logRequests(mux)))))
 }
 
 func (g gateway) route(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +164,7 @@ func (g gateway) doProxyRequest(r *http.Request, targetURL string) (*http.Respon
 			return nil, errRequestCreation
 		}
 		req.Header = r.Header.Clone()
+		requestmeta.Propagate(r, req)
 		resp, err := g.httpClient().Do(req)
 		if err != nil {
 			return nil, err
@@ -329,7 +331,7 @@ func apiGatewayOpenAPI() map[string]any {
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-ASHN-API-Key")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-ASHN-API-Key, X-Request-ID, X-Correlation-ID")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		next.ServeHTTP(w, r)
 	})
@@ -375,7 +377,7 @@ func parseAPIKeys(value string) []string {
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s", r.Method, r.URL.Path)
+		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
 		next.ServeHTTP(w, r)
 	})
 }

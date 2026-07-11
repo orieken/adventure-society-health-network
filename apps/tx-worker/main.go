@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ashn/packages/asyncjobs"
+	"ashn/packages/requestmeta"
 
 	_ "github.com/lib/pq"
 )
@@ -41,7 +42,7 @@ func startHealthServer(addr string) {
 	mux.HandleFunc("GET /health", health)
 	go func() {
 		log.Printf("[ASHN] tx-worker health listening on %s", addr)
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		if err := http.ListenAndServe(addr, requestmeta.Middleware("tx-worker", mux)); err != nil {
 			log.Printf("[ASHN] tx-worker health server stopped: %v", err)
 		}
 	}()

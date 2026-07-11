@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ashn/packages/domain"
+	"ashn/packages/requestmeta"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -169,6 +170,29 @@ func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, jsonResponseRecorder.Code)
 	assert.Equal(t, []string{"/x12/xml", "/x12/transactions"}, downstreamPaths)
 	assert.Equal(t, []string{"application/xml", "application/json"}, downstreamContentTypes)
+}
+
+func TestGatewayPropagatesRequestAndCorrelationIDs(t *testing.T) {
+	var downstreamRequestID string
+	var downstreamCorrelationID string
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamRequestID = r.Header.Get(requestmeta.RequestIDHeader)
+		downstreamCorrelationID = r.Header.Get(requestmeta.CorrelationIDHeader)
+		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "Traced."})
+	})}
+	handler := requestmeta.Middleware("api-gateway-test", gatewayHandler(gateway{payerURL: "http://payer-core", client: client}))
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/transactions", nil)
+	request.Header.Set(requestmeta.RequestIDHeader, "req-demo")
+	request.Header.Set(requestmeta.CorrelationIDHeader, "corr-demo")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, "req-demo", response.Header().Get(requestmeta.RequestIDHeader))
+	assert.Equal(t, "corr-demo", response.Header().Get(requestmeta.CorrelationIDHeader))
+	assert.Equal(t, "req-demo", downstreamRequestID)
+	assert.Equal(t, "corr-demo", downstreamCorrelationID)
 }
 
 func TestGatewayAuthIsDisabledWhenNoAPIKeysAreConfigured(t *testing.T) {

@@ -67,6 +67,8 @@ XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?
 
 API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-separated list of accepted keys; protected `/v1` routes then accept either `Authorization: Bearer <key>` or `X-ASHN-API-Key: <key>`. `GET /v1/health` stays public for health checks. If the dashboard talks to an authenticated gateway, set `VITE_ASHN_API_KEY` to the same demo key at build/runtime.
 
+Every service echoes and propagates `X-Request-ID` and `X-Correlation-ID`. Clients can provide either header; otherwise the receiving service creates IDs and forwards them through gateway, intake, provider, payer, and worker health boundaries.
+
 ## What It Exposes For Learning
 
 - How payer, provider, gateway, intake, worker, and ledger service boundaries fit together.
@@ -75,6 +77,7 @@ API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-se
 - How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.
 - How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
 - How opt-in gateway API keys protect partner-facing routes without blocking public health checks.
+- How request and correlation IDs make multi-service EDI flows traceable.
 
 ## Docker Compose Backend
 

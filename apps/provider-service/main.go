@@ -11,6 +11,7 @@ import (
 
 	"ashn/packages/domain"
 	"ashn/packages/openapidocs"
+	"ashn/packages/requestmeta"
 
 	_ "github.com/lib/pq"
 )
@@ -34,7 +35,7 @@ func main() {
 	mux.HandleFunc("POST /providers/{id}/submit-claim", app.submitClaim)
 	addr := env("PROVIDER_SERVICE_ADDR", ":8082")
 	log.Printf("[ASHN] provider-service listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
+	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("provider-service", logRequests(mux))))
 }
 
 func (a providerApp) listProviders(w http.ResponseWriter, _ *http.Request) {
@@ -67,7 +68,7 @@ func (a providerApp) verifyEligibility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := domain.EligibilityRequest{AdventurerID: input.AdventurerID, ProviderID: providerID}
-	a.forward(w, http.MethodPost, "/eligibility/query", body)
+	a.forward(w, r, http.MethodPost, "/eligibility/query", body)
 }
 
 func (a providerApp) submitClaim(w http.ResponseWriter, r *http.Request) {
@@ -81,10 +82,10 @@ func (a providerApp) submitClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.ProviderID = providerID
-	a.forward(w, http.MethodPost, "/claims", input)
+	a.forward(w, r, http.MethodPost, "/claims", input)
 }
 
-func (a providerApp) forward(w http.ResponseWriter, method, path string, body any) {
+func (a providerApp) forward(w http.ResponseWriter, inbound *http.Request, method, path string, body any) {
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequest(method, a.payerURL+path, bytes.NewReader(payload))
 	if err != nil {
@@ -92,6 +93,7 @@ func (a providerApp) forward(w http.ResponseWriter, method, path string, body an
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	requestmeta.Propagate(inbound, req)
 	resp, err := a.httpClient().Do(req)
 	if err != nil {
 		fail(w, http.StatusBadGateway, "payer-core unavailable", "The provider courier could not reach the Adventure Society.")
@@ -235,7 +237,7 @@ func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB 
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s", r.Method, r.URL.Path)
+		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
 		next.ServeHTTP(w, r)
 	})
 }

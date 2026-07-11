@@ -20,6 +20,7 @@ import (
 	edimock "ashn/packages/edi-mock"
 	"ashn/packages/lore"
 	"ashn/packages/openapidocs"
+	"ashn/packages/requestmeta"
 
 	_ "github.com/lib/pq"
 )
@@ -105,7 +106,7 @@ func main() {
 	mux.HandleFunc("POST /jobs/{id}/replay", app.replayJob)
 	addr := env("PAYER_CORE_ADDR", ":8081")
 	log.Printf("[ASHN] payer-core listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
+	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("payer-core", logRequests(mux))))
 }
 
 func (s *store) listAdventurers(w http.ResponseWriter, r *http.Request) {
@@ -1687,7 +1688,7 @@ func openDBWith(dsn string, open func(string, string) (*sql.DB, error)) *sql.DB 
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s", r.Method, r.URL.Path)
+		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
 		next.ServeHTTP(w, r)
 	})
 }

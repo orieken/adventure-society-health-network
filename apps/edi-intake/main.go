@@ -17,6 +17,7 @@ import (
 	"ashn/packages/domain"
 	edimock "ashn/packages/edi-mock"
 	"ashn/packages/openapidocs"
+	"ashn/packages/requestmeta"
 
 	_ "github.com/lib/pq"
 )
@@ -131,7 +132,7 @@ func main() {
 	mux.HandleFunc("DELETE /x12/trading-partners/{id}", app.deleteTradingPartner)
 	addr := env("EDI_INTAKE_ADDR", ":8083")
 	log.Printf("[ASHN] edi-intake listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, logRequests(mux)))
+	log.Fatal(http.ListenAndServe(addr, requestmeta.Middleware("edi-intake", logRequests(mux))))
 }
 
 func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +141,7 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		messageID := a.auditInboundMessage(contentType, "", "", "", "rejected", "invalid payload", http.StatusBadRequest)
-		a.record999(messageID, "", "", false, "invalid payload")
+		a.record999(r, messageID, "", "", false, "invalid payload")
 		fail(w, http.StatusBadRequest, "invalid payload", "The intake scroll faded before the scribe could read it.")
 		return
 	}
@@ -148,14 +149,14 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 	inbound, err := parseInboundPayload(contentType, body)
 	if errors.Is(err, errUnsupportedContentType) {
 		messageID := a.auditInboundMessage(contentType, "", "", rawPayload, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
-		a.record999(messageID, "", "", false, "unsupported content type")
+		a.record999(r, messageID, "", "", false, "unsupported content type")
 		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe accepts canonical ASHN XML or JSON scrolls.")
 		return
 	}
 	if err != nil {
 		errorText := invalidPayloadError(contentType)
 		messageID := a.auditInboundMessage(contentType, "", "", rawPayload, "rejected", errorText, http.StatusBadRequest)
-		a.record999(messageID, "", "", false, errorText)
+		a.record999(r, messageID, "", "", false, errorText)
 		fail(w, http.StatusBadRequest, errorText, "The intake scroll does not match the Society canonical transaction format.")
 		return
 	}
@@ -166,31 +167,31 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusNotImplemented
 		}
 		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawPayload, "rejected", err.Error(), status)
-		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
+		a.record999(r, messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
 		fail(w, status, err.Error(), "The intake scribe rejected the transaction scroll before it entered the ledger.")
 		return
 	}
 	partner, err := a.validateTradingPartner(inbound)
 	if err != nil {
 		messageID := a.auditInboundMessage(contentType, "", inbound.Type, rawPayload, "rejected", err.Error(), http.StatusBadRequest)
-		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
+		a.record999(r, messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
 		fail(w, http.StatusBadRequest, err.Error(), "The trading partner seal did not match the Society routing rules.")
 		return
 	}
 	if err := validateTradingPartnerProfile(partner, inbound); err != nil {
 		messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawPayload, "rejected", err.Error(), http.StatusBadRequest)
-		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
+		a.record999(r, messageID, inbound.Type, inbound.Sender.ID, false, err.Error())
 		fail(w, http.StatusBadRequest, err.Error(), "The companion guide seal rejected the transaction scroll.")
 		return
 	}
-	status, forwardErr := a.forward(w, method, path, payload)
+	status, forwardErr := a.forward(w, r, method, path, payload)
 	if forwardErr != "" {
 		messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawPayload, "rejected", forwardErr, status)
-		a.record999(messageID, inbound.Type, inbound.Sender.ID, false, forwardErr)
+		a.record999(r, messageID, inbound.Type, inbound.Sender.ID, false, forwardErr)
 		return
 	}
 	messageID := a.auditInboundMessage(contentType, partner.ID, inbound.Type, rawPayload, "accepted", "", status)
-	a.record999(messageID, inbound.Type, inbound.Sender.ID, true, "")
+	a.record999(r, messageID, inbound.Type, inbound.Sender.ID, true, "")
 }
 
 func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +484,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any) (int, string) {
+func (a intakeApp) forward(w http.ResponseWriter, inbound *http.Request, method, path string, body any) (int, string) {
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
@@ -501,6 +502,7 @@ func (a intakeApp) forward(w http.ResponseWriter, method, path string, body any)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	requestmeta.Propagate(inbound, req)
 	resp, err := a.httpClient().Do(req)
 	if err != nil {
 		fail(w, http.StatusBadGateway, "payer-core unavailable", "The intake courier could not reach the Adventure Society.")
@@ -806,7 +808,7 @@ func (a intakeApp) removeTradingPartner(id string) error {
 	return nil
 }
 
-func (a intakeApp) record999(relatedID string, transactionType string, receiverID string, accepted bool, errorText string) {
+func (a intakeApp) record999(inbound *http.Request, relatedID string, transactionType string, receiverID string, accepted bool, errorText string) {
 	if relatedID == "" {
 		return
 	}
@@ -825,6 +827,7 @@ func (a intakeApp) record999(relatedID string, transactionType string, receiverI
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	requestmeta.Propagate(inbound, req)
 	resp, err := a.httpClient().Do(req)
 	if err != nil {
 		log.Printf("[ASHN] 999 persistence failed: %v", err)
@@ -1276,7 +1279,7 @@ func env(key, fallback string) string {
 
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[ASHN] %s %s", r.Method, r.URL.Path)
+		log.Printf("[ASHN] %s %s %s", r.Method, r.URL.Path, requestmeta.LogFields(r))
 		next.ServeHTTP(w, r)
 	})
 }

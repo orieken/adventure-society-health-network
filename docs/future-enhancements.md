@@ -143,7 +143,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 ### P3 — Security and Operational Readiness
 
 - [x] Add API authentication for partner-facing endpoints.
-- [ ] Add request IDs and correlation IDs across services.
+- [x] Add request IDs and correlation IDs across services.
 - [ ] Add structured logs.
 - [ ] Add basic OpenTelemetry traces.
 - [x] Add health checks for every service in Docker Compose.

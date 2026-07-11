@@ -813,22 +813,23 @@ func TestReplayMessageReprocessesStoredXML(t *testing.T) {
 }
 
 func TestForwardHandlesRequestCreationDownstreamAndRejectedResponses(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", nil)
 	response := httptest.NewRecorder()
-	status, message := intakeApp{payerURL: "://bad"}.forward(response, http.MethodPost, "/claims", map[string]string{"ok": "true"})
+	status, message := intakeApp{payerURL: "://bad"}.forward(response, request, http.MethodPost, "/claims", map[string]string{"ok": "true"})
 	assert.Equal(t, http.StatusInternalServerError, status)
 	assert.Equal(t, "request creation failed", message)
 
 	response = httptest.NewRecorder()
 	status, message = intakeApp{payerURL: "http://payer", client: &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		return nil, assert.AnError
-	})}}.forward(response, http.MethodPost, "/claims", map[string]string{"ok": "true"})
+	})}}.forward(response, request, http.MethodPost, "/claims", map[string]string{"ok": "true"})
 	assert.Equal(t, http.StatusBadGateway, status)
 	assert.Equal(t, "payer-core unavailable", message)
 
 	response = httptest.NewRecorder()
 	status, message = intakeApp{payerURL: "http://payer", client: &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusBadRequest, domain.ErrorEnvelope{Error: "bad request"})
-	})}}.forward(response, http.MethodPost, "/claims", map[string]string{"ok": "true"})
+	})}}.forward(response, request, http.MethodPost, "/claims", map[string]string{"ok": "true"})
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Equal(t, "payer-core rejected XML-derived request", message)
 }
@@ -840,7 +841,7 @@ func TestRecord999HandlesRejectedPersistenceResponse(t *testing.T) {
 	})}
 
 	assert.NotPanics(t, func() {
-		intakeApp{payerURL: "http://payer", client: client}.record999("related-1", "834", "partner-1", false, "bad")
+		intakeApp{payerURL: "http://payer", client: client}.record999(httptest.NewRequest(http.MethodPost, "/x12/xml", nil), "related-1", "834", "partner-1", false, "bad")
 	})
 }
 
@@ -940,8 +941,9 @@ func TestFindMessageHandlesMissingRowsAndRecord999Guards(t *testing.T) {
 
 	_, ok := app.findMessage("missing")
 	assert.False(t, ok)
-	app.record999("", "834", "", true, "")
-	app.record999("related-1", "834", "", true, "")
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", nil)
+	app.record999(request, "", "834", "", true, "")
+	app.record999(request, "related-1", "834", "", true, "")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

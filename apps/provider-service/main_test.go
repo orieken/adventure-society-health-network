@@ -167,8 +167,9 @@ func TestProviderForwardHandlesDownstreamUnavailable(t *testing.T) {
 func TestProviderForwardHandlesRequestCreationFailureAndHTTPClientFallback(t *testing.T) {
 	app := providerApp{providers: seedProviders(), payerURL: "://bad-url"}
 	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/providers/provider-vitesse-temple/submit-claim", nil)
 
-	app.forward(response, http.MethodPost, "/claims", map[string]string{"ok": "true"})
+	app.forward(response, request, http.MethodPost, "/claims", map[string]string{"ok": "true"})
 
 	assert.Equal(t, http.StatusInternalServerError, response.Code)
 	assert.Equal(t, "request creation failed", decodeProviderEnvelope(t, response).Error)

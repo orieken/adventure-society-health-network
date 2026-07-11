@@ -18,3 +18,7 @@ X-ASHN-API-Key: dev-secret
 ```
 
 `GET /v1/health` and CORS preflight requests stay public so Render, Docker Compose, and browser clients can still perform health checks.
+
+## Request Tracing
+
+The gateway accepts or creates `X-Request-ID` and `X-Correlation-ID`, returns both headers to the caller, and forwards them to downstream services. Provide `X-Correlation-ID` when grouping several calls into one demo or replay workflow.
