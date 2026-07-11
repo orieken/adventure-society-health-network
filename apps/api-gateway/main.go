@@ -4,8 +4,11 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"io"
+	"math"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +27,7 @@ type gateway struct {
 	coldStartRetryAttempts int
 	coldStartRetryDelay    time.Duration
 	apiKeys                []string
+	rateLimiter            *rateLimiter
 }
 
 func main() {
@@ -33,6 +37,7 @@ func main() {
 		ediURL:      env("EDI_INTAKE_URL", "http://localhost:8083"),
 		client:      &http.Client{Timeout: 35 * time.Second},
 		apiKeys:     parseAPIKeys(env("ASHN_API_KEYS", "")),
+		rateLimiter: rateLimiterFromEnv(),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", openapidocs.HTMLHandler("ASHN API Gateway Docs"))
@@ -56,6 +61,9 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 	if g.requiresAPIKey(path, r.Method) && !g.authorized(r) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="ashn-api"`)
 		fail(w, http.StatusUnauthorized, "unauthorized", "The gateway ward rejected the courier seal.")
+		return
+	}
+	if !g.allowRequest(w, r, path) {
 		return
 	}
 	switch {
@@ -236,6 +244,47 @@ func (g gateway) authorized(r *http.Request) bool {
 	return g.validAPIKey(bearerToken(r.Header.Get("Authorization"))) || g.validAPIKey(r.Header.Get("X-ASHN-API-Key"))
 }
 
+func (g gateway) allowRequest(w http.ResponseWriter, r *http.Request, path string) bool {
+	if g.rateLimiter == nil || g.exemptFromRateLimit(path, r.Method) {
+		return true
+	}
+	result := g.rateLimiter.allow(g.rateLimitKey(r))
+	w.Header().Set("X-RateLimit-Limit", strconv.Itoa(result.limit))
+	w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.remaining))
+	w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(result.reset.Unix(), 10))
+	if result.allowed {
+		return true
+	}
+	retryAfter := int(math.Ceil(g.rateLimiter.retryAfter(result.reset).Seconds()))
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	fail(w, http.StatusTooManyRequests, "rate limit exceeded", "Too many couriers reached the gateway at once. Wait for the crystal to clear.")
+	return false
+}
+
+func (g gateway) exemptFromRateLimit(path, method string) bool {
+	return method == http.MethodOptions || (path == "/health" && method == http.MethodGet)
+}
+
+func (g gateway) rateLimitKey(r *http.Request) string {
+	if token := bearerToken(r.Header.Get("Authorization")); token != "" {
+		return "api-key:" + token
+	}
+	if key := strings.TrimSpace(r.Header.Get("X-ASHN-API-Key")); key != "" {
+		return "api-key:" + key
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return "ip:" + host
+	}
+	if r.RemoteAddr != "" {
+		return "ip:" + r.RemoteAddr
+	}
+	return "ip:unknown"
+}
+
 func (g gateway) validAPIKey(candidate string) bool {
 	candidate = strings.TrimSpace(candidate)
 	if candidate == "" {
@@ -365,6 +414,39 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+func envInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func rateLimiterFromEnv() *rateLimiter {
+	limit := envInt("ASHN_RATE_LIMIT_REQUESTS", 300)
+	window := envDuration("ASHN_RATE_LIMIT_WINDOW", time.Minute)
+	if limit <= 0 || window <= 0 {
+		return nil
+	}
+	return newRateLimiter(limit, window, time.Now)
+}
+
 func parseAPIKeys(value string) []string {
 	keys := []string{}
 	for _, item := range strings.Split(value, ",") {
@@ -381,4 +463,64 @@ func logRequests(next http.Handler) http.Handler {
 		ashnlog.Request("api-gateway", r)
 		next.ServeHTTP(w, r)
 	})
+}
+
+type rateLimiter struct {
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
+	now     func() time.Time
+	buckets map[string]rateLimitBucket
+}
+
+type rateLimitBucket struct {
+	count int
+	reset time.Time
+}
+
+type rateLimitResult struct {
+	allowed   bool
+	limit     int
+	remaining int
+	reset     time.Time
+}
+
+func newRateLimiter(limit int, window time.Duration, now func() time.Time) *rateLimiter {
+	if now == nil {
+		now = time.Now
+	}
+	return &rateLimiter{
+		limit:   limit,
+		window:  window,
+		now:     now,
+		buckets: map[string]rateLimitBucket{},
+	}
+}
+
+func (l *rateLimiter) allow(key string) rateLimitResult {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := l.now()
+	bucket := l.buckets[key]
+	if bucket.reset.IsZero() || !now.Before(bucket.reset) {
+		bucket = rateLimitBucket{reset: now.Add(l.window)}
+	}
+	if bucket.count >= l.limit {
+		l.buckets[key] = bucket
+		return rateLimitResult{allowed: false, limit: l.limit, remaining: 0, reset: bucket.reset}
+	}
+	bucket.count++
+	l.buckets[key] = bucket
+	remaining := l.limit - bucket.count
+	if remaining < 0 {
+		remaining = 0
+	}
+	return rateLimitResult{allowed: true, limit: l.limit, remaining: remaining, reset: bucket.reset}
+}
+
+func (l *rateLimiter) retryAfter(reset time.Time) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return reset.Sub(l.now())
 }

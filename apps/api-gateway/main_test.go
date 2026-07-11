@@ -5,9 +5,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"ashn/packages/domain"
 	"ashn/packages/requestmeta"
@@ -272,6 +274,109 @@ func TestGatewayHealthAndPreflightBypassAPIKey(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, healthResponse.Code)
 	assert.Equal(t, http.StatusNoContent, optionsResponse.Code)
+}
+
+func TestGatewayRateLimitBlocksAfterConfiguredLimit(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		calls++
+		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "Ledger returned."})
+	})}
+	clock := fixedClock(time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
+	handler := gatewayHandler(gateway{
+		payerURL:    "http://payer-core",
+		client:      client,
+		rateLimiter: newRateLimiter(2, time.Minute, clock),
+	})
+
+	for requestNumber := 1; requestNumber <= 2; requestNumber++ {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/v1/transactions", nil)
+		request.RemoteAddr = "192.0.2.10:12000"
+		handler.ServeHTTP(response, request)
+
+		assert.Equal(t, http.StatusOK, response.Code)
+		assert.Equal(t, "2", response.Header().Get("X-RateLimit-Limit"))
+		assert.Equal(t, strconv.Itoa(2-requestNumber), response.Header().Get("X-RateLimit-Remaining"))
+	}
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/transactions", nil)
+	request.RemoteAddr = "192.0.2.10:12000"
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusTooManyRequests, response.Code)
+	assert.Equal(t, 2, calls)
+	assert.Equal(t, "rate limit exceeded", decodeGatewayEnvelope(t, response).Error)
+	assert.Equal(t, "60", response.Header().Get("Retry-After"))
+}
+
+func TestGatewayRateLimitSeparatesAPIKeyBuckets(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		calls++
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "Intake accepted."})
+	})}
+	handler := gatewayHandler(gateway{
+		ediURL:      "http://edi-intake",
+		client:      client,
+		apiKeys:     []string{"alpha", "beta"},
+		rateLimiter: newRateLimiter(1, time.Minute, fixedClock(time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))),
+	})
+
+	alphaOne := httptest.NewRecorder()
+	alphaRequest := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
+	alphaRequest.Header.Set("Authorization", "Bearer alpha")
+	handler.ServeHTTP(alphaOne, alphaRequest)
+
+	alphaTwo := httptest.NewRecorder()
+	alphaRetry := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
+	alphaRetry.Header.Set("Authorization", "Bearer alpha")
+	handler.ServeHTTP(alphaTwo, alphaRetry)
+
+	betaOne := httptest.NewRecorder()
+	betaRequest := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", strings.NewReader(`<AshnX12Transaction type="837" />`))
+	betaRequest.Header.Set("X-ASHN-API-Key", "beta")
+	handler.ServeHTTP(betaOne, betaRequest)
+
+	assert.Equal(t, http.StatusCreated, alphaOne.Code)
+	assert.Equal(t, http.StatusTooManyRequests, alphaTwo.Code)
+	assert.Equal(t, http.StatusCreated, betaOne.Code)
+	assert.Equal(t, 2, calls)
+}
+
+func TestGatewayRateLimitExemptsHealthAndPreflight(t *testing.T) {
+	handler := gatewayHandler(gateway{
+		payerURL:    "",
+		client:      http.DefaultClient,
+		apiKeys:     []string{"society-secret"},
+		rateLimiter: newRateLimiter(1, time.Minute, fixedClock(time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))),
+	})
+
+	for requestNumber := 0; requestNumber < 2; requestNumber++ {
+		healthResponse := httptest.NewRecorder()
+		handler.ServeHTTP(healthResponse, httptest.NewRequest(http.MethodGet, "/v1/health", nil))
+		assert.Equal(t, http.StatusOK, healthResponse.Code)
+		assert.Empty(t, healthResponse.Header().Get("X-RateLimit-Limit"))
+
+		optionsResponse := httptest.NewRecorder()
+		handler.ServeHTTP(optionsResponse, httptest.NewRequest(http.MethodOptions, "/v1/x12/xml", nil))
+		assert.Equal(t, http.StatusNoContent, optionsResponse.Code)
+		assert.Empty(t, optionsResponse.Header().Get("X-RateLimit-Limit"))
+	}
+}
+
+func TestGatewayRateLimitConfigurationFromEnv(t *testing.T) {
+	t.Setenv("ASHN_RATE_LIMIT_REQUESTS", "7")
+	t.Setenv("ASHN_RATE_LIMIT_WINDOW", "2m")
+	limiter := rateLimiterFromEnv()
+
+	require.NotNil(t, limiter)
+	assert.Equal(t, 7, limiter.limit)
+	assert.Equal(t, 2*time.Minute, limiter.window)
+
+	t.Setenv("ASHN_RATE_LIMIT_REQUESTS", "0")
+	assert.Nil(t, rateLimiterFromEnv())
 }
 
 func TestGatewayAPIKeyParsingAndBearerToken(t *testing.T) {
@@ -587,4 +692,10 @@ func jsonResponse(status int, value any) (*http.Response, error) {
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body:       io.NopCloser(strings.NewReader(string(payload))),
 	}, nil
+}
+
+func fixedClock(now time.Time) func() time.Time {
+	return func() time.Time {
+		return now
+	}
 }

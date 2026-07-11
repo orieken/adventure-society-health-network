@@ -19,6 +19,16 @@ X-ASHN-API-Key: dev-secret
 
 `GET /v1/health` and CORS preflight requests stay public so Render, Docker Compose, and browser clients can still perform health checks.
 
+## Rate Limiting
+
+The gateway applies an in-memory fixed-window rate limit to `/v1` routes. Requests are grouped by API key when `Authorization: Bearer <key>` or `X-ASHN-API-Key` is present, otherwise by remote IP address. `GET /v1/health` and CORS preflight requests are exempt.
+
+```sh
+ASHN_RATE_LIMIT_REQUESTS=300 ASHN_RATE_LIMIT_WINDOW=1m go run ./apps/api-gateway
+```
+
+Set `ASHN_RATE_LIMIT_REQUESTS=0` to disable the limiter for local stress testing. Limited responses return `429`, `Retry-After`, and `X-RateLimit-*` headers.
+
 ## Request Tracing
 
 The gateway accepts or creates `X-Request-ID` and `X-Correlation-ID`, returns both headers to the caller, and forwards them to downstream services. Provide `X-Correlation-ID` when grouping several calls into one demo or replay workflow.

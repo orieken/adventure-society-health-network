@@ -148,7 +148,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add basic OpenTelemetry traces.
 - [x] Add health checks for every service in Docker Compose.
 - [x] Add migration tests and seed-data reset tests.
-- [ ] Add rate limiting for public/demo endpoints.
+- [x] Add rate limiting for public/demo endpoints.
 
 ## Canonical XML Shape
 
@@ -189,9 +189,8 @@ Example `270` eligibility inquiry:
 3. Add structured logs that include transaction IDs, partner IDs, claim IDs, authorization IDs, and replay IDs.
 4. Add basic OpenTelemetry traces for intake, routing, queue processing, and replay.
 5. Add migration tests and seed-data reset tests for reliable demos.
-6. Add rate limiting for public/demo endpoints.
-7. Deepen document-vault retrieval for external `275` references.
-8. Add optional raw X12 file-drop or segment parsing intake once the canonical XML/JSON path remains stable.
+6. Deepen document-vault retrieval for external `275` references.
+7. Add optional raw X12 file-drop or segment parsing intake once the canonical XML/JSON path remains stable.
 
 ## Decision Summary
 

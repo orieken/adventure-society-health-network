@@ -67,6 +67,8 @@ XML intake audit records can be exported from `GET /v1/x12/messages/{id}/export?
 
 API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-separated list of accepted keys; protected `/v1` routes then accept either `Authorization: Bearer <key>` or `X-ASHN-API-Key: <key>`. `GET /v1/health` stays public for health checks. If the dashboard talks to an authenticated gateway, set `VITE_ASHN_API_KEY` to the same demo key at build/runtime.
 
+The gateway also rate-limits public/demo traffic with `ASHN_RATE_LIMIT_REQUESTS` and `ASHN_RATE_LIMIT_WINDOW`. Buckets are keyed by API key when present, otherwise by caller IP; health checks and preflight requests stay exempt.
+
 Every service echoes and propagates `X-Request-ID` and `X-Correlation-ID`. Clients can provide either header; otherwise the receiving service creates IDs and forwards them through gateway, intake, provider, payer, and worker health boundaries.
 
 Services also accept, emit, and propagate W3C `traceparent` and `tracestate` headers for basic OpenTelemetry-compatible trace context. Each service creates a local span ID, forwards trace context downstream, and includes `traceId`, `spanId`, and `parentSpanId` in structured request logs.
@@ -83,6 +85,7 @@ Service logs are emitted as structured JSON events with stable fields such as `t
 - How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.
 - How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
 - How opt-in gateway API keys protect partner-facing routes without blocking public health checks.
+- How gateway rate limiting protects public/demo endpoints while leaving health and CORS checks available.
 - How request and correlation IDs make multi-service EDI flows traceable.
 - How OpenTelemetry-compatible trace context follows gateway, intake, payer, provider, and worker requests.
 - How structured JSON logs expose operational events across gateway, intake, payer, provider, worker, and migration services.
