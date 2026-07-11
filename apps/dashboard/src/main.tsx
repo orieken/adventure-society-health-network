@@ -86,6 +86,19 @@ type DocumentationChecklistItem = {
   required: boolean;
 };
 
+type AttachmentDraft = {
+  packetId: string;
+  attachmentType: string;
+  attachmentControlNumber: string;
+  reportTypeCode: string;
+  transmissionCode: string;
+  contentType: string;
+  description: string;
+  documentReferenceId: string;
+  documentReferenceUrl: string;
+  content: string;
+};
+
 type PageInfo = {
   limit: number;
   offset: number;
@@ -739,21 +752,41 @@ function App() {
       method: "POST",
       body: JSON.stringify({
         packetId,
-        attachments: documentationChecklist.map((item, index) => ({
-          packetId,
-          attachmentType: item.attachmentType,
-          attachmentControlNumber: `ATTACH-${item.code}-${selectedClaim.id.slice(0, 8).toUpperCase()}`,
-          reportTypeCode: item.reportTypeCode,
-          transmissionCode: "EL",
-          contentType: item.contentType,
-          description: item.label,
-          documentReferenceId: `${item.code.toLowerCase()}-${selectedClaim.id.slice(0, 8)}`,
-          documentReferenceUrl: `https://docs.example.test/${selectedClaim.id}/${item.code.toLowerCase()}.txt`,
-          content: `${item.label} for claim ${selectedClaim.id}. Packet document ${index + 1} of ${documentationChecklist.length}.`
-        }))
+        attachments: documentationChecklist.map((item, index) => buildAttachmentDraft(selectedClaim, item, packetId, index + 1, documentationChecklist.length))
       })
     });
     pushEvent(result);
+    const refreshed = await request<Claim>(`/v1/claims/${selectedClaim.id}`);
+    if (refreshed.data) {
+      setSelectedClaim(refreshed.data);
+    }
+    await refresh();
+    setBusy(false);
+  }
+
+  async function requestDeficiencyAndResubmit(transaction: Transaction) {
+    if (!selectedClaim) return;
+    const checklistItem = checklistItemForTransaction(transaction);
+    setBusy(true);
+    const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const deficiency = await request<Record<string, string>>(`/v1/claims/${selectedClaim.id}/documentation-request`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: `Deficiency follow-up: ${checklistItem.label} needs corrected documentation.`,
+        dueDate,
+        requiredDocuments: [checklistItem]
+      })
+    });
+    pushEvent(deficiency);
+    const packetId = `${payloadString(transaction, "packetId") ?? `packet-${selectedClaim.id.slice(0, 8)}`}-resub`;
+    const resubmission = await request<Record<string, string>>(`/v1/claims/${selectedClaim.id}/attachments`, {
+      method: "POST",
+      body: JSON.stringify({
+        packetId,
+        attachments: [buildAttachmentDraft(selectedClaim, checklistItem, packetId, 1, 1, "resubmission")]
+      })
+    });
+    pushEvent(resubmission);
     const refreshed = await request<Claim>(`/v1/claims/${selectedClaim.id}`);
     if (refreshed.data) {
       setSelectedClaim(refreshed.data);
@@ -1292,6 +1325,7 @@ function App() {
                 attachmentTransactions={selectedClaimAttachmentTransactions}
                 busy={busy}
                 onReview={reviewAttachmentTransaction}
+                onResubmit={requestDeficiencyAndResubmit}
               />
               <DetailItem label="Status" value={selectedClaim.status} />
               <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
@@ -1463,13 +1497,15 @@ function DocumentationWorkbench({
   checklist,
   attachmentTransactions,
   busy,
-  onReview
+  onReview,
+  onResubmit
 }: {
   claim: Claim;
   checklist: DocumentationChecklistItem[];
   attachmentTransactions: Transaction[];
   busy: boolean;
   onReview: (transactionId: string, status: "Accepted" | "Rejected") => void;
+  onResubmit: (transaction: Transaction) => void;
 }) {
   const openCount = claim.status === "Pending Documentation" ? checklist.filter((item) => item.required).length : 0;
   const receivedCount = attachmentTransactions.length;
@@ -1511,6 +1547,9 @@ function DocumentationWorkbench({
                 <div className="review-actions">
                   <button disabled={busy || reviewStatus === "Accepted"} onClick={() => onReview(transaction.id, "Accepted")}>Accept Doc</button>
                   <button className="danger" disabled={busy || reviewStatus === "Rejected"} onClick={() => onReview(transaction.id, "Rejected")}>Reject Doc</button>
+                  {reviewStatus === "Rejected" && (
+                    <button disabled={busy} onClick={() => onResubmit(transaction)}>Request + Resubmit</button>
+                  )}
                 </div>
               </article>
             );
@@ -1667,6 +1706,34 @@ function claimAttachmentTransactions(claim: Claim, transactions: Transaction[]) 
       if (leftSequence !== rightSequence) return leftSequence - rightSequence;
       return Date.parse(left.createdAt) - Date.parse(right.createdAt);
     });
+}
+
+function checklistItemForTransaction(transaction: Transaction) {
+  const description = payloadString(transaction, "description");
+  const documentReferenceId = payloadString(transaction, "documentReferenceId") ?? "";
+  const attachmentControlNumber = payloadString(transaction, "attachmentControlNumber") ?? "";
+  return documentationChecklist.find((item) => (
+    item.label === description ||
+    documentReferenceId.includes(item.code.toLowerCase()) ||
+    attachmentControlNumber.includes(item.code)
+  )) ?? documentationChecklist[0];
+}
+
+function buildAttachmentDraft(claim: Claim, item: DocumentationChecklistItem, packetId: string, sequence: number, count: number, mode = "initial"): AttachmentDraft {
+  const claimToken = claim.id.slice(0, 8);
+  const modeSuffix = mode === "resubmission" ? "-RESUB" : "";
+  return {
+    packetId,
+    attachmentType: item.attachmentType,
+    attachmentControlNumber: `ATTACH-${item.code}-${claimToken.toUpperCase()}${modeSuffix}`,
+    reportTypeCode: item.reportTypeCode,
+    transmissionCode: "EL",
+    contentType: item.contentType,
+    description: mode === "resubmission" ? `${item.label} resubmission` : item.label,
+    documentReferenceId: `${item.code.toLowerCase()}-${claimToken}${mode === "resubmission" ? "-resub" : ""}`,
+    documentReferenceUrl: `https://docs.example.test/${claim.id}/${item.code.toLowerCase()}${mode === "resubmission" ? "-resub" : ""}.txt`,
+    content: `${item.label} ${mode === "resubmission" ? "corrected resubmission" : "supporting document"} for claim ${claim.id}. Packet document ${sequence} of ${count}.`
+  };
 }
 
 function timelineTitle(transaction: Transaction, claimId?: string, adventurerId?: string) {

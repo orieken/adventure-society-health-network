@@ -262,13 +262,19 @@ test.describe("ASHN dashboard smoke", () => {
     await drawer.locator(".document-review-row").filter({ hasText: "Medical necessity letter" }).getByRole("button", { name: "Accept Doc" }).click();
     await expect(drawer.locator(".document-review-row").filter({ hasText: "Medical necessity letter" }).getByText("Accepted")).toBeVisible();
     await expect(drawer.locator(".document-review-row").filter({ hasText: "Encounter notes" }).getByText("Received")).toBeVisible();
+    const encounterRow = drawer.locator(".document-review-row").filter({ hasText: "Encounter notes" });
+    await encounterRow.getByRole("button", { name: "Reject Doc" }).click();
+    await expect(encounterRow.getByText("Rejected")).toBeVisible();
+    await encounterRow.getByRole("button", { name: "Request + Resubmit" }).click();
+    await expect(drawer.locator(".document-review-row").filter({ hasText: "Encounter notes resubmission" }).getByText("Received")).toBeVisible();
+    await expect(drawer.locator(".document-review-row").filter({ hasText: "Medical necessity letter" }).getByText("Accepted")).toBeVisible();
 
     await page.getByRole("button", { name: "Close" }).click();
     await page.getByRole("button", { name: /Workflow/i }).click();
     const latestEvent = page.locator(".event").first();
     await latestEvent.getByText("Raw payload").click();
-    await expect(latestEvent.getByText("tx-e2e-doc-packet-1")).toBeVisible();
-    await expect(latestEvent.getByText("attachmentReviewStatus")).toBeVisible();
+    await expect(latestEvent.getByText("tx-e2e-doc-packet-4")).toBeVisible();
+    await expect(latestEvent.getByText("Encounter notes resubmission")).toBeVisible();
   });
 
   test("reviews 275 attachment outcomes separately from EDI acceptance", async ({ page }) => {
@@ -484,13 +490,15 @@ async function mockDashboardApi(page: Page) {
 
     if (path === "/v1/claims/claim-e2e-dashboard/documentation-request") {
       claimStatus = "Pending Documentation";
+      const body = route.request().postDataJSON() as { reason?: string; requiredDocuments?: unknown[] } | null;
+      const requiredDocumentCount = body?.requiredDocuments?.length ?? 3;
       await route.fulfill({
         status: 202,
         json: {
-          data: { claimId: "claim-e2e-dashboard", status: claimStatus, requestedTransaction: "275", requiredDocumentCount: 3 },
+          data: { claimId: "claim-e2e-dashboard", status: claimStatus, requestedTransaction: "275", requiredDocumentCount },
           transaction: {
             ...demoTransactions.find((transaction) => transaction.type === "277"),
-            id: "tx-e2e-doc-request",
+            id: requiredDocumentCount === 1 ? "tx-e2e-deficiency-request" : "tx-e2e-doc-request",
             relatedId: "tx-e2e-837"
           }
         }
@@ -512,9 +520,10 @@ async function mockDashboardApi(page: Page) {
       };
       const attachmentTemplate = demoTransactions.find((transaction) => transaction.type === "275");
       expect(attachmentTemplate).toBeTruthy();
+      const baseIndex = workbenchTransactions.length;
       const transactions = packet.attachments.map((attachment, index) => ({
         ...attachmentTemplate!,
-        id: `tx-e2e-doc-packet-${index + 1}`,
+        id: `tx-e2e-doc-packet-${baseIndex + index + 1}`,
         relatedId: "tx-e2e-837",
         payload: {
           x12: "275 documentation workbench packet fixture",
@@ -530,7 +539,11 @@ async function mockDashboardApi(page: Page) {
           description: attachment.description
         }
       }));
-      workbenchTransactions.splice(0, workbenchTransactions.length, ...transactions);
+      if (baseIndex === 0) {
+        workbenchTransactions.splice(0, workbenchTransactions.length, ...transactions);
+      } else {
+        workbenchTransactions.push(...transactions);
+      }
       await route.fulfill({
         status: 201,
         json: {
