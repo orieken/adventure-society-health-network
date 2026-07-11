@@ -175,9 +175,11 @@ func TestGatewayRoutesXMLToEDIIntake(t *testing.T) {
 func TestGatewayPropagatesRequestAndCorrelationIDs(t *testing.T) {
 	var downstreamRequestID string
 	var downstreamCorrelationID string
+	var downstreamTraceparent string
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		downstreamRequestID = r.Header.Get(requestmeta.RequestIDHeader)
 		downstreamCorrelationID = r.Header.Get(requestmeta.CorrelationIDHeader)
+		downstreamTraceparent = r.Header.Get(requestmeta.TraceparentHeader)
 		return jsonResponse(http.StatusOK, domain.Envelope{Lore: "Traced."})
 	})}
 	handler := requestmeta.Middleware("api-gateway-test", gatewayHandler(gateway{payerURL: "http://payer-core", client: client}))
@@ -193,6 +195,8 @@ func TestGatewayPropagatesRequestAndCorrelationIDs(t *testing.T) {
 	assert.Equal(t, "corr-demo", response.Header().Get(requestmeta.CorrelationIDHeader))
 	assert.Equal(t, "req-demo", downstreamRequestID)
 	assert.Equal(t, "corr-demo", downstreamCorrelationID)
+	assert.NotEmpty(t, response.Header().Get(requestmeta.TraceparentHeader))
+	assert.Equal(t, response.Header().Get(requestmeta.TraceparentHeader), downstreamTraceparent)
 }
 
 func TestGatewayAuthIsDisabledWhenNoAPIKeysAreConfigured(t *testing.T) {

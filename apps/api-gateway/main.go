@@ -331,7 +331,8 @@ func apiGatewayOpenAPI() map[string]any {
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-ASHN-API-Key, X-Request-ID, X-Correlation-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-ASHN-API-Key, X-Request-ID, X-Correlation-ID, traceparent, tracestate")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Correlation-ID, traceparent, tracestate")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		next.ServeHTTP(w, r)
 	})

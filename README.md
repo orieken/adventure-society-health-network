@@ -69,6 +69,8 @@ API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-se
 
 Every service echoes and propagates `X-Request-ID` and `X-Correlation-ID`. Clients can provide either header; otherwise the receiving service creates IDs and forwards them through gateway, intake, provider, payer, and worker health boundaries.
 
+Services also accept, emit, and propagate W3C `traceparent` and `tracestate` headers for basic OpenTelemetry-compatible trace context. Each service creates a local span ID, forwards trace context downstream, and includes `traceId`, `spanId`, and `parentSpanId` in structured request logs.
+
 Service logs are emitted as structured JSON events with stable fields such as `time`, `level`, `msg`, `service`, `requestId`, `correlationId`, transaction/job IDs, and relevant status/error details. This keeps local demos readable while making Render/Docker logs easier to filter.
 
 ## What It Exposes For Learning
@@ -80,6 +82,7 @@ Service logs are emitted as structured JSON events with stable fields such as `t
 - How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
 - How opt-in gateway API keys protect partner-facing routes without blocking public health checks.
 - How request and correlation IDs make multi-service EDI flows traceable.
+- How OpenTelemetry-compatible trace context follows gateway, intake, payer, provider, and worker requests.
 - How structured JSON logs expose operational events across gateway, intake, payer, provider, worker, and migration services.
 
 ## Docker Compose Backend

@@ -23,4 +23,6 @@ X-ASHN-API-Key: dev-secret
 
 The gateway accepts or creates `X-Request-ID` and `X-Correlation-ID`, returns both headers to the caller, and forwards them to downstream services. Provide `X-Correlation-ID` when grouping several calls into one demo or replay workflow.
 
+The gateway also accepts and propagates W3C `traceparent` and `tracestate` headers. If a caller does not provide `traceparent`, ASHN creates a trace ID and per-service span IDs for basic OpenTelemetry-compatible request tracing.
+
 Logs are JSON events. Request logs include `service`, `method`, `path`, `requestId`, and `correlationId`; domain/service logs include IDs and status fields relevant to the event.

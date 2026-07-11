@@ -41,6 +41,15 @@ func Request(service string, r *http.Request, args ...any) {
 	if meta.CorrelationID != "" {
 		values = append(values, "correlationId", meta.CorrelationID)
 	}
+	if meta.TraceID != "" {
+		values = append(values, "traceId", meta.TraceID)
+	}
+	if meta.SpanID != "" {
+		values = append(values, "spanId", meta.SpanID)
+	}
+	if meta.ParentSpanID != "" {
+		values = append(values, "parentSpanId", meta.ParentSpanID)
+	}
 	values = append(values, args...)
 	logger.InfoContext(context.Background(), "http_request", values...)
 }

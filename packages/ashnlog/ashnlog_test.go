@@ -39,7 +39,10 @@ func TestRequestIncludesTraceFields(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/x12/xml", nil)
 	request.Header.Set(requestmeta.RequestIDHeader, "req-1")
 	request.Header.Set(requestmeta.CorrelationIDHeader, "corr-1")
-	Request("api-gateway", request)
+	handler := requestmeta.Middleware("", http.HandlerFunc(func(_ http.ResponseWriter, tracedRequest *http.Request) {
+		Request("api-gateway", tracedRequest)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), request)
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(buffer.Bytes(), &payload))
@@ -49,4 +52,6 @@ func TestRequestIncludesTraceFields(t *testing.T) {
 	assert.Equal(t, "/v1/x12/xml", payload["path"])
 	assert.Equal(t, "req-1", payload["requestId"])
 	assert.Equal(t, "corr-1", payload["correlationId"])
+	assert.NotEmpty(t, payload["traceId"])
+	assert.NotEmpty(t, payload["spanId"])
 }
