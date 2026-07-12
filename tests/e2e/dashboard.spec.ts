@@ -178,15 +178,17 @@ test.describe("ASHN dashboard smoke", () => {
     await page.getByRole("button", { name: /XML Intake/i }).click();
     await expect(page.getByRole("heading", { name: /Raw X12 Intake/i })).toBeVisible();
     await expect(page.getByLabel("Raw X12")).toContainText("ST*837");
+    await page.getByRole("button", { name: "Load Sample 270" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*270");
 
     const rawResponse = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
     await page.getByRole("button", { name: "Submit Raw X12" }).click();
     await rawResponse;
     await page.getByRole("button", { name: /Workflow/i }).click();
     const latestEvent = page.locator(".event").first();
-    await expect(latestEvent.locator("p").filter({ hasText: "Raw X12 claim submitted." })).toBeVisible();
+    await expect(latestEvent.locator("p").filter({ hasText: "Raw X12 eligibility checked." })).toBeVisible();
     await latestEvent.getByText("Raw payload").click();
-    await expect(latestEvent.getByText("tx-e2e-raw-837")).toBeVisible();
+    await expect(latestEvent.getByText("tx-e2e-raw-270")).toBeVisible();
   });
 
   test("shows operational audit dashboard for partner rejections", async ({ page }) => {
@@ -934,6 +936,22 @@ async function mockDashboardApi(page: Page) {
 
     if (path === "/v1/x12/raw") {
       expect(route.request().headers()["content-type"]).toContain("application/edi-x12");
+      const rawPayload = route.request().postData() ?? "";
+      if (rawPayload.includes("ST*270")) {
+        await route.fulfill({
+          status: 200,
+          json: {
+            data: { eligible: true },
+            lore: "Raw X12 eligibility checked.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "271"),
+              id: "tx-e2e-raw-270",
+              payload: { x12: "270 raw dashboard intake fixture", adventurerId: "adv-e2e-dashboard" }
+            }
+          }
+        });
+        return;
+      }
       await route.fulfill({
         status: 201,
         json: {

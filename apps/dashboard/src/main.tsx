@@ -284,6 +284,20 @@ const sampleRawX12 = [
   "GE*1*000000777~",
   "IEA*1*000000777~"
 ].join("\n");
+const sampleRaw270 = [
+  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000270*0*T*:~",
+  "GS*HS*provider-vitesse-temple*Adventure Society*20260708*1200*000000270*X*005010X279A1~",
+  "ST*270*000000270~",
+  "BHT*0022*13*000000270*20260708*1200~",
+  "HL*1**20*1~",
+  "NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+  "HL*2*1*22*0~",
+  "NM1*IL*1*Filter Fixture Ranger****MI*adv-e2e-dashboard~",
+  "EQ*30~",
+  "SE*9*000000270~",
+  "GE*1*000000270~",
+  "IEA*1*000000270~"
+].join("\n");
 const savedFiltersStorageKey = "ashn.savedFilters.v1";
 const initialPartnerForm: PartnerFormState = {
   id: "",
@@ -1473,9 +1487,12 @@ function App() {
           <div className="ledger-title">
             <div>
               <h2>Raw X12 Intake</h2>
-              <p className="muted">Paste delimiter-based `837` or `275` text and map it into canonical ASHN workflow.</p>
+              <p className="muted">Paste delimiter-based `270`, `837`, or `275` text and map it into canonical ASHN workflow.</p>
             </div>
-            <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>
+            <div className="actions compact-actions">
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw270)}>Load Sample 270</button>
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>
+            </div>
           </div>
           <label>
             Raw X12

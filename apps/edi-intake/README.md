@@ -9,7 +9,7 @@ It exposes:
 - `POST /x12/xml`
 - `POST /x12/raw`
 
-The service accepts canonical ASHN transaction submissions as XML or JSON, plus first-pass delimiter-based raw X12 for `837` claims and `275` attachments. Use `POST /x12/transactions` for content-negotiated canonical intake, `POST /x12/xml` as the XML compatibility route, and `POST /x12/raw` for raw segment intake.
+The service accepts canonical ASHN transaction submissions as XML or JSON, plus first-pass delimiter-based raw X12 for `270` eligibility, `837` claims, and `275` attachments. Use `POST /x12/transactions` for content-negotiated canonical intake, `POST /x12/xml` as the XML compatibility route, and `POST /x12/raw` for raw segment intake.
 
 Supported request media types:
 

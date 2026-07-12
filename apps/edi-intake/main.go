@@ -400,6 +400,12 @@ func parseInboundRawX12(body []byte) (inboundTransaction, error) {
 		Receiver: party{ID: rawReceiverID(segmentMap)},
 	}
 	switch domain.TransactionType(inbound.Type) {
+	case domain.Tx270:
+		eligibility, err := raw270Eligibility(segmentMap, inbound.Sender.ID)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.EligibilityInquiry = &eligibility
 	case domain.Tx837:
 		claim, err := raw837Claim(segmentMap, inbound.Sender.ID)
 		if err != nil {
@@ -416,6 +422,20 @@ func parseInboundRawX12(body []byte) (inboundTransaction, error) {
 		return inbound, fmt.Errorf("raw X12 transaction type %s not implemented", inbound.Type)
 	}
 	return inbound, nil
+}
+
+func raw270Eligibility(segmentMap map[string][][]string, senderID string) (xmlEligibility, error) {
+	eligibility := xmlEligibility{
+		AdventurerID: rawNM1ID(segmentMap, "IL"),
+		ProviderID:   firstNonEmpty(rawNM1ID(segmentMap, "1P"), rawNM1ID(segmentMap, "85"), senderID),
+	}
+	if eligibility.AdventurerID == "" {
+		return xmlEligibility{}, fmt.Errorf("missing subscriber NM1 segment")
+	}
+	if eligibility.ProviderID == "" {
+		return xmlEligibility{}, fmt.Errorf("missing provider NM1 segment")
+	}
+	return eligibility, nil
 }
 
 func parseRawX12Segments(raw string) [][]string {

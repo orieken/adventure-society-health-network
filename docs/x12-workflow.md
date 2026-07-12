@@ -293,7 +293,7 @@ This gives the demo a realistic EDI boundary: not every external sender can subm
 
 ## What Is Real vs. Simplified
 
-ASHN intentionally keeps the EDI layer lightweight, but the generated raw X12 now uses more companion-guide-inspired segment examples.
+ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `270` eligibility, `837` claim, and `275` attachment messages into canonical ASHN requests.
 
 What it models well:
 

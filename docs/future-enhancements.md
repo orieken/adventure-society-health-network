@@ -51,7 +51,7 @@ Why this deserves a new service:
 - It supports XML, JSON, first-pass raw X12, and can later add file drops and async queues.
 - `payer-core` remains the source of truth for business rules, state transitions, transaction generation, and async jobs.
 
-Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. ASHN now uses XML/JSON for readable canonical demos and a small raw X12 parser for `837` and `275` segment intake.
+Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. ASHN now uses XML/JSON for readable canonical demos and a small raw X12 parser for `270`, `837`, and `275` segment intake.
 
 ## XML Intake Architecture Decisions
 
@@ -68,6 +68,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add transaction-specific segment examples for `834`, `270`, `271`, `275`, `278`, `837`, `835`, `276`, and `277`.
 - [x] Store raw X12 text on each ledger transaction.
 - [x] Show raw X12 in the dashboard transaction detail panel.
+- [x] Parse raw X12 `270` eligibility into canonical eligibility requests.
 - [x] Add copy buttons for raw transaction payloads.
 - [x] Add download buttons for raw transaction payloads.
 - [x] Expand segment generation toward companion-guide examples.
