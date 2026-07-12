@@ -76,6 +76,7 @@ type xmlClaim struct {
 	AmountCents                string                `xml:"AmountCents" json:"amountCents"`
 	AuthorizationTransactionID string                `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
 	ServiceLines               []xmlClaimServiceLine `xml:"ServiceLine" json:"serviceLines,omitempty"`
+	Diagnoses                  []xmlClaimDiagnosis   `xml:"Diagnosis" json:"diagnoses,omitempty"`
 }
 
 type xmlClaimServiceLine struct {
@@ -84,6 +85,13 @@ type xmlClaimServiceLine struct {
 	Description   string `xml:"Description" json:"description,omitempty"`
 	Units         int    `xml:"Units" json:"units,omitempty"`
 	AmountCents   string `xml:"AmountCents" json:"amountCents"`
+}
+
+type xmlClaimDiagnosis struct {
+	Qualifier   string `xml:"qualifier,attr" json:"qualifier,omitempty"`
+	Code        string `xml:"Code" json:"code"`
+	Description string `xml:"Description" json:"description,omitempty"`
+	Primary     bool   `xml:"primary,attr" json:"primary,omitempty"`
 }
 
 type xmlAttachment struct {
@@ -347,6 +355,7 @@ func raw837Claim(segmentMap map[string][][]string, senderID string) (xmlClaim, e
 		IncidentSeverity: rawSeverity(segmentMap),
 		AmountCents:      rawAmountCents(clm[2]),
 		ServiceLines:     raw837ServiceLines(segmentMap),
+		Diagnoses:        raw837Diagnoses(segmentMap),
 	}
 	if claim.AdventurerID == "" {
 		return xmlClaim{}, fmt.Errorf("missing subscriber NM1 segment")
@@ -388,6 +397,25 @@ func raw837ServiceLines(segmentMap map[string][][]string) []xmlClaimServiceLine 
 		serviceLines = append(serviceLines, line)
 	}
 	return serviceLines
+}
+
+func raw837Diagnoses(segmentMap map[string][][]string) []xmlClaimDiagnosis {
+	diagnoses := []xmlClaimDiagnosis{}
+	for _, hi := range segmentMap["HI"] {
+		for _, rawElement := range hi[1:] {
+			parts := strings.SplitN(rawElement, ":", 2)
+			if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+				continue
+			}
+			qualifier := strings.TrimSpace(parts[0])
+			diagnoses = append(diagnoses, xmlClaimDiagnosis{
+				Qualifier: qualifier,
+				Code:      strings.TrimSpace(parts[1]),
+				Primary:   strings.EqualFold(qualifier, "ABK") || len(diagnoses) == 0,
+			})
+		}
+	}
+	return diagnoses
 }
 
 func rawProcedureCode(composite string) string {
@@ -658,11 +686,13 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		if err != nil {
 			return "", "", nil, err
 		}
+		diagnoses := t.Claim.toDiagnoses()
 		return http.MethodPost, "/claims", domain.ClaimRequest{
 			AdventurerID: strings.TrimSpace(t.Claim.AdventurerID), ProviderID: strings.TrimSpace(t.Claim.ProviderID),
 			IncidentSeverity: domain.IncidentSeverity(strings.TrimSpace(t.Claim.IncidentSeverity)), AmountCents: amountCents,
 			AuthorizationTransactionID: strings.TrimSpace(t.Claim.AuthorizationTransactionID),
 			ServiceLines:               serviceLines,
+			Diagnoses:                  diagnoses,
 		}, nil
 	case domain.Tx276:
 		if t.ClaimStatusRequest == nil {
@@ -724,6 +754,34 @@ func (claim xmlClaim) toServiceLines() ([]domain.ClaimServiceLine, error) {
 		})
 	}
 	return serviceLines, nil
+}
+
+func (claim xmlClaim) toDiagnoses() []domain.ClaimDiagnosis {
+	if len(claim.Diagnoses) == 0 {
+		return nil
+	}
+	diagnoses := make([]domain.ClaimDiagnosis, 0, len(claim.Diagnoses))
+	for index, raw := range claim.Diagnoses {
+		code := strings.ToUpper(strings.TrimSpace(raw.Code))
+		if code == "" {
+			continue
+		}
+		qualifier := strings.ToUpper(strings.TrimSpace(raw.Qualifier))
+		if qualifier == "" {
+			qualifier = "ABF"
+		}
+		primary := raw.Primary || index == 0
+		if primary {
+			qualifier = "ABK"
+		}
+		diagnoses = append(diagnoses, domain.ClaimDiagnosis{
+			Qualifier:   qualifier,
+			Code:        code,
+			Description: strings.TrimSpace(raw.Description),
+			Primary:     primary,
+		})
+	}
+	return diagnoses
 }
 
 func (t inboundTransaction) attachmentRequests() ([]domain.AttachmentRequest, string, string, string, error) {

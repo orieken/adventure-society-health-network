@@ -26,7 +26,7 @@ import (
 )
 
 const societyID = "adventure-society"
-const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status, COALESCE(service_lines, '[]'::jsonb)`
+const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status, COALESCE(service_lines, '[]'::jsonb), COALESCE(diagnoses, '[]'::jsonb)`
 
 type store struct {
 	mu           sync.RWMutex
@@ -293,13 +293,14 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "invalid service lines", err.Error())
 		return
 	}
+	diagnoses := normalizeClaimDiagnoses(req)
 	adventurer, provider, ok := s.findAdventurerProvider(w, req.AdventurerID, req.ProviderID)
 	if !ok {
 		return
 	}
 	claim := domain.Claim{
 		ID: domain.NewID(), AdventurerID: adventurer.ID, ProviderID: provider.ID,
-		IncidentSeverity: req.IncidentSeverity, AmountCents: amountCents, ServiceLines: serviceLines, Status: domain.ClaimSubmitted,
+		IncidentSeverity: req.IncidentSeverity, AmountCents: amountCents, ServiceLines: serviceLines, Diagnoses: diagnoses, Status: domain.ClaimSubmitted,
 	}
 	if strings.TrimSpace(req.AuthorizationTransactionID) != "" {
 		authStatus, authReason, ok := s.authorizationForClaim(req.AuthorizationTransactionID, adventurer.ID, provider.ID)
@@ -1103,9 +1104,10 @@ func (s *store) saveClaim(claim domain.Claim) {
 	defer s.mu.Unlock()
 	s.claims[claim.ID] = claim
 	if s.db != nil {
-		serviceLines := claimServiceLinesJSON(claim.ServiceLines)
-		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, service_lines, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, service_lines = EXCLUDED.service_lines, status = EXCLUDED.status`,
-			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, serviceLines, claim.Status)
+		serviceLines := jsonArrayString(claim.ServiceLines)
+		diagnoses := jsonArrayString(claim.Diagnoses)
+		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, service_lines, diagnoses, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17::jsonb, $18) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, service_lines = EXCLUDED.service_lines, diagnoses = EXCLUDED.diagnoses, status = EXCLUDED.status`,
+			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, serviceLines, diagnoses, claim.Status)
 		if err != nil {
 			ashnlog.Error("postgres_claim_persistence_failed", err, "service", "payer-core", "claimId", claim.ID)
 		}
@@ -1347,8 +1349,10 @@ func loadClaims(db *sql.DB) map[string]domain.Claim {
 }
 
 func scanClaimDest(claim *domain.Claim) []any {
-	var serviceLinesJSON claimServiceLinesScanner
+	var serviceLinesJSON jsonScanner[domain.ClaimServiceLine]
 	serviceLinesJSON.target = &claim.ServiceLines
+	var diagnosesJSON jsonScanner[domain.ClaimDiagnosis]
+	diagnosesJSON.target = &claim.Diagnoses
 	return []any{
 		&claim.ID,
 		&claim.AdventurerID,
@@ -1367,6 +1371,7 @@ func scanClaimDest(claim *domain.Claim) []any {
 		&claim.DenialReason,
 		&claim.Status,
 		&serviceLinesJSON,
+		&diagnosesJSON,
 	}
 }
 
@@ -1399,6 +1404,9 @@ func normalizeClaimServiceLines(req domain.ClaimRequest) ([]domain.ClaimServiceL
 		if line.ProcedureCode == "" {
 			line.ProcedureCode = fmt.Sprintf("ASHN%d", line.LineNumber)
 		}
+		if !validProcedureCode(line.ProcedureCode) {
+			return nil, 0, fmt.Errorf("service line %d procedureCode must start with ASHN", line.LineNumber)
+		}
 		if line.Description == "" {
 			line.Description = defaultClaimLineDescription(req.IncidentSeverity)
 		}
@@ -1414,6 +1422,83 @@ func normalizeClaimServiceLines(req domain.ClaimRequest) ([]domain.ClaimServiceL
 	return lines, total, nil
 }
 
+func validProcedureCode(code string) bool {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	return strings.HasPrefix(code, "ASHN") && len(code) >= 5
+}
+
+func normalizeClaimDiagnoses(req domain.ClaimRequest) []domain.ClaimDiagnosis {
+	if len(req.Diagnoses) == 0 {
+		return []domain.ClaimDiagnosis{defaultClaimDiagnosis(req.IncidentSeverity)}
+	}
+	diagnoses := make([]domain.ClaimDiagnosis, 0, len(req.Diagnoses))
+	hasPrimary := false
+	for index, raw := range req.Diagnoses {
+		diagnosis := domain.ClaimDiagnosis{
+			Qualifier:   strings.ToUpper(strings.TrimSpace(raw.Qualifier)),
+			Code:        strings.ToUpper(strings.TrimSpace(raw.Code)),
+			Description: strings.TrimSpace(raw.Description),
+			Primary:     raw.Primary,
+		}
+		if diagnosis.Qualifier == "" {
+			diagnosis.Qualifier = "ABF"
+		}
+		if index == 0 && !hasPrimary && !diagnosis.Primary {
+			diagnosis.Primary = true
+		}
+		if diagnosis.Primary {
+			diagnosis.Qualifier = "ABK"
+			hasPrimary = true
+		}
+		if diagnosis.Code == "" {
+			continue
+		}
+		if diagnosis.Description == "" {
+			diagnosis.Description = diagnosisDescription(diagnosis.Code)
+		}
+		diagnoses = append(diagnoses, diagnosis)
+	}
+	if len(diagnoses) == 0 {
+		return []domain.ClaimDiagnosis{defaultClaimDiagnosis(req.IncidentSeverity)}
+	}
+	if !hasPrimary {
+		diagnoses[0].Primary = true
+		diagnoses[0].Qualifier = "ABK"
+	}
+	return diagnoses
+}
+
+func defaultClaimDiagnosis(severity domain.IncidentSeverity) domain.ClaimDiagnosis {
+	code := diagnosisCodeForSeverity(severity)
+	return domain.ClaimDiagnosis{Qualifier: "ABK", Code: code, Description: diagnosisDescription(code), Primary: true}
+}
+
+func diagnosisCodeForSeverity(severity domain.IncidentSeverity) string {
+	switch severity {
+	case domain.SeverityNormal:
+		return "S610"
+	case domain.SeverityAwakened:
+		return "T509"
+	case domain.SeverityDiamond:
+		return "S062X9A"
+	default:
+		return "ASHN"
+	}
+}
+
+func diagnosisDescription(code string) string {
+	switch strings.ToUpper(strings.TrimSpace(code)) {
+	case "S610":
+		return "Minor wound encounter"
+	case "T509":
+		return "Awakened injury stabilization"
+	case "S062X9A":
+		return "Catastrophic injury with loss of consciousness"
+	default:
+		return "ASHN diagnosis"
+	}
+}
+
 func defaultClaimLineDescription(severity domain.IncidentSeverity) string {
 	switch severity {
 	case domain.SeverityDiamond:
@@ -1425,22 +1510,22 @@ func defaultClaimLineDescription(severity domain.IncidentSeverity) string {
 	}
 }
 
-func claimServiceLinesJSON(lines []domain.ClaimServiceLine) string {
-	if lines == nil {
-		lines = []domain.ClaimServiceLine{}
+func jsonArrayString[T any](items []T) string {
+	if items == nil {
+		items = []T{}
 	}
-	payload, err := json.Marshal(lines)
+	payload, err := json.Marshal(items)
 	if err != nil {
 		return "[]"
 	}
 	return string(payload)
 }
 
-type claimServiceLinesScanner struct {
-	target *[]domain.ClaimServiceLine
+type jsonScanner[T any] struct {
+	target *[]T
 }
 
-func (scanner *claimServiceLinesScanner) Scan(value any) error {
+func (scanner *jsonScanner[T]) Scan(value any) error {
 	if scanner.target == nil {
 		return nil
 	}

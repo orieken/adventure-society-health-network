@@ -76,6 +76,14 @@ type Claim = {
   denialReason?: string;
   status: string;
   serviceLines?: ClaimServiceLine[];
+  diagnoses?: ClaimDiagnosis[];
+};
+
+type ClaimDiagnosis = {
+  qualifier: string;
+  code: string;
+  description?: string;
+  primary?: boolean;
 };
 
 type ClaimServiceLine = {
@@ -819,6 +827,19 @@ function App() {
         incidentSeverity: "Awakened",
         amountCents: 125000,
         authorizationTransactionId: authorizationTransaction?.id,
+        diagnoses: [
+          {
+            qualifier: "ABK",
+            code: "T509",
+            description: "Awakened injury stabilization",
+            primary: true
+          },
+          {
+            qualifier: "ABF",
+            code: "S610",
+            description: "Minor wound encounter"
+          }
+        ],
         serviceLines: [
           {
             lineNumber: 1,
@@ -1504,6 +1525,7 @@ function App() {
               <DetailItem label="Provider" value={selectedClaim.providerId} />
               <DetailItem label="Transaction" value={selectedClaim.transactionId} />
               <DetailItem label="Claim ID" value={selectedClaim.id} />
+              <DiagnosisBreakdown diagnoses={selectedClaim.diagnoses ?? []} />
               <ServiceLineBreakdown serviceLines={selectedClaim.serviceLines ?? []} />
             </div>
           )}
@@ -1694,6 +1716,34 @@ function ServiceLineBreakdown({ serviceLines }: { serviceLines: ClaimServiceLine
             {(line.adjustmentReason || line.denialReason) && (
               <p className="muted">{line.denialReason ?? line.adjustmentReason}</p>
             )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DiagnosisBreakdown({ diagnoses }: { diagnoses: ClaimDiagnosis[] }) {
+  if (diagnoses.length === 0) {
+    return null;
+  }
+  return (
+    <section className="service-line-breakdown" aria-label="claim diagnoses">
+      <div className="relationship-heading">
+        <div>
+          <h3>Claim Diagnoses</h3>
+          <p className="muted">Primary and supporting diagnosis codes carried from XML, JSON, or raw X12 HI segments.</p>
+        </div>
+        <span>{diagnoses.length} codes</span>
+      </div>
+      <div className="service-line-grid">
+        {diagnoses.map((diagnosis, index) => (
+          <article key={`${diagnosis.qualifier}-${diagnosis.code}-${index}`} className="service-line-card">
+            <div>
+              <span>{diagnosis.primary ? "Primary" : "Supporting"} · {diagnosis.qualifier || "ABF"}</span>
+              <strong>{diagnosis.code}</strong>
+              <small>{diagnosis.description || "Diagnosis carried on claim"}</small>
+            </div>
           </article>
         ))}
       </div>

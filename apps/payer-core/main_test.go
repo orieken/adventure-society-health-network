@@ -258,6 +258,10 @@ func TestSubmitClaimPersistsServiceLinesAndEmitsMultiLine837(t *testing.T) {
 		ProviderID:       "provider-vitesse-temple",
 		IncidentSeverity: domain.SeverityAwakened,
 		AmountCents:      1,
+		Diagnoses: []domain.ClaimDiagnosis{
+			{Qualifier: "ABK", Code: "T509", Description: "Awakened injury stabilization", Primary: true},
+			{Qualifier: "ABF", Code: "S610", Description: "Minor wound encounter"},
+		},
 		ServiceLines: []domain.ClaimServiceLine{
 			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000},
 			{LineNumber: 2, ProcedureCode: "ASHN2", Description: "Dragonfire trauma supplies", Units: 1, AmountCents: 30000},
@@ -269,9 +273,12 @@ func TestSubmitClaimPersistsServiceLinesAndEmitsMultiLine837(t *testing.T) {
 	var claim domain.Claim
 	require.NoError(t, json.Unmarshal(envelope.Data, &claim))
 	assert.Equal(t, int64(125000), claim.AmountCents)
+	require.Len(t, claim.Diagnoses, 2)
+	assert.Equal(t, "T509", claim.Diagnoses[0].Code)
 	require.Len(t, claim.ServiceLines, 2)
 	assert.Equal(t, int64(95000), claim.ServiceLines[0].AmountCents)
 	require.Len(t, envelope.Transactions, 2)
+	assert.Contains(t, envelope.Transactions[0].RawX12, "HI*ABK:T509*ABF:S610")
 	assert.Contains(t, envelope.Transactions[0].RawX12, "SV1*HC:ASHN1*950.00*UN*1***1")
 	assert.Contains(t, envelope.Transactions[0].RawX12, "SV1*HC:ASHN2*300.00*UN*1***2")
 }
@@ -860,7 +867,7 @@ func TestRequestClaimDocumentationPersistsWithDatabase(t *testing.T) {
 
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
 		WithArgs("claim-1").
-		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-vitesse-temple", domain.SeverityAwakened, "tx-837", "", "", "", int64(125000), int64(0), int64(0), int64(0), int64(0), "", "", domain.ClaimPending, `[]`))
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-vitesse-temple", domain.SeverityAwakened, "tx-837", "", "", "", int64(125000), int64(0), int64(0), int64(0), int64(0), "", "", domain.ClaimPending, `[]`, `[]`))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1 WHERE id = $2`)).
 		WithArgs(string(domain.ClaimPendingDocumentation), "claim-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1096,7 +1103,7 @@ func TestPayerLoadersReadFromDatabase(t *testing.T) {
 	assert.Equal(t, "Farros", adventurers["adv-1"].Name)
 
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
-		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved, `[]`))
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved, `[]`, `[{"qualifier":"ABK","code":"T509","description":"Awakened injury stabilization","primary":true}]`))
 	claims := loadClaims(db)
 	require.Len(t, claims, 1)
 	assert.Equal(t, domain.ClaimApproved, claims["claim-1"].Status)
@@ -1163,7 +1170,7 @@ func TestPayerDatabaseQueriesReturnPagedResults(t *testing.T) {
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
 		WithArgs("Paid", "provider-1", "%claim%", 2, 0).
 		WillReturnRows(claimRows().
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimPaid, `[]`))
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimPaid, `[]`, `[]`))
 	claims, claimPage, err := app.queryClaims(pageRequest{Limit: 1, Offset: 0}, claimFilters{Q: "claim", Status: "Paid", ProviderID: "provider-1"})
 	require.NoError(t, err)
 	assert.Len(t, claims, 1)
@@ -1189,7 +1196,7 @@ func TestPayerFindAndSaveDatabasePaths(t *testing.T) {
 
 	mock.ExpectQuery("SELECT id, adventurer_id, provider_id, incident_severity").
 		WithArgs("claim-1").
-		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved, `[]`))
+		WillReturnRows(claimRows().AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), int64(80000), int64(68000), int64(12000), int64(20000), "allowance", "", domain.ClaimApproved, `[]`, `[]`))
 	claim, ok := app.findClaim("claim-1")
 	require.True(t, ok)
 	assert.Equal(t, domain.ClaimApproved, claim.Status)
@@ -1364,6 +1371,6 @@ func claimRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents",
 		"allowed_amount_cents", "paid_amount_cents", "patient_responsibility_cents", "adjustment_amount_cents",
-		"adjustment_reason", "denial_reason", "status", "service_lines",
+		"adjustment_reason", "denial_reason", "status", "service_lines", "diagnoses",
 	})
 }

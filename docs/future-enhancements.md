@@ -166,6 +166,14 @@ Example `837` claim submission:
     <ProviderId>provider-vitesse-temple</ProviderId>
     <IncidentSeverity>Awakened</IncidentSeverity>
     <AmountCents>125000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true">
+      <Code>T509</Code>
+      <Description>Awakened injury stabilization</Description>
+    </Diagnosis>
+    <Diagnosis qualifier="ABF">
+      <Code>S610</Code>
+      <Description>Minor wound encounter</Description>
+    </Diagnosis>
     <ServiceLine lineNumber="1">
       <ProcedureCode>ASHN1</ProcedureCode>
       <Description>Resurrection stabilization</Description>
@@ -182,7 +190,7 @@ Example `837` claim submission:
 </AshnX12Transaction>
 ```
 
-`ServiceLine` is optional for legacy/simple demos. When present, `edi-intake` forwards the lines to `payer-core`, which persists them, adjudicates allowed/paid/patient responsibility/adjustment amounts per line, rolls the totals back up to the claim, and emits line-level `835` remittance detail.
+`Diagnosis` and `ServiceLine` are optional for legacy/simple demos. When present, `edi-intake` forwards them to `payer-core`, which persists diagnoses alongside service lines, adjudicates allowed/paid/patient responsibility/adjustment amounts per line, rolls the totals back up to the claim, and emits diagnosis-aware `837` plus line-level `835` remittance detail.
 
 Example `270` eligibility inquiry:
 

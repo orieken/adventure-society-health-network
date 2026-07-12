@@ -63,6 +63,14 @@ func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
     <ProviderId>provider-vitesse-temple</ProviderId>
     <IncidentSeverity>Awakened</IncidentSeverity>
     <AmountCents>125000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true">
+      <Code>T509</Code>
+      <Description>Awakened injury stabilization</Description>
+    </Diagnosis>
+    <Diagnosis qualifier="ABF">
+      <Code>S610</Code>
+      <Description>Minor wound encounter</Description>
+    </Diagnosis>
     <ServiceLine lineNumber="1">
       <ProcedureCode>ASHN1</ProcedureCode>
       <Description>Resurrection stabilization</Description>
@@ -85,6 +93,10 @@ func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
 	assert.Equal(t, "adv-1", claimRequest.AdventurerID)
 	assert.Equal(t, domain.SeverityAwakened, claimRequest.IncidentSeverity)
 	assert.Equal(t, int64(125000), claimRequest.AmountCents)
+	require.Len(t, claimRequest.Diagnoses, 2)
+	assert.Equal(t, "ABK", claimRequest.Diagnoses[0].Qualifier)
+	assert.Equal(t, "T509", claimRequest.Diagnoses[0].Code)
+	assert.True(t, claimRequest.Diagnoses[0].Primary)
 	require.Len(t, claimRequest.ServiceLines, 2)
 	assert.Equal(t, "ASHN1", claimRequest.ServiceLines[0].ProcedureCode)
 	assert.Equal(t, int64(95000), claimRequest.ServiceLines[0].AmountCents)
@@ -132,6 +144,10 @@ func TestAcceptTransactionRoutesCanonicalJSONClaimToPayerCore(t *testing.T) {
     "incidentSeverity": "Diamond",
     "amountCents": "250000",
     "authorizationTransactionId": "tx-278-approved",
+    "diagnoses": [
+      { "qualifier": "ABK", "code": "S062X9A", "description": "Catastrophic injury", "primary": true },
+      { "qualifier": "ABF", "code": "T509", "description": "Awakened complication" }
+    ],
     "serviceLines": [
       { "lineNumber": 1, "procedureCode": "ASHN1", "description": "Resurrection stabilization", "units": 1, "amountCents": "200000" },
       { "lineNumber": 2, "procedureCode": "ASHN3", "description": "High-acuity magic supplies", "units": 2, "amountCents": "50000" }
@@ -147,6 +163,8 @@ func TestAcceptTransactionRoutesCanonicalJSONClaimToPayerCore(t *testing.T) {
 	assert.Equal(t, domain.SeverityDiamond, claimRequest.IncidentSeverity)
 	assert.Equal(t, int64(250000), claimRequest.AmountCents)
 	assert.Equal(t, "tx-278-approved", claimRequest.AuthorizationTransactionID)
+	require.Len(t, claimRequest.Diagnoses, 2)
+	assert.Equal(t, "S062X9A", claimRequest.Diagnoses[0].Code)
 	require.Len(t, claimRequest.ServiceLines, 2)
 	assert.Equal(t, 2, claimRequest.ServiceLines[1].Units)
 	assert.Equal(t, int64(50000), claimRequest.ServiceLines[1].AmountCents)
@@ -190,6 +208,10 @@ func TestAcceptRawX12RoutesClaimToPayerCore(t *testing.T) {
 	assert.Equal(t, "provider-vitesse-temple", claimRequest.ProviderID)
 	assert.Equal(t, domain.SeverityDiamond, claimRequest.IncidentSeverity)
 	assert.Equal(t, int64(125000), claimRequest.AmountCents)
+	require.Len(t, claimRequest.Diagnoses, 2)
+	assert.Equal(t, "S062X9A", claimRequest.Diagnoses[0].Code)
+	assert.True(t, claimRequest.Diagnoses[0].Primary)
+	assert.Equal(t, "T509", claimRequest.Diagnoses[1].Code)
 	require.Len(t, claimRequest.ServiceLines, 2)
 	assert.Equal(t, "ASHN1", claimRequest.ServiceLines[0].ProcedureCode)
 	assert.Equal(t, int64(95000), claimRequest.ServiceLines[0].AmountCents)
@@ -483,6 +505,10 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	require.NotNil(t, claim.Claim)
 	assert.Equal(t, "adv-raw-1", claim.Claim.AdventurerID)
 	assert.Equal(t, "125000", claim.Claim.AmountCents)
+	require.Len(t, claim.Claim.Diagnoses, 2)
+	assert.Equal(t, "ABK", claim.Claim.Diagnoses[0].Qualifier)
+	assert.Equal(t, "S062X9A", claim.Claim.Diagnoses[0].Code)
+	assert.True(t, claim.Claim.Diagnoses[0].Primary)
 	require.Len(t, claim.Claim.ServiceLines, 2)
 	assert.Equal(t, "ASHN1", claim.Claim.ServiceLines[0].ProcedureCode)
 	assert.Equal(t, "95000", claim.Claim.ServiceLines[0].AmountCents)
@@ -1227,7 +1253,7 @@ func raw837Fixture() string {
 		"HL*2*1*22*0~",
 		"NM1*IL*1*adv-raw-1****MI*adv-raw-1~",
 		"CLM*claim-raw-1*1250.00***11:B:1*Y*A*Y*I~",
-		"HI*ABK:S062X9A~",
+		"HI*ABK:S062X9A*ABF:T509~",
 		"SV1*HC:ASHN1*950.00*UN*1***1~",
 		"SV1*HC:ASHN2*300.00*UN*1***2~",
 		"SE*13*000000001~",

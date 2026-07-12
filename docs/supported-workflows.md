@@ -190,8 +190,8 @@ sequenceDiagram
 
 - `837` is the claim submission.
 - `277CA` acknowledges that the payer accepted the claim for processing.
-- `tx-worker` later adjudicates the claim using severity, billed amount, service lines, prior authorization, provider tier, adventurer rank, and coverage status.
-- XML/JSON `837` intake can include canonical `ServiceLine` entries, and raw X12 `837` intake maps each `SV1` into the same service-line model.
+- `tx-worker` later adjudicates the claim using severity, diagnoses, billed amount, service lines, prior authorization, provider tier, adventurer rank, and coverage status.
+- XML/JSON `837` intake can include canonical `Diagnosis` and `ServiceLine` entries, and raw X12 `837` intake maps `HI` plus each `SV1` into the same claim model.
 - Higher-tier providers and higher-rank adventurers can improve paid/allowed outcomes; pending coverage reduces payment, while inactive or suspended coverage denies the claim.
 
 ## 5. Claim Attachment Lifecycle

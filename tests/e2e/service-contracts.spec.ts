@@ -279,7 +279,7 @@ test.describe("ASHN mutating demo contracts", () => {
       "HL*2*1*22*0~",
       `NM1*IL*1*${enrolled.data?.id}****MI*${enrolled.data?.id}~`,
       `CLM*${rawClaimId}*1250.00***11:B:1*Y*A*Y*I~`,
-      "HI*ABK:S062X9A~",
+      "HI*ABK:S062X9A*ABF:T509~",
       "SV1*HC:ASHN1*950.00*UN*1***1~",
       "SV1*HC:ASHN2*300.00*UN*1***2~",
       `SE*13*${rawControl}~`,
@@ -301,8 +301,11 @@ test.describe("ASHN mutating demo contracts", () => {
     expect(rawClaim.ok()).toBeTruthy();
     const rawClaimEnvelope = (await rawClaim.json()) as Envelope<{
       id: string;
+      diagnoses?: Array<{ qualifier: string; code: string; primary?: boolean }>;
       serviceLines?: Array<{ procedureCode: string; amountCents: number }>;
     }>;
+    expect(rawClaimEnvelope.data?.diagnoses?.map((diagnosis) => diagnosis.code)).toEqual(["S062X9A", "T509"]);
+    expect(rawClaimEnvelope.data?.diagnoses?.at(0)?.primary).toBe(true);
     expect(rawClaimEnvelope.data?.serviceLines?.map((line) => line.procedureCode)).toEqual(["ASHN1", "ASHN2"]);
     expect(rawClaimEnvelope.data?.serviceLines?.map((line) => line.amountCents)).toEqual([95000, 30000]);
 

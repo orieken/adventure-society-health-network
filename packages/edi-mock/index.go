@@ -267,8 +267,8 @@ func transactionSegments(tx domain.Transaction) []string {
 			"NM1*IL*1*" + element(claim.AdventurerID) + "****MI*" + element(claim.AdventurerID) + "~",
 			"CLM*" + element(claim.ID) + "*" + cents(claim.AmountCents) + "***11:B:1*Y*A*Y*I~",
 			"DTP*472*D8*" + tx.CreatedAt.Format("20060102") + "~",
-			"HI*ABK:" + diagnosisCode(claim.Severity) + "~",
 		}
+		segments = append(segments, diagnosisSegments(claim)...)
 		return append(segments, serviceLineSegments(claim)...)
 	case domain.Tx835:
 		remit := remittanceAmounts(tx)
@@ -411,6 +411,7 @@ type x12ClaimInfo struct {
 	Severity     domain.IncidentSeverity
 	AmountCents  int64
 	ServiceLines []domain.ClaimServiceLine
+	Diagnoses    []domain.ClaimDiagnosis
 }
 
 type x12AttachmentInfo struct {
@@ -488,7 +489,34 @@ func claimInfo(tx domain.Transaction) x12ClaimInfo {
 	}
 	info.AmountCents = payload.Claim.AmountCents
 	info.ServiceLines = payload.Claim.ServiceLines
+	info.Diagnoses = payload.Claim.Diagnoses
 	return info
+}
+
+func diagnosisSegments(claim x12ClaimInfo) []string {
+	diagnoses := claim.Diagnoses
+	if len(diagnoses) == 0 {
+		diagnoses = []domain.ClaimDiagnosis{{Qualifier: "ABK", Code: diagnosisCode(claim.Severity), Primary: true}}
+	}
+	elements := make([]string, 0, len(diagnoses))
+	for index, diagnosis := range diagnoses {
+		code := strings.TrimSpace(diagnosis.Code)
+		if code == "" {
+			continue
+		}
+		qualifier := strings.ToUpper(strings.TrimSpace(diagnosis.Qualifier))
+		if qualifier == "" {
+			qualifier = "ABF"
+		}
+		if diagnosis.Primary || index == 0 {
+			qualifier = "ABK"
+		}
+		elements = append(elements, qualifier+":"+element(code))
+	}
+	if len(elements) == 0 {
+		elements = append(elements, "ABK:"+diagnosisCode(claim.Severity))
+	}
+	return []string{"HI*" + strings.Join(elements, "*") + "~"}
 }
 
 func remittanceAmounts(tx domain.Transaction) remittance {

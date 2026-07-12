@@ -191,6 +191,7 @@ type Claim struct {
 	DenialReason               string             `json:"denialReason,omitempty"`
 	Status                     ClaimStatus        `json:"status"`
 	ServiceLines               []ClaimServiceLine `json:"serviceLines,omitempty"`
+	Diagnoses                  []ClaimDiagnosis   `json:"diagnoses,omitempty"`
 }
 
 type ClaimServiceLine struct {
@@ -205,6 +206,13 @@ type ClaimServiceLine struct {
 	AdjustmentAmountCents      int64  `json:"adjustmentAmountCents,omitempty"`
 	AdjustmentReason           string `json:"adjustmentReason,omitempty"`
 	DenialReason               string `json:"denialReason,omitempty"`
+}
+
+type ClaimDiagnosis struct {
+	Qualifier   string `json:"qualifier"`
+	Code        string `json:"code"`
+	Description string `json:"description,omitempty"`
+	Primary     bool   `json:"primary,omitempty"`
 }
 
 type EnrollmentRequest struct {
@@ -238,6 +246,7 @@ type ClaimRequest struct {
 	AmountCents                int64              `json:"amountCents"`
 	AuthorizationTransactionID string             `json:"authorizationTransactionId,omitempty"`
 	ServiceLines               []ClaimServiceLine `json:"serviceLines,omitempty"`
+	Diagnoses                  []ClaimDiagnosis   `json:"diagnoses,omitempty"`
 }
 
 type DocumentationChecklistItem struct {

@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS claims (
   adjustment_reason TEXT,
   denial_reason TEXT,
   service_lines JSONB NOT NULL DEFAULT '[]'::jsonb,
+  diagnoses JSONB NOT NULL DEFAULT '[]'::jsonb,
   status TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -74,6 +75,7 @@ ALTER TABLE claims ADD COLUMN IF NOT EXISTS adjustment_amount_cents BIGINT NOT N
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS adjustment_reason TEXT;
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS denial_reason TEXT;
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS service_lines JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS diagnoses JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS authorization_transaction_id TEXT REFERENCES transactions(id);
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS authorization_status TEXT;
 ALTER TABLE claims ADD COLUMN IF NOT EXISTS authorization_reason TEXT;
