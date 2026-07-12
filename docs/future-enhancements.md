@@ -130,6 +130,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add create/update/delete partner management screens.
 - [x] Add partner-specific companion-guide validation rules.
 - [x] Validate partner-specific `837` diagnosis and procedure profiles before forwarding intake.
+- [x] Show partner companion-guide matrices for `275`, `278`, and `837` rules in the dashboard.
 
 ### P2 — Dashboard Enhancements
 

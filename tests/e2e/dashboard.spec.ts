@@ -305,6 +305,14 @@ test.describe("ASHN dashboard smoke", () => {
     await page.goto(dashboardUrl);
 
     await page.getByRole("button", { name: /Partners/i }).click();
+    const vitesseCard = page.locator(".partner-card").filter({ hasText: "Temple of the Healer, Vitesse" });
+    await expect(vitesseCard.getByLabel("Temple of the Healer, Vitesse companion guide")).toBeVisible();
+    await expect(vitesseCard.getByText("275 Attachments")).toBeVisible();
+    await expect(vitesseCard.getByText("278 Auth")).toBeVisible();
+    await expect(vitesseCard.getByText("resurrection/restoration/curse-removal services")).toBeVisible();
+    await expect(vitesseCard.getByText("837 Claims")).toBeVisible();
+    await expect(vitesseCard.getByText("S610/T509 diagnoses")).toBeVisible();
+
     await page.getByLabel("Partner name").fill("Crystal Tower Partner");
     await page.getByLabel("Sender ID").fill("provider-crystal-tower");
     await page.getByLabel("Receiver ID").fill("Adventure Society");
@@ -474,7 +482,17 @@ async function mockDashboardApi(page: Page) {
       receiverId: "Adventure Society",
       allowedTransactionTypes: [...transactionTypes],
       routeTarget: "payer-core",
-      status: "active"
+      status: "active",
+      validationProfile: {
+        attachmentTypes: ["OZ"],
+        reportTypeCodes: ["B4"],
+        contentTypes: ["text/plain"],
+        maxEmbeddedContentBytes: 2048,
+        serviceTypes: ["resurrection", "restoration", "curse-removal"],
+        incidentSeverities: ["Normal", "Awakened"],
+        diagnosisCodes: ["S610", "T509"],
+        procedureCodePrefixes: ["ASHN"]
+      }
     }
   ];
   await page.route("**/v1/**", async (route) => {

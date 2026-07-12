@@ -183,6 +183,8 @@ Generated raw X12 includes `REF*1K` or `REF*G1` for correlation, `REF*6R` for th
 
 The same profile can also constrain `278` prior authorization service types and incident severities, which gives demos a single place to explain sender IDs, allowed transaction sets, routing, companion-guide validation, and partner-specific claim rules.
 
+The dashboard Partners tab surfaces those constraints as a compact companion-guide matrix: `275` attachment/report/content rules, `278` service/severity rules, and `837` diagnosis/procedure rules. This makes partner configuration readable before intentionally sending accepted or rejected intake examples.
+
 ### 6. Claim Status: `276 → 277`
 
 A provider can ask what happened to a claim after submission.

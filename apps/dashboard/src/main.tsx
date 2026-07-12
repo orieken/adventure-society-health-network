@@ -27,6 +27,8 @@ type TradingPartner = {
     diagnosisCodes?: string[];
     procedureCodePrefixes?: string[];
     procedureCodes?: string[];
+    serviceTypes?: string[];
+    incidentSeverities?: string[];
   };
 };
 
@@ -1702,26 +1704,55 @@ function TradingPartnerCard({
       <div className="chips">
         {partner.allowedTransactionTypes.map((type) => <span key={type}>{type}</span>)}
       </div>
-      {profile && (profile.attachmentTypes?.length || profile.contentTypes?.length || profile.maxEmbeddedContentBytes) ? (
-        <p>
-          Guide: {profile.attachmentTypes?.length ? `${profile.attachmentTypes.join("/")} attachments` : "standard attachments"}
-          {profile.contentTypes?.length ? ` · ${profile.contentTypes.join(", ")}` : ""}
-          {profile.maxEmbeddedContentBytes ? ` · ${Math.round(profile.maxEmbeddedContentBytes / 1024)} KB embedded limit` : ""}
-        </p>
-      ) : null}
-      {profile && (profile.diagnosisCodes?.length || profile.procedureCodePrefixes?.length || profile.procedureCodes?.length) ? (
-        <p>
-          Claims: {profile.diagnosisCodes?.length ? `${profile.diagnosisCodes.join("/")} diagnoses` : "standard diagnoses"}
-          {profile.procedureCodePrefixes?.length ? ` · ${profile.procedureCodePrefixes.join("/")} procedure prefixes` : ""}
-          {profile.procedureCodes?.length ? ` · ${profile.procedureCodes.join("/")} procedures` : ""}
-        </p>
-      ) : null}
+      {profile && (
+        <div className="partner-guide-grid" aria-label={`${partner.name} companion guide`}>
+          <GuideRule title="275 Attachments" value={attachmentGuide(profile)} />
+          <GuideRule title="278 Auth" value={authorizationGuide(profile)} />
+          <GuideRule title="837 Claims" value={claimGuide(profile)} />
+        </div>
+      )}
       <div className="actions compact-actions">
         <button className="secondary" disabled={busy} onClick={() => onEdit(partner)}>Edit</button>
         <button className="danger" disabled={busy} onClick={() => onDelete(partner.id)}>Delete</button>
       </div>
     </article>
   );
+}
+
+function GuideRule({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="guide-rule">
+      <span>{title}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function attachmentGuide(profile: NonNullable<TradingPartner["validationProfile"]>) {
+  const pieces = [
+    profile.attachmentTypes?.length ? `${profile.attachmentTypes.join("/")} attachments` : "standard attachments",
+    profile.reportTypeCodes?.length ? `${profile.reportTypeCodes.join("/")} reports` : "",
+    profile.contentTypes?.length ? profile.contentTypes.join(", ") : "",
+    profile.maxEmbeddedContentBytes ? `${Math.round(profile.maxEmbeddedContentBytes / 1024)} KB embedded limit` : ""
+  ].filter(Boolean);
+  return pieces.join(" · ");
+}
+
+function authorizationGuide(profile: NonNullable<TradingPartner["validationProfile"]>) {
+  const pieces = [
+    profile.serviceTypes?.length ? `${profile.serviceTypes.join("/")} services` : "standard services",
+    profile.incidentSeverities?.length ? `${profile.incidentSeverities.join("/")} severity` : "standard severity"
+  ].filter(Boolean);
+  return pieces.join(" · ");
+}
+
+function claimGuide(profile: NonNullable<TradingPartner["validationProfile"]>) {
+  const pieces = [
+    profile.diagnosisCodes?.length ? `${profile.diagnosisCodes.join("/")} diagnoses` : "standard diagnoses",
+    profile.procedureCodePrefixes?.length ? `${profile.procedureCodePrefixes.join("/")} procedure prefixes` : "",
+    profile.procedureCodes?.length ? `${profile.procedureCodes.join("/")} procedures` : ""
+  ].filter(Boolean);
+  return pieces.join(" · ");
 }
 
 function Pager({ page, onPrevious, onNext }: { page: PageInfo; onPrevious: () => void; onNext: () => void }) {
