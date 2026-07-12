@@ -61,7 +61,7 @@ The stack also starts `tx-worker`, which asynchronously reviews queued `278` aut
 Service logs are written under `.dev/logs/` while `make dev-stack` is running.
 
 The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSON intake is available through the gateway at `POST /v1/x12/transactions`, `POST /v1/x12/xml` is kept as the XML compatibility route, and `POST /v1/x12/raw` accepts first-pass raw X12 `837`/`275` text.
-Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`.
+Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`; those profiles now enforce partner-specific `275` attachment rules plus `837` diagnosis/procedure rules before accepted intake is forwarded to `payer-core`.
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 Intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
 
@@ -82,6 +82,7 @@ Service logs are emitted as structured JSON events with stable fields such as `t
 - How payer, provider, gateway, intake, worker, and ledger service boundaries fit together.
 - How common healthcare EDI transaction types relate: `834`, `270/271`, `278`, `275`, `837`, `276/277`, `835`, `999`, and `277CA`.
 - How XML/JSON intake, trading partner validation, acknowledgments, raw X12, and durable audit trails can coexist in one workflow.
+- How `837` diagnoses, service lines, partner companion-guide profiles, and `835` remittance details connect from intake through adjudication.
 - How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.
 - How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
 - How external 275 document references are resolved as safe vault receipts without server-side fetching arbitrary URLs.

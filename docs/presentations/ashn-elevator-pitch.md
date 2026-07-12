@@ -98,9 +98,9 @@ A healer checks coverage using `270 → 271`.
 
 Because the injury is severe, they request authorization with a `278`.
 
-After treatment, they submit an `837` claim. The Society returns a `277CA` acknowledgment.
+After treatment, they submit an `837` claim with diagnoses and service lines. The Society validates the partner profile and returns a `277CA` acknowledgment.
 
-The healer checks status with `276 → 277`, and the Society pays through an `835`.
+The healer checks status with `276 → 277`, and the Society pays through an `835` with line-level remittance detail.
 
 The dashboard shows every event in the ledger, including 275 documentation packets, safe document-vault receipts, raw X12, replay tools, and XML intake audit records.”
 
@@ -113,4 +113,4 @@ The dashboard shows every event in the ledger, including 275 documentation packe
 It combines a memorable metaphor, a real service architecture, and a searchable transaction ledger so teams can see how payer, provider, claim, acknowledgment, and payment workflows fit together.
 
 **Talk track:**  
-Our next step is to expand the integration lab with richer partner variants, broader raw X12 coverage, and deeper claim/service-line realism.
+Our next step is to keep expanding the lab toward operational realism: broader raw X12 coverage, companion-guide variants, richer benefit rules, and clearer demo observability.

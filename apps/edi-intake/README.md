@@ -17,7 +17,7 @@ Supported request media types:
 - `application/json` and `*+json`
 - `application/edi-x12`, `application/x12`, and `text/plain`
 
-The service validates the canonical ASHN transaction envelope or parses the supported raw X12 subset, maps it into existing domain requests, and forwards accepted work to existing `payer-core` HTTP endpoints.
+The service validates the canonical ASHN transaction envelope or parses the supported raw X12 subset, applies trading partner profile rules, maps accepted work into existing domain requests, and forwards it to existing `payer-core` HTTP endpoints.
 
 When `DATABASE_URL` is configured, every intake submission is written to `inbound_messages` with its raw payload, transaction type, accepted/rejected status, downstream response status, and validation error if present.
 
@@ -28,6 +28,7 @@ Architecture decisions:
 - `edi-intake` translates and audits payloads but does not write payer transactions directly.
 - `payer-core` remains the source of truth for business rules, ledger writes, claims, authorizations, payments, and async jobs.
 - Canonical ASHN XML comes first; partner-specific or transaction-specific XML schemas can be added later.
+- Trading partner profiles enforce routing, allowed transaction sets, `275` attachment rules, `278` service/severity rules, and `837` diagnosis/procedure rules.
 - Rejected XML/JSON/raw X12 is still audited so failed submissions are visible, exportable, and replayable for demos/debugging.
 
 Example:
@@ -41,6 +42,22 @@ Example:
     <ProviderId>provider-vitesse-temple</ProviderId>
     <IncidentSeverity>Awakened</IncidentSeverity>
     <AmountCents>125000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true">
+      <Code>T509</Code>
+      <Description>Awakened injury stabilization</Description>
+    </Diagnosis>
+    <ServiceLine lineNumber="1">
+      <ProcedureCode>ASHN1</ProcedureCode>
+      <Description>Resurrection stabilization</Description>
+      <Units>1</Units>
+      <AmountCents>95000</AmountCents>
+    </ServiceLine>
+    <ServiceLine lineNumber="2">
+      <ProcedureCode>ASHN2</ProcedureCode>
+      <Description>Dragonfire trauma supplies</Description>
+      <Units>1</Units>
+      <AmountCents>30000</AmountCents>
+    </ServiceLine>
   </Claim>
 </AshnX12Transaction>
 ```
@@ -56,7 +73,16 @@ Equivalent canonical JSON:
     "adventurerId": "adventurer-id",
     "providerId": "provider-vitesse-temple",
     "incidentSeverity": "Awakened",
-    "amountCents": "125000"
+    "amountCents": "125000",
+    "diagnoses": [
+      { "qualifier": "ABK", "code": "T509", "description": "Awakened injury stabilization", "primary": true }
+    ],
+    "serviceLines": [
+      { "lineNumber": 1, "procedureCode": "ASHN1", "description": "Resurrection stabilization", "units": 1, "amountCents": "95000" },
+      { "lineNumber": 2, "procedureCode": "ASHN2", "description": "Dragonfire trauma supplies", "units": 1, "amountCents": "30000" }
+    ]
   }
 }
 ```
+
+Raw `837` intake maps `HI` diagnosis segments and every `SV1` service line into the same claim model. If a partner profile rejects a diagnosis code, qualifier, or procedure code/prefix, the original payload is still written to the intake audit with the rejection reason.

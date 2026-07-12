@@ -46,10 +46,10 @@ Then Farros arrives at the Temple of the Healer in Vitesse. Before treatment, th
 
 Because the incident is severe, the temple requests prior authorization for resurrection using a `278`. If the Society needs supporting records, the provider can submit a `275` attachment packet and respond to document-specific deficiency requests.
 
-After treatment, the temple submits an incident claim with an `837`. The provider can check the claim’s current status with `276 → 277`. Finally, the Society pays the claim and sends an `835` remittance advice.
+After treatment, the temple submits an incident claim with an `837`. That claim can arrive as API JSON, canonical XML, or raw X12 with `HI` diagnoses and `SV1` service lines. ASHN validates it against the partner’s companion-guide profile, adjudicates each service line over time, and rolls the results into the claim. The provider can check the claim’s current status with `276 → 277`. Finally, the Society pays the claim and sends an `835` remittance advice with allowed, paid, adjustment, and patient-responsibility detail.
 
 Every one of those events is persisted in Postgres and visible in the dashboard ledger, so the system remembers what happened even after refresh or restart.”
 
 ## Closing Line
 
-ASHN makes healthcare EDI tangible: a real transaction workflow, a memorable fantasy metaphor, and a working local system that demonstrates how payer, provider, claim, authorization, attachment, payment, audit, and ledger concepts fit together.
+ASHN makes healthcare EDI tangible: a real transaction workflow, a memorable fantasy metaphor, and a working local system that demonstrates how payer, provider, partner validation, claim, authorization, attachment, payment, audit, and ledger concepts fit together.

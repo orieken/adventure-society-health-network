@@ -158,7 +158,7 @@ sequenceDiagram
 ```
 
 **Talk track:**  
-Each business action emits one or more ledger transactions. Claim submission is especially useful now because it emits both the `837` and the `277CA` acknowledgment.
+Each business action emits one or more ledger transactions. Claim submission is especially useful now because it emits both the `837` and the `277CA` acknowledgment, while preserving diagnoses, service lines, and partner-specific validation context.
 
 ---
 
@@ -203,14 +203,14 @@ Common envelope segments:
 
 Transaction-specific examples include:
 
-- `CLM` for `837`
+- `CLM`, `HI`, and `SV1` for `837`
 - `NM1`, `HL`, `TRN`, `DTP`, and `REF` for eligibility and claim-status flows
-- `BPR`, `TRN`, `CLP` for `835`
+- `BPR`, `TRN`, `CLP`, `SVC`, `CAS`, and `REF` for `835`
 - `AK1`, `AK2`, `IK5`, `AK9` for `999`
 - `TRN`, `STC` for `277CA`
 
 **Talk track:**  
-This is intentionally not full companion-guide compliance yet. It gives us inspectable raw X12 text so the team can understand envelopes, control numbers, transaction-specific loops, and remittance math.
+This is intentionally not full companion-guide compliance yet. It gives us inspectable raw X12 text so the team can understand envelopes, control numbers, transaction-specific loops, diagnoses, service lines, acknowledgments, and remittance math.
 
 ---
 
@@ -270,7 +270,7 @@ The tests focus on the paths we demo: HTTP contracts, persistence, transaction c
 - `auth_review` updates queued `278` prior authorization decisions.
 - `claim_adjudication` moves submitted claims to `Pending`.
 - `claim_finalization` marks claims `Approved` or `Denied`.
-- Claim finalization calculates allowed, paid, adjustment, patient responsibility, and denial fields.
+- Claim finalization calculates allowed, paid, adjustment, patient responsibility, and denial fields at the claim and service-line levels.
 - Finalized claims emit a related `277` status transaction.
 - Failed jobs can dead-letter and be replayed back to pending.
 - The dashboard polls periodically so status changes and worker queue state appear over time.
@@ -288,8 +288,8 @@ Current simplifications:
 
 - X12 generation is representative, not companion-guide complete.
 - XML is canonical ASHN XML, not every real partner format.
-- Auth and adjudication logic is intentionally simple.
-- Trading partner validation is profile-based, not full companion-guide certification.
+- Auth, benefit, and adjudication logic is intentionally simple.
+- Trading partner validation is profile-based and covers selected `275`, `278`, and `837` rules, not full companion-guide certification.
 - Security and HIPAA controls are not production-ready.
 
 **Talk track:**  
@@ -301,12 +301,12 @@ This is a feature, not a flaw. The simulator keeps the core lifecycle understand
 
 Recommended next build sequence:
 
-1. Add API authentication for partner-facing endpoints.
-2. Add request IDs and correlation IDs across all services.
-3. Add structured logs and basic OpenTelemetry traces.
-4. Add migration tests and seed-data reset tests.
-5. Expand raw X12 coverage and add optional file-drop intake.
-6. Add richer partner-specific variants and service-line claim rules.
+1. Expand raw X12 parsing beyond the current `837` and `275` subset.
+2. Add optional file-drop intake for batch/demo payloads.
+3. Add richer benefit-plan rules that affect service-line adjudication.
+4. Add more companion-guide variants per partner and transaction type.
+5. Add operational dashboards for audit errors, retries, and partner rejection trends.
+6. Add exportable demo scenarios for training and stakeholder walkthroughs.
 
 **Talk track:**  
 The next phase is about moving from integration lab to operationally understandable system: secure partner access, traceable requests, reliable demo data, and richer external-document handling.

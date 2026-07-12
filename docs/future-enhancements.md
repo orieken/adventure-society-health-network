@@ -10,7 +10,7 @@ This keeps `payer-core` focused on business state while giving us a clean place 
 
 ## Recommended Next Milestone
 
-Harden ASHN from a visible simulator into a stronger integration lab: API authentication, request/correlation IDs, structured logs, basic traces, migration/seed reset tests, rate limiting, and safe document-vault receipts for external 275 references.
+Move ASHN from a strong integration lab into a richer training/demo environment: broaden raw X12 intake beyond `837`/`275`, add optional file-drop intake, deepen benefit-plan and service-line adjudication rules, expand partner-specific companion-guide variants, and add operational views for audit errors, retries, and rejection trends.
 
 ## Priority Backlog
 
@@ -71,7 +71,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add download buttons for raw transaction payloads.
 - [x] Expand segment generation toward companion-guide examples.
 - [x] Add XML intake validation rules per transaction type.
-- [x] Add full companion-guide validation profiles per trading partner.
+- [x] Add profile-based companion-guide-style validation per trading partner.
 
 ### P1 — Acknowledgments
 
@@ -208,15 +208,15 @@ Example `270` eligibility inquiry:
 
 ## Suggested Next Implementation Order
 
-1. Add API authentication for partner-facing gateway and intake endpoints.
-2. Add request IDs and correlation IDs across `api-gateway`, `edi-intake`, `payer-core`, `provider-service`, and `tx-worker`.
-3. Add structured logs that include transaction IDs, partner IDs, claim IDs, authorization IDs, and replay IDs.
-4. Add basic OpenTelemetry traces for intake, routing, queue processing, and replay.
-5. Add migration tests and seed-data reset tests for reliable demos.
-6. Expand raw X12 parsing beyond the current `837`/`275` subset and add optional file-drop intake.
+1. Expand raw X12 parsing beyond the current `837`/`275` subset.
+2. Add optional file-drop intake for batch/demo payloads.
+3. Add richer benefit-plan rules that influence service-line adjudication.
+4. Add more companion-guide variants per trading partner and transaction type.
+5. Add operational dashboard views for audit errors, retries, and partner rejection trends.
+6. Add exportable demo scenarios for repeatable training and stakeholder walkthroughs.
 
 ## Decision Summary
 
-ASHN uses canonical XML/JSON plus first-pass raw X12 through the public gateway and a dedicated `edi-intake` service. The canonical contract stays small, strongly validated, fully audited, and easy to demo. Accepted work flows into existing `payer-core` endpoints instead of bypassing business rules. The next frontier is partner-specific variants, broader raw X12 coverage, and richer document-vault integrations.
+ASHN uses canonical XML/JSON plus first-pass raw X12 through the public gateway and a dedicated `edi-intake` service. The canonical contract stays small, strongly validated, fully audited, and easy to demo. Accepted work flows into existing `payer-core` endpoints instead of bypassing business rules. The next frontier is broader raw X12 coverage, richer benefit rules, more partner-specific variants, and stronger operational/demo tooling.
 
 That path gets us closer to real enterprise EDI without burying the project in full X12 implementation complexity too early.
