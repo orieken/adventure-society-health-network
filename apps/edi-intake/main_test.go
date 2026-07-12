@@ -260,6 +260,44 @@ func TestAcceptRawX12RoutesEligibilityToPayerCore(t *testing.T) {
 	assert.Equal(t, "Raw X12 eligibility checked.", decodeEnvelope(t, response).Lore)
 }
 
+func TestAcceptRawX12RoutesClaimStatusToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims/claim-raw-276/status":
+			assert.Equal(t, http.MethodGet, r.Method)
+			return jsonResponse(http.StatusOK, domain.Envelope{
+				Data: map[string]string{"claimId": "claim-raw-276", "status": "Paid"},
+				Lore: "Raw X12 claim status checked.",
+				Transaction: &domain.Transaction{
+					Type:   domain.Tx277,
+					Status: domain.TxStatusAccepted,
+				},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx276, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw276Fixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, []string{"/claims/claim-raw-276/status", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "Raw X12 claim status checked.", decodeEnvelope(t, response).Lore)
+}
+
 func TestAcceptRawX12RoutesAttachmentToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	var attachmentRequest domain.AttachmentRequest
@@ -546,6 +584,14 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	require.NotNil(t, eligibility.EligibilityInquiry)
 	assert.Equal(t, "adv-raw-270", eligibility.EligibilityInquiry.AdventurerID)
 	assert.Equal(t, "provider-vitesse-temple", eligibility.EligibilityInquiry.ProviderID)
+
+	status, err := parseInboundRawX12([]byte(raw276Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "276", status.Type)
+	assert.Equal(t, "provider-vitesse-temple", status.Sender.ID)
+	assert.Equal(t, "Adventure Society", status.Receiver.ID)
+	require.NotNil(t, status.ClaimStatusRequest)
+	assert.Equal(t, "claim-raw-276", status.ClaimStatusRequest.ClaimID)
 
 	claim, err := parseInboundRawX12([]byte(raw837Fixture()))
 	require.NoError(t, err)
@@ -1489,6 +1535,24 @@ func raw270Fixture() string {
 		"SE*9*000000003~",
 		"GE*1*000000003~",
 		"IEA*1*000000003~",
+	}, "\n")
+}
+
+func raw276Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000276*0*T*:~",
+		"GS*HR*provider-vitesse-temple*Adventure Society*20260708*1200*000000276*X*005010X212~",
+		"ST*276*000000276~",
+		"BHT*0010*13*000000276*20260708*1200~",
+		"HL*1**20*1~",
+		"NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+		"HL*2*1*22*0~",
+		"NM1*IL*1*adv-raw-276****MI*adv-raw-276~",
+		"TRN*1*claim-raw-276*provider-vitesse-temple~",
+		"REF*1K*claim-raw-276~",
+		"SE*10*000000276~",
+		"GE*1*000000276~",
+		"IEA*1*000000276~",
 	}, "\n")
 }
 

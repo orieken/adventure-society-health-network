@@ -406,6 +406,12 @@ func parseInboundRawX12(body []byte) (inboundTransaction, error) {
 			return inbound, err
 		}
 		inbound.EligibilityInquiry = &eligibility
+	case domain.Tx276:
+		claimStatus, err := raw276ClaimStatus(segmentMap)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.ClaimStatusRequest = &claimStatus
 	case domain.Tx837:
 		claim, err := raw837Claim(segmentMap, inbound.Sender.ID)
 		if err != nil {
@@ -436,6 +442,23 @@ func raw270Eligibility(segmentMap map[string][][]string, senderID string) (xmlEl
 		return xmlEligibility{}, fmt.Errorf("missing provider NM1 segment")
 	}
 	return eligibility, nil
+}
+
+func raw276ClaimStatus(segmentMap map[string][][]string) (xmlClaimStatus, error) {
+	claimID := rawClaimReference(segmentMap)
+	if claimID == "" {
+		return xmlClaimStatus{}, fmt.Errorf("missing claim REF segment")
+	}
+	return xmlClaimStatus{ClaimID: claimID}, nil
+}
+
+func rawClaimReference(segmentMap map[string][][]string) string {
+	for _, ref := range segmentMap["REF"] {
+		if len(ref) >= 3 && strings.EqualFold(strings.TrimSpace(ref[1]), "1K") {
+			return strings.TrimSpace(ref[2])
+		}
+	}
+	return ""
 }
 
 func parseRawX12Segments(raw string) [][]string {

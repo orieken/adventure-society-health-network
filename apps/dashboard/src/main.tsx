@@ -298,6 +298,21 @@ const sampleRaw270 = [
   "GE*1*000000270~",
   "IEA*1*000000270~"
 ].join("\n");
+const sampleRaw276 = [
+  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000276*0*T*:~",
+  "GS*HR*provider-vitesse-temple*Adventure Society*20260708*1200*000000276*X*005010X212~",
+  "ST*276*000000276~",
+  "BHT*0010*13*000000276*20260708*1200~",
+  "HL*1**20*1~",
+  "NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+  "HL*2*1*22*0~",
+  "NM1*IL*1*Filter Fixture Ranger****MI*adv-e2e-dashboard~",
+  "TRN*1*claim-e2e-dashboard*provider-vitesse-temple~",
+  "REF*1K*claim-e2e-dashboard~",
+  "SE*10*000000276~",
+  "GE*1*000000276~",
+  "IEA*1*000000276~"
+].join("\n");
 const savedFiltersStorageKey = "ashn.savedFilters.v1";
 const initialPartnerForm: PartnerFormState = {
   id: "",
@@ -1487,10 +1502,11 @@ function App() {
           <div className="ledger-title">
             <div>
               <h2>Raw X12 Intake</h2>
-              <p className="muted">Paste delimiter-based `270`, `837`, or `275` text and map it into canonical ASHN workflow.</p>
+              <p className="muted">Paste delimiter-based `270`, `276`, `837`, or `275` text and map it into canonical ASHN workflow.</p>
             </div>
             <div className="actions compact-actions">
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw270)}>Load Sample 270</button>
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw276)}>Load Sample 276</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>
             </div>
           </div>

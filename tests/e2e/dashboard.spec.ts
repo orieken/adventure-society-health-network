@@ -189,6 +189,18 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latestEvent.locator("p").filter({ hasText: "Raw X12 eligibility checked." })).toBeVisible();
     await latestEvent.getByText("Raw payload").click();
     await expect(latestEvent.getByText("tx-e2e-raw-270")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "Load Sample 276" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*276");
+    const raw276Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw276Response;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest276Event = page.locator(".event").first();
+    await expect(latest276Event.locator("p").filter({ hasText: "Raw X12 claim status checked." })).toBeVisible();
+    await latest276Event.getByText("Raw payload").click();
+    await expect(latest276Event.getByText("tx-e2e-raw-276")).toBeVisible();
   });
 
   test("shows operational audit dashboard for partner rejections", async ({ page }) => {
@@ -947,6 +959,21 @@ async function mockDashboardApi(page: Page) {
               ...demoTransactions.find((transaction) => transaction.type === "271"),
               id: "tx-e2e-raw-270",
               payload: { x12: "270 raw dashboard intake fixture", adventurerId: "adv-e2e-dashboard" }
+            }
+          }
+        });
+        return;
+      }
+      if (rawPayload.includes("ST*276")) {
+        await route.fulfill({
+          status: 200,
+          json: {
+            data: { claimId: "claim-e2e-dashboard", status: "Paid" },
+            lore: "Raw X12 claim status checked.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "277"),
+              id: "tx-e2e-raw-276",
+              payload: { x12: "276 raw dashboard intake fixture", claimId: "claim-e2e-dashboard" }
             }
           }
         });
