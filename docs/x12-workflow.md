@@ -172,16 +172,16 @@ The dashboard claim detail drawer includes a **275 Documentation Workbench** tha
 
 ASHN also models partner-specific companion-guide rules. These are stored on each trading partner profile and enforced by `edi-intake` before the request is forwarded to `payer-core`. The payer still keeps its own backstop validation, but the EDI layer now owns the routing-facing companion-guide contract.
 
-These rules are intentionally small but teach the real-world shape of `275` validation:
+These rules are intentionally small but teach the real-world shape of partner-specific validation:
 
-| Provider | Allowed attachment types | Allowed report types | Transmission | Content types | Control prefixes | Size limit |
-| --- | --- | --- | --- | --- | --- | --- |
-| `provider-vitesse-temple` | `OZ` | `B4` | `EL` | `text/plain` | `TEMPLE-`, `ATTACH-`, `XML-` | 4 KB |
-| `provider-rimaros-hospital` | `OZ`, `PN` | `03`, `B4` | `EL` | `text/plain`, `application/pdf` | `RIM-`, `ATTACH-`, `XML-` | 8 KB |
+| Provider | `275` attachment profile | `837` diagnosis profile | `837` procedure profile |
+| --- | --- | --- | --- |
+| `provider-vitesse-temple` | `OZ`/`B4`, text only, `TEMPLE-`/`ATTACH-`/`XML-`, 4 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A` | `ASHN` prefix |
+| `provider-rimaros-hospital` | `OZ`/`PN`, `03`/`B4`, text/PDF, `RIM-`/`ATTACH-`/`XML-`, 8 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `M542` | `ASHN` or `RIM` prefix |
 
 Generated raw X12 includes `REF*1K` or `REF*G1` for correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type or external document reference, and `BIN` when embedded content is present.
 
-The same profile can also constrain `278` prior authorization service types and incident severities, which gives demos a single place to explain sender IDs, allowed transaction sets, routing, and partner-specific validation.
+The same profile can also constrain `278` prior authorization service types and incident severities, which gives demos a single place to explain sender IDs, allowed transaction sets, routing, companion-guide validation, and partner-specific claim rules.
 
 ### 6. Claim Status: `276 → 277`
 
@@ -281,6 +281,7 @@ When XML or JSON arrives, `edi-intake` first validates the canonical ASHN transa
 2. The `Receiver id` must match that partner's expected receiver.
 3. The requested X12 type must be allowed for that partner.
 4. The route target must be supported.
+5. Transaction-specific profile rules must pass, such as `275` attachment metadata, `278` service/severity rules, and `837` diagnosis/procedure constraints.
 
 Accepted intake is forwarded to existing `payer-core` HTTP endpoints. Rejected intake still creates an inbound audit record, preserving the raw payload and validation error for debugging, export, and replay.
 

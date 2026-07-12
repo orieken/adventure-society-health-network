@@ -1006,8 +1006,49 @@ func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboun
 		if err := validateProfileCode(partner.ID, "incident severity", inbound.PriorAuthorization.IncidentSeverity, profile.IncidentSeverities); err != nil {
 			return err
 		}
+	case domain.Tx837:
+		if inbound.Claim == nil {
+			return nil
+		}
+		for _, diagnosis := range claimDiagnosesForValidation(*inbound.Claim) {
+			if err := validateProfileCode(partner.ID, "diagnosis qualifier", diagnosis.Qualifier, profile.DiagnosisQualifiers); err != nil {
+				return err
+			}
+			if err := validateProfileCode(partner.ID, "diagnosis code", diagnosis.Code, profile.DiagnosisCodes); err != nil {
+				return err
+			}
+		}
+		for _, serviceLine := range inbound.Claim.ServiceLines {
+			if err := validateProcedureProfile(partner.ID, serviceLine.ProcedureCode, profile); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func claimDiagnosesForValidation(claim xmlClaim) []xmlClaimDiagnosis {
+	if len(claim.Diagnoses) > 0 {
+		return claim.Diagnoses
+	}
+	code := defaultDiagnosisCodeForSeverity(claim.IncidentSeverity)
+	if code == "" {
+		return nil
+	}
+	return []xmlClaimDiagnosis{{Qualifier: "ABK", Code: code, Primary: true}}
+}
+
+func defaultDiagnosisCodeForSeverity(severity string) string {
+	switch strings.TrimSpace(severity) {
+	case string(domain.SeverityNormal):
+		return "S610"
+	case string(domain.SeverityAwakened):
+		return "T509"
+	case string(domain.SeverityDiamond):
+		return "S062X9A"
+	default:
+		return ""
+	}
 }
 
 func (inbound inboundTransaction) attachmentsForValidation() []xmlAttachment {
@@ -1025,6 +1066,25 @@ func validateProfileCode(partnerID, label, value string, allowed []string) error
 		return nil
 	}
 	return fmt.Errorf("%s %s is not allowed for trading partner %s; allowed: %s", label, strings.TrimSpace(value), partnerID, strings.Join(allowed, ", "))
+}
+
+func validateProcedureProfile(partnerID, procedureCode string, profile domain.PartnerValidationProfile) error {
+	procedureCode = strings.TrimSpace(procedureCode)
+	if procedureCode == "" {
+		return nil
+	}
+	if len(profile.ProcedureCodes) > 0 && containsProfileCode(profile.ProcedureCodes, procedureCode) {
+		return nil
+	}
+	if len(profile.ProcedureCodePrefixes) > 0 && hasProfilePrefix(procedureCode, profile.ProcedureCodePrefixes) {
+		return nil
+	}
+	if len(profile.ProcedureCodes) == 0 && len(profile.ProcedureCodePrefixes) == 0 {
+		return nil
+	}
+	allowed := append([]string{}, profile.ProcedureCodes...)
+	allowed = append(allowed, profile.ProcedureCodePrefixes...)
+	return fmt.Errorf("procedure code %s is not allowed for trading partner %s; allowed: %s", procedureCode, partnerID, strings.Join(allowed, ", "))
 }
 
 func containsProfileCode(values []string, candidate string) bool {
@@ -1514,6 +1574,9 @@ func vitesseValidationProfile() domain.PartnerValidationProfile {
 		MaxEmbeddedContentBytes: 4096,
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care"},
 		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
+		DiagnosisQualifiers:     []string{"ABK", "ABF"},
+		DiagnosisCodes:          []string{"S610", "T509", "S062X9A"},
+		ProcedureCodePrefixes:   []string{"ASHN"},
 	}
 }
 
@@ -1527,6 +1590,9 @@ func rimarosValidationProfile() domain.PartnerValidationProfile {
 		MaxEmbeddedContentBytes: 8192,
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care"},
 		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
+		DiagnosisQualifiers:     []string{"ABK", "ABF"},
+		DiagnosisCodes:          []string{"S610", "T509", "S062X9A", "M542"},
+		ProcedureCodePrefixes:   []string{"ASHN", "RIM"},
 	}
 }
 

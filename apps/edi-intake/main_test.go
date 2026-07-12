@@ -745,6 +745,46 @@ func TestValidateTradingPartnerProfileRejectsPriorAuthOutsideProfile(t *testing.
 	assert.Equal(t, "service type dragon-riding is not allowed for trading partner tp-vitesse-temple; allowed: resurrection, restoration, curse-removal, trauma-care", err.Error())
 }
 
+func TestValidateTradingPartnerProfileAppliesClaimRules(t *testing.T) {
+	partners := seedTradingPartners()
+	inbound := inboundTransaction{
+		Type: string(domain.Tx837),
+		Claim: &xmlClaim{
+			Diagnoses: []xmlClaimDiagnosis{
+				{Qualifier: "ABK", Code: "M542", Primary: true},
+			},
+			ServiceLines: []xmlClaimServiceLine{
+				{ProcedureCode: "RIM100", AmountCents: "10000"},
+			},
+		},
+	}
+
+	err := validateTradingPartnerProfile(partners["tp-vitesse-temple"], inbound)
+	require.Error(t, err)
+	assert.Equal(t, "diagnosis code M542 is not allowed for trading partner tp-vitesse-temple; allowed: S610, T509, S062X9A", err.Error())
+
+	require.NoError(t, validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound))
+}
+
+func TestValidateTradingPartnerProfileRejectsClaimProcedureOutsideProfile(t *testing.T) {
+	partner := seedTradingPartners()["tp-vitesse-temple"]
+	inbound := inboundTransaction{
+		Type: string(domain.Tx837),
+		Claim: &xmlClaim{
+			Diagnoses: []xmlClaimDiagnosis{
+				{Qualifier: "ABK", Code: "T509", Primary: true},
+			},
+			ServiceLines: []xmlClaimServiceLine{
+				{ProcedureCode: "RIM100", AmountCents: "10000"},
+			},
+		},
+	}
+
+	err := validateTradingPartnerProfile(partner, inbound)
+	require.Error(t, err)
+	assert.Equal(t, "procedure code RIM100 is not allowed for trading partner tp-vitesse-temple; allowed: ASHN", err.Error())
+}
+
 func TestAcceptXMLRejectsPartnerProfileViolationBeforeForwarding(t *testing.T) {
 	forwarded := false
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -780,6 +820,38 @@ func TestAcceptXMLRejectsPartnerProfileViolationBeforeForwarding(t *testing.T) {
 	assert.False(t, forwarded)
 }
 
+func TestAcceptXMLRejectsClaimProfileViolationBeforeForwarding(t *testing.T) {
+	forwarded := false
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/transactions" {
+			forwarded = true
+		}
+		return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "unexpected"})
+	})}
+	handler := newIntakeTestMux(intakeApp{client: client, payerURL: "http://payer-core"})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="837">
+  <Sender id="provider-vitesse-temple" />
+  <Receiver id="Adventure Society" />
+  <Claim>
+    <AdventurerId>adv-1</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <IncidentSeverity>Awakened</IncidentSeverity>
+    <AmountCents>10000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true"><Code>M542</Code></Diagnosis>
+    <ServiceLine lineNumber="1"><ProcedureCode>ASHN1</ProcedureCode><AmountCents>10000</AmountCents></ServiceLine>
+  </Claim>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "diagnosis code M542 is not allowed for trading partner tp-vitesse-temple; allowed: S610, T509, S062X9A", decodeEnvelope(t, response).Error)
+	assert.False(t, forwarded)
+}
+
 func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	handler := newIntakeTestMux(intakeApp{})
 
@@ -797,6 +869,8 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	}
 	assert.Contains(t, senderIDs, "partner-greenstone")
 	assert.Equal(t, []string{"OZ"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AttachmentTypes)
+	assert.Equal(t, []string{"S610", "T509", "S062X9A"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DiagnosisCodes)
+	assert.Equal(t, []string{"ASHN", "RIM"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }
 
 func TestSaveAndDeleteTradingPartnerInMemory(t *testing.T) {
@@ -1047,13 +1121,15 @@ func TestLoadTradingPartnersReadsDatabaseAndSplitsCSV(t *testing.T) {
 	defer cleanup()
 	mock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "validation_profile", "route_target", "status"}).
-			AddRow("tp-1", "Partner One", "sender-1", "Adventure Society", "834, 837, , 999", `{"attachmentTypes":["OZ"],"maxEmbeddedContentBytes":2048}`, "payer-core", "active"))
+			AddRow("tp-1", "Partner One", "sender-1", "Adventure Society", "834, 837, , 999", `{"attachmentTypes":["OZ"],"maxEmbeddedContentBytes":2048,"diagnosisCodes":["T509"],"procedureCodePrefixes":["ASHN"]}`, "payer-core", "active"))
 
 	partners := loadTradingPartners(db)
 
 	require.Len(t, partners, 1)
 	assert.Equal(t, []string{"834", "837", "999"}, partners["tp-1"].AllowedTransactionTypes)
 	assert.Equal(t, []string{"OZ"}, partners["tp-1"].ValidationProfile.AttachmentTypes)
+	assert.Equal(t, []string{"T509"}, partners["tp-1"].ValidationProfile.DiagnosisCodes)
+	assert.Equal(t, []string{"ASHN"}, partners["tp-1"].ValidationProfile.ProcedureCodePrefixes)
 	assert.Equal(t, 2048, partners["tp-1"].ValidationProfile.MaxEmbeddedContentBytes)
 	require.NoError(t, mock.ExpectationsWereMet())
 	assert.Equal(t, []string{"270", "837"}, splitCSV("270, ,837"))

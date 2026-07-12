@@ -351,6 +351,37 @@ test.describe("ASHN mutating demo contracts", () => {
     expect(envelope.data?.some((message) => message.transactionType === "834" && message.status === "accepted")).toBeTruthy();
   });
 
+  test("gateway rejects partner-specific 837 profile violations", async ({ request }) => {
+    const invalidClaim = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="837">
+  <Sender id="provider-vitesse-temple"/>
+  <Receiver id="Adventure Society"/>
+  <Claim>
+    <AdventurerId>adv-profile-reject</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <IncidentSeverity>Awakened</IncidentSeverity>
+    <AmountCents>10000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true"><Code>M542</Code></Diagnosis>
+    <ServiceLine lineNumber="1"><ProcedureCode>ASHN1</ProcedureCode><AmountCents>10000</AmountCents></ServiceLine>
+  </Claim>
+</AshnX12Transaction>`;
+
+    const intake = await request.post(`${serviceUrls.apiGateway}/v1/x12/xml`, {
+      headers: {
+        "Content-Type": "application/xml"
+      },
+      data: invalidClaim
+    });
+    expect(intake.status()).toBe(400);
+    const envelope = (await intake.json()) as Envelope;
+    expect(envelope.error).toContain("diagnosis code M542 is not allowed");
+
+    const messages = await request.get(`${serviceUrls.apiGateway}/v1/x12/messages?limit=5&type=837&q=M542`);
+    expect(messages.ok()).toBeTruthy();
+    const auditEnvelope = (await messages.json()) as Envelope<Array<{ transactionType: string; status: string; error?: string }>>;
+    expect(auditEnvelope.data?.some((message) => message.transactionType === "837" && message.status === "rejected")).toBeTruthy();
+  });
+
   test("gateway accepts canonical JSON intake through representation route", async ({ request }) => {
     const jsonName = uniqueDemoName("JSON Ranger");
     const intake = await request.post(`${serviceUrls.apiGateway}/v1/x12/transactions`, {

@@ -418,6 +418,8 @@ Baseline support now exists through partner-specific companion-guide validation 
 
 - allowed attachment types
 - allowed report type codes
+- allowed diagnosis qualifiers/codes
+- allowed procedure codes/prefixes
 - max content size
 - accepted content types
 - required control prefixes

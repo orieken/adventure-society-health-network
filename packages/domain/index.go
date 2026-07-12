@@ -130,6 +130,10 @@ type PartnerValidationProfile struct {
 	MaxEmbeddedContentBytes int      `json:"maxEmbeddedContentBytes,omitempty"`
 	ServiceTypes            []string `json:"serviceTypes,omitempty"`
 	IncidentSeverities      []string `json:"incidentSeverities,omitempty"`
+	DiagnosisQualifiers     []string `json:"diagnosisQualifiers,omitempty"`
+	DiagnosisCodes          []string `json:"diagnosisCodes,omitempty"`
+	ProcedureCodePrefixes   []string `json:"procedureCodePrefixes,omitempty"`
+	ProcedureCodes          []string `json:"procedureCodes,omitempty"`
 }
 
 type Transaction struct {

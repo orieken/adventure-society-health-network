@@ -23,6 +23,10 @@ type TradingPartner = {
     reportTypeCodes?: string[];
     contentTypes?: string[];
     maxEmbeddedContentBytes?: number;
+    diagnosisQualifiers?: string[];
+    diagnosisCodes?: string[];
+    procedureCodePrefixes?: string[];
+    procedureCodes?: string[];
   };
 };
 
@@ -1594,6 +1598,13 @@ function TradingPartnerCard({
           Guide: {profile.attachmentTypes?.length ? `${profile.attachmentTypes.join("/")} attachments` : "standard attachments"}
           {profile.contentTypes?.length ? ` · ${profile.contentTypes.join(", ")}` : ""}
           {profile.maxEmbeddedContentBytes ? ` · ${Math.round(profile.maxEmbeddedContentBytes / 1024)} KB embedded limit` : ""}
+        </p>
+      ) : null}
+      {profile && (profile.diagnosisCodes?.length || profile.procedureCodePrefixes?.length || profile.procedureCodes?.length) ? (
+        <p>
+          Claims: {profile.diagnosisCodes?.length ? `${profile.diagnosisCodes.join("/")} diagnoses` : "standard diagnoses"}
+          {profile.procedureCodePrefixes?.length ? ` · ${profile.procedureCodePrefixes.join("/")} procedure prefixes` : ""}
+          {profile.procedureCodes?.length ? ` · ${profile.procedureCodes.join("/")} procedures` : ""}
         </p>
       ) : null}
       <div className="actions compact-actions">
