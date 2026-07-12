@@ -29,6 +29,7 @@ Move ASHN from a strong integration lab into a richer training/demo environment:
 - [x] Add unit tests for valid XML, invalid XML, missing fields, and unsupported transaction types.
 - [x] Persist raw inbound XML for audit/debug replay.
 - [x] Add DB-backed integration tests through `api-gateway → edi-intake → payer-core`.
+- [x] Add multipart file-drop intake for batch/demo XML, JSON, EDI, and X12 payloads.
 
 Suggested service boundary:
 
@@ -210,7 +211,7 @@ Example `270` eligibility inquiry:
 ## Suggested Next Implementation Order
 
 1. Expand raw X12 parsing beyond the current `837`/`275` subset.
-2. Add optional file-drop intake for batch/demo payloads.
+2. Add optional file-drop intake for batch/demo payloads. ✅
 3. Add richer benefit-plan rules that influence service-line adjudication.
 4. Add more companion-guide variants per trading partner and transaction type.
 5. Add operational dashboard views for audit errors, retries, and partner rejection trends.

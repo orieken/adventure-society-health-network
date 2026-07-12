@@ -330,6 +330,7 @@ flowchart LR
 - Canonical ASHN XML is the first supported contract; transaction-specific and partner-specific XML can be added later.
 - XML intake calls existing `payer-core` endpoints instead of writing payer transactions directly.
 - `POST /v1/x12/transactions` is the content-negotiated public route; `POST /v1/x12/xml` remains as an XML compatibility route.
+- `POST /v1/x12/batch` accepts multipart `files` uploads for XML, JSON, EDI, or X12 demo batches and processes each file through the same audited intake path.
 - Every inbound representation is visible in the XML Intake tab.
 - Accepted and rejected submissions create audit records.
 - Transactions and intake messages can be exported and replayed for demos.

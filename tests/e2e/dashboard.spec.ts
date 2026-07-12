@@ -222,6 +222,37 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByLabel("Selected record details").getByText("msg-e2e-rejected-837")).toBeVisible();
   });
 
+  test("submits a multipart batch file drop", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await expect(page.getByRole("heading", { name: "Batch File Drop" })).toBeVisible();
+    await page.getByLabel("Intake files").setInputFiles([
+      {
+        name: "eligibility.xml",
+        mimeType: "application/xml",
+        buffer: Buffer.from("<AshnX12Transaction type=\"270\" />")
+      },
+      {
+        name: "claim.x12",
+        mimeType: "application/edi-x12",
+        buffer: Buffer.from("ISA*00*")
+      }
+    ]);
+    const batchResponse = page.waitForResponse((response) => response.url().includes("/v1/x12/batch"));
+    await page.getByRole("button", { name: "Submit Batch" }).click();
+    const response = await batchResponse;
+    expect(response.status()).toBe(207);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        total: 2,
+        accepted: 1,
+        rejected: 1
+      }
+    });
+  });
+
   test("exports the loaded transaction ledger to CSV", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -894,6 +925,26 @@ async function mockDashboardApi(page: Page) {
             ...demoTransactions.find((transaction) => transaction.type === "837"),
             id: "tx-e2e-raw-837",
             payload: { x12: "837 raw dashboard intake fixture", claimId: "claim-e2e-raw" }
+          }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/x12/batch") {
+      expect(route.request().headers()["content-type"]).toContain("multipart/form-data");
+      await route.fulfill({
+        status: 207,
+        json: {
+          lore: "The intake file-drop processed its batch scrolls.",
+          data: {
+            total: 2,
+            accepted: 1,
+            rejected: 1,
+            results: [
+              { fileName: "eligibility.xml", contentType: "application/xml", statusCode: 201, accepted: true, transactionType: "270" },
+              { fileName: "claim.x12", contentType: "application/edi-x12", statusCode: 400, accepted: false, error: "invalid raw X12" }
+            ]
           }
         }
       });

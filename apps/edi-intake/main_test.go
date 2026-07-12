@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -586,6 +588,50 @@ func TestAcceptXMLRejectsMalformedXML(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Equal(t, "invalid xml", decodeEnvelope(t, response).Error)
+}
+
+func TestAcceptBatchProcessesMultipartFiles(t *testing.T) {
+	downstreamPaths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/eligibility/query":
+			return jsonResponse(http.StatusCreated, domain.Envelope{Lore: "Eligibility checked."})
+		case "/transactions":
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &domain.Transaction{Type: domain.Tx999, Status: domain.TxStatusAccepted}})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	good, err := writer.CreateFormFile("files", "eligibility.xml")
+	require.NoError(t, err)
+	_, _ = good.Write([]byte(`<AshnX12Transaction type="270"><Sender id="provider-vitesse-temple" /><Receiver id="Adventure Society" /><EligibilityInquiry><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId></EligibilityInquiry></AshnX12Transaction>`))
+	bad, err := writer.CreateFormFile("files", "broken.xml")
+	require.NoError(t, err)
+	_, _ = bad.Write([]byte(`<AshnX12Transaction type="270">`))
+	require.NoError(t, writer.Close())
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/batch", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusMultiStatus, response.Code)
+	envelope := decodeEnvelope(t, response)
+	var summary domain.BatchIntakeSummary
+	require.NoError(t, json.Unmarshal(envelope.Data, &summary))
+	assert.Equal(t, 2, summary.Total)
+	assert.Equal(t, 1, summary.Accepted)
+	assert.Equal(t, 1, summary.Rejected)
+	assert.Equal(t, "eligibility.xml", summary.Results[0].FileName)
+	assert.Equal(t, "270", summary.Results[0].TransactionType)
+	assert.Equal(t, "invalid xml", summary.Results[1].Error)
+	assert.Contains(t, downstreamPaths, "/eligibility/query")
+	assert.Contains(t, downstreamPaths, "/transactions")
 }
 
 func TestAcceptXMLRejectsMissingRequiredFields(t *testing.T) {
@@ -1293,6 +1339,7 @@ func TestEDIOpenAPIIncludesIntakeRoutes(t *testing.T) {
 	assert.Contains(t, paths, "/x12/transactions")
 	assert.Contains(t, paths, "/x12/xml")
 	assert.Contains(t, paths, "/x12/raw")
+	assert.Contains(t, paths, "/x12/batch")
 	assert.Contains(t, paths, "/x12/messages/rejections")
 	assert.Contains(t, paths, "/x12/messages/{id}/replay")
 	assert.Contains(t, paths, "/x12/trading-partners")
@@ -1304,6 +1351,7 @@ func newIntakeTestMux(app intakeApp) http.Handler {
 	mux.HandleFunc("POST /x12/transactions", app.acceptTransaction)
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
 	mux.HandleFunc("POST /x12/raw", app.acceptTransaction)
+	mux.HandleFunc("POST /x12/batch", app.acceptBatch)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	mux.HandleFunc("GET /x12/messages/rejections", app.rejectionMetrics)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)

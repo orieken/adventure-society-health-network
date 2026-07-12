@@ -199,6 +199,23 @@ type InboundRejectionMetrics struct {
 	Latest    []InboundMessage        `json:"latest"`
 }
 
+type BatchIntakeResult struct {
+	FileName        string `json:"fileName"`
+	ContentType     string `json:"contentType"`
+	StatusCode      int    `json:"statusCode"`
+	Accepted        bool   `json:"accepted"`
+	TransactionType string `json:"transactionType,omitempty"`
+	Error           string `json:"error,omitempty"`
+	Lore            string `json:"lore,omitempty"`
+}
+
+type BatchIntakeSummary struct {
+	Total    int                 `json:"total"`
+	Accepted int                 `json:"accepted"`
+	Rejected int                 `json:"rejected"`
+	Results  []BatchIntakeResult `json:"results"`
+}
+
 type Claim struct {
 	ID                         string             `json:"id"`
 	AdventurerID               string             `json:"adventurerId"`

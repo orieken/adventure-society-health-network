@@ -438,6 +438,7 @@ func TestGatewayRoutesXMLMessageActionsAndTradingPartnersToEDIIntake(t *testing.
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/v1/x12/batch"},
 		{http.MethodGet, "/v1/x12/messages/msg-1/export?format=json"},
 		{http.MethodPost, "/v1/x12/messages/msg-1/replay"},
 		{http.MethodGet, "/v1/x12/trading-partners"},
@@ -451,6 +452,7 @@ func TestGatewayRoutesXMLMessageActionsAndTradingPartnersToEDIIntake(t *testing.
 	}
 
 	assert.Equal(t, []string{
+		"POST /x12/batch",
 		"GET /x12/messages/msg-1/export?format=json",
 		"POST /x12/messages/msg-1/replay",
 		"GET /x12/trading-partners",
@@ -671,6 +673,7 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	assert.Contains(t, paths, "/v1/health")
 	assert.Contains(t, paths, "/v1/x12/xml")
 	assert.Contains(t, paths, "/v1/x12/raw")
+	assert.Contains(t, paths, "/v1/x12/batch")
 	assert.Contains(t, paths, "/v1/x12/messages/rejections")
 	assert.Contains(t, paths, "/v1/transactions/{id}/export")
 	assert.Contains(t, paths, "/v1/transactions/{id}/document-reference")

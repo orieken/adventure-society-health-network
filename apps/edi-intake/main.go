@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"sort"
 	"strconv"
@@ -142,6 +143,7 @@ func main() {
 	mux.HandleFunc("POST /x12/transactions", app.acceptTransaction)
 	mux.HandleFunc("POST /x12/xml", app.acceptTransaction)
 	mux.HandleFunc("POST /x12/raw", app.acceptTransaction)
+	mux.HandleFunc("POST /x12/batch", app.acceptBatch)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
 	mux.HandleFunc("GET /x12/messages/rejections", app.rejectionMetrics)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
@@ -216,6 +218,121 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 
 func (a intakeApp) acceptXML(w http.ResponseWriter, r *http.Request) {
 	a.acceptTransaction(w, r)
+}
+
+func (a intakeApp) acceptBatch(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		fail(w, http.StatusBadRequest, "invalid multipart payload", "The file-drop satchel could not be opened.")
+		return
+	}
+	files := append([]*multipartFileHeader{}, multipartHeaders(r, "files")...)
+	files = append(files, multipartHeaders(r, "file")...)
+	if len(files) == 0 {
+		fail(w, http.StatusBadRequest, "missing files", "The file-drop satchel was empty.")
+		return
+	}
+	summary := domain.BatchIntakeSummary{Total: len(files)}
+	for _, file := range files {
+		result := a.processBatchFile(r, file)
+		if result.Accepted {
+			summary.Accepted++
+		} else {
+			summary.Rejected++
+		}
+		summary.Results = append(summary.Results, result)
+	}
+	status := http.StatusAccepted
+	if summary.Accepted == 0 {
+		status = http.StatusBadRequest
+	} else if summary.Rejected > 0 {
+		status = http.StatusMultiStatus
+	}
+	respond(w, status, domain.Envelope{Data: summary, Lore: "The intake file-drop processed its batch scrolls."})
+}
+
+type multipartFileHeader = struct {
+	FileName    string
+	ContentType string
+	Open        func() (io.ReadCloser, error)
+}
+
+func multipartHeaders(r *http.Request, field string) []*multipartFileHeader {
+	if r.MultipartForm == nil || r.MultipartForm.File == nil {
+		return nil
+	}
+	headers := r.MultipartForm.File[field]
+	files := make([]*multipartFileHeader, 0, len(headers))
+	for _, header := range headers {
+		fileHeader := header
+		files = append(files, &multipartFileHeader{
+			FileName:    fileHeader.Filename,
+			ContentType: fileHeader.Header.Get("Content-Type"),
+			Open: func() (io.ReadCloser, error) {
+				return fileHeader.Open()
+			},
+		})
+	}
+	return files
+}
+
+func (a intakeApp) processBatchFile(parent *http.Request, file *multipartFileHeader) domain.BatchIntakeResult {
+	result := domain.BatchIntakeResult{FileName: fallbackLabel(file.FileName, "unnamed"), ContentType: inferBatchContentType(file.FileName, file.ContentType)}
+	reader, err := file.Open()
+	if err != nil {
+		result.StatusCode = http.StatusBadRequest
+		result.Error = "file open failed"
+		result.Lore = "The file-drop could not unroll one scroll."
+		return result
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(io.LimitReader(reader, 1<<20))
+	if err != nil {
+		result.StatusCode = http.StatusBadRequest
+		result.Error = "file read failed"
+		result.Lore = "The file-drop could not read one scroll."
+		return result
+	}
+	if inbound, err := parseInboundPayload(result.ContentType, body); err == nil {
+		result.TransactionType = inbound.Type
+	}
+	request := httptestRequest(http.MethodPost, "/x12/transactions", result.ContentType, string(body))
+	requestmeta.Propagate(parent, request)
+	response := httptest.NewRecorder()
+	a.acceptTransaction(response, request)
+	result.StatusCode = response.Code
+	result.Accepted = response.Code >= 200 && response.Code < 300
+	var envelope domain.ErrorEnvelope
+	if !result.Accepted && json.Unmarshal(response.Body.Bytes(), &envelope) == nil {
+		result.Error = envelope.Error
+		result.Lore = envelope.Lore
+		return result
+	}
+	var accepted domain.Envelope
+	if result.Accepted && json.Unmarshal(response.Body.Bytes(), &accepted) == nil {
+		result.Lore = accepted.Lore
+		if tx := accepted.Transaction; tx != nil {
+			result.TransactionType = string(tx.Type)
+		}
+	}
+	return result
+}
+
+func inferBatchContentType(filename, contentType string) string {
+	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	if contentType != "" && contentType != "application/octet-stream" {
+		return contentType
+	}
+	name := strings.ToLower(strings.TrimSpace(filename))
+	switch {
+	case strings.HasSuffix(name, ".xml"):
+		return "application/xml"
+	case strings.HasSuffix(name, ".json"):
+		return "application/json"
+	case strings.HasSuffix(name, ".x12"), strings.HasSuffix(name, ".edi"), strings.HasSuffix(name, ".txt"):
+		return "application/edi-x12"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 var errUnsupportedContentType = errors.New("unsupported content type")
@@ -1815,6 +1932,9 @@ func ediOpenAPI() map[string]any {
 			},
 			"/x12/raw": {
 				"post": {Summary: "Accept raw delimiter-based X12 intake", Tags: []string{"raw x12", "x12"}, RequestBody: true},
+			},
+			"/x12/batch": {
+				"post": {Summary: "Accept multipart XML/JSON/raw X12 batch files", Tags: []string{"intake", "batch"}, RequestBody: true},
 			},
 			"/x12/messages": {
 				"get": {Summary: "List XML intake audit messages", Tags: []string{"xml", "audit"}},

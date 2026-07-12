@@ -122,6 +122,27 @@ h2 {
   align-content: start;
 }
 
+.batch-drop-panel {
+  align-content: start;
+  border-color: rgba(145, 215, 255, 0.22);
+  background:
+    radial-gradient(circle at 80% 0%, rgba(145, 215, 255, 0.14), transparent 34%),
+    rgba(255, 255, 255, 0.05);
+}
+
+.batch-drop-hints {
+  display: grid;
+  gap: 6px;
+  color: #d8c8b8;
+  font-size: 13px;
+  text-transform: none;
+}
+
+.batch-drop-hints span::before {
+  content: "✦ ";
+  color: #91d7ff;
+}
+
 .partner-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

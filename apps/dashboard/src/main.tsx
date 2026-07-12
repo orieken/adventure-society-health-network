@@ -600,16 +600,17 @@ function App() {
   }
 
   async function request<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
+    const isFormData = init?.body instanceof FormData;
     const response = await fetch(`${apiUrl}${path}`, {
       ...init,
-      headers: requestHeaders(init?.headers)
+      headers: requestHeaders(init?.headers, isFormData)
     });
     return (await response.json()) as Envelope<T>;
   }
 
-  function requestHeaders(initHeaders?: HeadersInit) {
+  function requestHeaders(initHeaders?: HeadersInit, skipContentType = false) {
     const headers = new Headers(initHeaders);
-    if (!headers.has("Content-Type")) {
+    if (!skipContentType && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
     if (apiKey && !headers.has("X-ASHN-API-Key")) {
@@ -679,6 +680,26 @@ function App() {
         body: rawX12Draft
       });
       pushEvent(result);
+      await refresh(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitBatchFiles(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    if (!form.getAll("files").some((value) => value instanceof File && value.size > 0)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await request("/v1/x12/batch", {
+        method: "POST",
+        body: form
+      });
+      pushEvent(result);
+      event.currentTarget.reset();
       await refresh(true);
     } finally {
       setBusy(false);
@@ -1460,6 +1481,26 @@ function App() {
           </label>
           <div className="actions compact-actions">
             <button type="submit" disabled={busy || !rawX12Draft.trim()}>Submit Raw X12</button>
+          </div>
+        </form>
+        <form className="panel batch-drop-panel" onSubmit={submitBatchFiles}>
+          <div className="ledger-title">
+            <div>
+              <h2>Batch File Drop</h2>
+              <p className="muted">Upload XML, JSON, EDI, or X12 demo files and route each one through the same audited intake path.</p>
+            </div>
+            <span className="muted">multipart</span>
+          </div>
+          <label>
+            Intake files
+            <input name="files" type="file" multiple accept=".xml,.json,.x12,.edi,.txt,application/xml,application/json,text/plain" />
+          </label>
+          <div className="batch-drop-hints">
+            <span>Accepted files create normal audit records.</span>
+            <span>Rejected files still emit 999/audit visibility.</span>
+          </div>
+          <div className="actions compact-actions">
+            <button type="submit" disabled={busy}>Submit Batch</button>
           </div>
         </form>
         <div className="panel ledger">
