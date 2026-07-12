@@ -209,9 +209,9 @@ func TestProcessClaimFinalizationUpdatesClaimAndRecords277(t *testing.T) {
 	mock.ExpectQuery(claimFinalizationQueryPattern()).
 		WithArgs("claim-1").
 		WillReturnRows(claimFinalizationRows().
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), domain.ClaimPending, "", "", ""))
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1, allowed_amount_cents = $2, paid_amount_cents = $3, patient_responsibility_cents = $4, adjustment_amount_cents = $5, adjustment_reason = NULLIF($6, ''), denial_reason = NULLIF($7, '') WHERE id = $8`)).
-		WithArgs(string(domain.ClaimApproved), int64(80000), int64(68000), int64(12000), int64(20000), "ASHN contractual allowance", "", "claim-1").
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), `[{"lineNumber":1,"procedureCode":"ASHN1","description":"Stabilization","units":1,"amountCents":100000}]`, domain.ClaimPending, "", "", ""))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1, allowed_amount_cents = $2, paid_amount_cents = $3, patient_responsibility_cents = $4, adjustment_amount_cents = $5, adjustment_reason = NULLIF($6, ''), denial_reason = NULLIF($7, ''), service_lines = $8::jsonb WHERE id = $9`)).
+		WithArgs(string(domain.ClaimApproved), int64(80000), int64(68000), int64(12000), int64(20000), "ASHN contractual allowance", "", jsonServiceLinesArg{contains: `"paidAmountCents":68000`}, "claim-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO transactions (id, type, status, sender_id, receiver_id, payload, raw_x12, related_id, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9)
@@ -229,7 +229,7 @@ func TestProcessClaimFinalizationSkipsCompletedClaims(t *testing.T) {
 	mock.ExpectQuery(claimFinalizationQueryPattern()).
 		WithArgs("claim-1").
 		WillReturnRows(claimFinalizationRows().
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", "", "", "", int64(100000), domain.ClaimPaid, "", "", ""))
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", "", "", "", int64(100000), `[]`, domain.ClaimPaid, "", "", ""))
 
 	require.NoError(t, processClaimFinalization(db, "claim-1"))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -259,6 +259,30 @@ func TestAdjudicateClaimNormalSeverityUsesRicherAllowance(t *testing.T) {
 	assert.Equal(t, int64(81000), claim.PaidAmountCents)
 	assert.Equal(t, int64(9000), claim.PatientResponsibilityCents)
 	assert.Equal(t, int64(10000), claim.AdjustmentAmountCents)
+}
+
+func TestAdjudicateClaimRollsUpServiceLines(t *testing.T) {
+	claim := domain.Claim{
+		IncidentSeverity: domain.SeverityAwakened,
+		AmountCents:      125000,
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000},
+			{LineNumber: 2, ProcedureCode: "ASHN2", Description: "Dragonfire trauma supplies", Units: 1, AmountCents: 30000},
+		},
+	}
+
+	adjudicateClaim(&claim)
+
+	assert.Equal(t, domain.ClaimApproved, claim.Status)
+	assert.Equal(t, int64(100000), claim.AllowedAmountCents)
+	assert.Equal(t, int64(85000), claim.PaidAmountCents)
+	assert.Equal(t, int64(15000), claim.PatientResponsibilityCents)
+	assert.Equal(t, int64(25000), claim.AdjustmentAmountCents)
+	require.Len(t, claim.ServiceLines, 2)
+	assert.Equal(t, int64(76000), claim.ServiceLines[0].AllowedAmountCents)
+	assert.Equal(t, int64(64600), claim.ServiceLines[0].PaidAmountCents)
+	assert.Equal(t, int64(24000), claim.ServiceLines[1].AllowedAmountCents)
+	assert.Equal(t, int64(20400), claim.ServiceLines[1].PaidAmountCents)
 }
 
 func TestAdjudicateClaimDeniesCatastrophicClaims(t *testing.T) {
@@ -460,7 +484,7 @@ func claimFinalizationQueryPattern() string {
 
 func claimFinalizationRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
-		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "status",
+		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "service_lines", "status",
 		"adventurer_rank", "coverage_status", "provider_tier",
 	})
 }
@@ -479,4 +503,13 @@ func (arg jsonErrorArg) Match(value driver.Value) bool {
 		return false
 	}
 	return strings.Contains(payload["error"], arg.contains)
+}
+
+type jsonServiceLinesArg struct {
+	contains string
+}
+
+func (arg jsonServiceLinesArg) Match(value driver.Value) bool {
+	text, ok := value.(string)
+	return ok && strings.Contains(text, arg.contains)
 }

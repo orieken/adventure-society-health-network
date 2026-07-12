@@ -75,6 +75,21 @@ type Claim = {
   adjustmentReason?: string;
   denialReason?: string;
   status: string;
+  serviceLines?: ClaimServiceLine[];
+};
+
+type ClaimServiceLine = {
+  lineNumber: number;
+  procedureCode: string;
+  description: string;
+  units: number;
+  amountCents: number;
+  allowedAmountCents?: number;
+  paidAmountCents?: number;
+  patientResponsibilityCents?: number;
+  adjustmentAmountCents?: number;
+  adjustmentReason?: string;
+  denialReason?: string;
 };
 
 type DocumentationChecklistItem = {
@@ -803,7 +818,23 @@ function App() {
         providerId: selectedProviderId,
         incidentSeverity: "Awakened",
         amountCents: 125000,
-        authorizationTransactionId: authorizationTransaction?.id
+        authorizationTransactionId: authorizationTransaction?.id,
+        serviceLines: [
+          {
+            lineNumber: 1,
+            procedureCode: "ASHN1",
+            description: "Resurrection stabilization",
+            units: 1,
+            amountCents: 95000
+          },
+          {
+            lineNumber: 2,
+            procedureCode: "ASHN2",
+            description: "Dragonfire trauma supplies",
+            units: 1,
+            amountCents: 30000
+          }
+        ]
       })
     });
     setClaim(result.data ?? null);
@@ -1473,6 +1504,7 @@ function App() {
               <DetailItem label="Provider" value={selectedClaim.providerId} />
               <DetailItem label="Transaction" value={selectedClaim.transactionId} />
               <DetailItem label="Claim ID" value={selectedClaim.id} />
+              <ServiceLineBreakdown serviceLines={selectedClaim.serviceLines ?? []} />
             </div>
           )}
           {selectedInboundMessage && (
@@ -1628,6 +1660,44 @@ function DetailLink({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       {value ? <a href={value} target="_blank" rel="noreferrer">{value}</a> : <strong>—</strong>}
     </div>
+  );
+}
+
+function ServiceLineBreakdown({ serviceLines }: { serviceLines: ClaimServiceLine[] }) {
+  if (serviceLines.length === 0) {
+    return null;
+  }
+  return (
+    <section className="service-line-breakdown" aria-label="service-line adjudication">
+      <div className="relationship-heading">
+        <div>
+          <h3>Service-Line Adjudication</h3>
+          <p className="muted">Line-level billed, allowed, paid, patient responsibility, and adjustment details.</p>
+        </div>
+        <span>{serviceLines.length} lines</span>
+      </div>
+      <div className="service-line-grid">
+        {serviceLines.map((line, index) => (
+          <article key={`${line.lineNumber}-${line.procedureCode}-${index}`} className="service-line-card">
+            <div>
+              <span>Line {line.lineNumber || index + 1}</span>
+              <strong>{line.procedureCode || "ASHN"}</strong>
+              <small>{line.description || "ASHN service line"} · {line.units || 1} unit(s)</small>
+            </div>
+            <dl>
+              <div><dt>Billed</dt><dd>{money(line.amountCents)}</dd></div>
+              <div><dt>Allowed</dt><dd>{money(line.allowedAmountCents)}</dd></div>
+              <div><dt>Paid</dt><dd>{money(line.paidAmountCents)}</dd></div>
+              <div><dt>Patient</dt><dd>{money(line.patientResponsibilityCents)}</dd></div>
+              <div><dt>Adjustment</dt><dd>{money(line.adjustmentAmountCents)}</dd></div>
+            </dl>
+            {(line.adjustmentReason || line.denialReason) && (
+              <p className="muted">{line.denialReason ?? line.adjustmentReason}</p>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

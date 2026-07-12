@@ -232,15 +232,17 @@ func processClaimAdjudication(db *sql.DB, claimID string) error {
 func processClaimFinalization(db *sql.DB, claimID string) error {
 	var claim domain.Claim
 	var context adjudicationContext
+	var serviceLinesJSON claimServiceLinesScanner
+	serviceLinesJSON.target = &claim.ServiceLines
 	err := db.QueryRow(
-		`SELECT c.id, c.adventurer_id, c.provider_id, c.incident_severity, COALESCE(c.transaction_id, ''), COALESCE(c.authorization_transaction_id, ''), COALESCE(c.authorization_status, ''), COALESCE(c.authorization_reason, ''), c.amount_cents, c.status,
+		`SELECT c.id, c.adventurer_id, c.provider_id, c.incident_severity, COALESCE(c.transaction_id, ''), COALESCE(c.authorization_transaction_id, ''), COALESCE(c.authorization_status, ''), COALESCE(c.authorization_reason, ''), c.amount_cents, COALESCE(c.service_lines, '[]'::jsonb), c.status,
 		        COALESCE(a.rank, ''), COALESCE(a.coverage_status, ''), COALESCE(p.tier_rank, '')
 		 FROM claims c
 		 LEFT JOIN adventurers a ON a.id = c.adventurer_id
 		 LEFT JOIN providers p ON p.id = c.provider_id
 		 WHERE c.id = $1`,
 		claimID,
-	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AuthorizationTransactionID, &claim.AuthorizationStatus, &claim.AuthorizationReason, &claim.AmountCents, &claim.Status, &context.AdventurerRank, &context.CoverageStatus, &context.ProviderTier)
+	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AuthorizationTransactionID, &claim.AuthorizationStatus, &claim.AuthorizationReason, &claim.AmountCents, &serviceLinesJSON, &claim.Status, &context.AdventurerRank, &context.CoverageStatus, &context.ProviderTier)
 	if err != nil {
 		return err
 	}
@@ -262,6 +264,7 @@ func processClaimFinalization(db *sql.DB, claimID string) error {
 			"adjustmentAmountCents":      claim.AdjustmentAmountCents,
 			"adjustmentReason":           claim.AdjustmentReason,
 			"denialReason":               claim.DenialReason,
+			"serviceLines":               claim.ServiceLines,
 			"coverageStatus":             context.CoverageStatus,
 			"providerTier":               context.ProviderTier,
 			"adventurerRank":             context.AdventurerRank,
@@ -269,8 +272,8 @@ func processClaimFinalization(db *sql.DB, claimID string) error {
 		"relatedId": claim.TransactionID,
 	})
 
-	if _, err := db.Exec(`UPDATE claims SET status = $1, allowed_amount_cents = $2, paid_amount_cents = $3, patient_responsibility_cents = $4, adjustment_amount_cents = $5, adjustment_reason = NULLIF($6, ''), denial_reason = NULLIF($7, '') WHERE id = $8`,
-		string(claim.Status), claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, claim.ID); err != nil {
+	if _, err := db.Exec(`UPDATE claims SET status = $1, allowed_amount_cents = $2, paid_amount_cents = $3, patient_responsibility_cents = $4, adjustment_amount_cents = $5, adjustment_reason = NULLIF($6, ''), denial_reason = NULLIF($7, ''), service_lines = $8::jsonb WHERE id = $9`,
+		string(claim.Status), claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, claimServiceLinesJSON(claim.ServiceLines), claim.ID); err != nil {
 		return err
 	}
 	_, err = db.Exec(
@@ -293,6 +296,7 @@ type adjudicationContext struct {
 }
 
 func adjudicateClaimWithContext(claim *domain.Claim, context adjudicationContext) {
+	ensureClaimServiceLines(claim)
 	claim.Status = domain.ClaimApproved
 	allowedPercent := int64(80)
 	paidPercent := int64(85)
@@ -319,12 +323,9 @@ func adjudicateClaimWithContext(claim *domain.Claim, context adjudicationContext
 		paidPercent = 0
 	}
 
-	claim.AllowedAmountCents = percentage(claim.AmountCents, allowedPercent)
-	claim.PaidAmountCents = percentage(claim.AllowedAmountCents, paidPercent)
-	claim.PatientResponsibilityCents = claim.AllowedAmountCents - claim.PaidAmountCents
-	claim.AdjustmentAmountCents = claim.AmountCents - claim.AllowedAmountCents
 	claim.AdjustmentReason = adjustmentReason
 	claim.DenialReason = ""
+	adjudicateClaimServiceLines(claim, allowedPercent, paidPercent, adjustmentReason)
 
 	hasApprovedAuthorization := strings.EqualFold(claim.AuthorizationStatus, string(domain.TxStatusApproved))
 	hasInactiveCoverage := context.CoverageStatus == domain.CoverageInactive || context.CoverageStatus == domain.CoverageSuspended
@@ -339,6 +340,9 @@ func adjudicateClaimWithContext(claim *domain.Claim, context adjudicationContext
 
 	if hasApprovedAuthorization && claim.IncidentSeverity == domain.SeverityDiamond {
 		claim.AdjustmentReason = "ASHN contractual allowance with approved prior authorization"
+		for index := range claim.ServiceLines {
+			claim.ServiceLines[index].AdjustmentReason = claim.AdjustmentReason
+		}
 	}
 }
 
@@ -350,6 +354,102 @@ func denyClaim(claim *domain.Claim, adjustmentReason, denialReason string) {
 	claim.AdjustmentAmountCents = claim.AmountCents
 	claim.AdjustmentReason = adjustmentReason
 	claim.DenialReason = denialReason
+	for index := range claim.ServiceLines {
+		claim.ServiceLines[index].AllowedAmountCents = 0
+		claim.ServiceLines[index].PaidAmountCents = 0
+		claim.ServiceLines[index].PatientResponsibilityCents = 0
+		claim.ServiceLines[index].AdjustmentAmountCents = claim.ServiceLines[index].AmountCents
+		claim.ServiceLines[index].AdjustmentReason = adjustmentReason
+		claim.ServiceLines[index].DenialReason = denialReason
+	}
+}
+
+func ensureClaimServiceLines(claim *domain.Claim) {
+	if len(claim.ServiceLines) == 0 && claim.AmountCents > 0 {
+		claim.ServiceLines = []domain.ClaimServiceLine{{
+			LineNumber:    1,
+			ProcedureCode: "ASHN1",
+			Description:   "ASHN encounter",
+			Units:         1,
+			AmountCents:   claim.AmountCents,
+		}}
+		return
+	}
+	var total int64
+	for index := range claim.ServiceLines {
+		if claim.ServiceLines[index].LineNumber <= 0 {
+			claim.ServiceLines[index].LineNumber = index + 1
+		}
+		if strings.TrimSpace(claim.ServiceLines[index].ProcedureCode) == "" {
+			claim.ServiceLines[index].ProcedureCode = fmt.Sprintf("ASHN%d", claim.ServiceLines[index].LineNumber)
+		}
+		if claim.ServiceLines[index].Units <= 0 {
+			claim.ServiceLines[index].Units = 1
+		}
+		total += claim.ServiceLines[index].AmountCents
+	}
+	if total > 0 {
+		claim.AmountCents = total
+	}
+}
+
+func adjudicateClaimServiceLines(claim *domain.Claim, allowedPercent, paidPercent int64, adjustmentReason string) {
+	claim.AllowedAmountCents = 0
+	claim.PaidAmountCents = 0
+	claim.PatientResponsibilityCents = 0
+	claim.AdjustmentAmountCents = 0
+	for index := range claim.ServiceLines {
+		line := &claim.ServiceLines[index]
+		line.AllowedAmountCents = percentage(line.AmountCents, allowedPercent)
+		line.PaidAmountCents = percentage(line.AllowedAmountCents, paidPercent)
+		line.PatientResponsibilityCents = line.AllowedAmountCents - line.PaidAmountCents
+		line.AdjustmentAmountCents = line.AmountCents - line.AllowedAmountCents
+		line.AdjustmentReason = adjustmentReason
+		line.DenialReason = ""
+		claim.AllowedAmountCents += line.AllowedAmountCents
+		claim.PaidAmountCents += line.PaidAmountCents
+		claim.PatientResponsibilityCents += line.PatientResponsibilityCents
+		claim.AdjustmentAmountCents += line.AdjustmentAmountCents
+	}
+}
+
+func claimServiceLinesJSON(lines []domain.ClaimServiceLine) string {
+	if lines == nil {
+		lines = []domain.ClaimServiceLine{}
+	}
+	payload, err := json.Marshal(lines)
+	if err != nil {
+		return "[]"
+	}
+	return string(payload)
+}
+
+type claimServiceLinesScanner struct {
+	target *[]domain.ClaimServiceLine
+}
+
+func (scanner *claimServiceLinesScanner) Scan(value any) error {
+	if scanner.target == nil {
+		return nil
+	}
+	if value == nil {
+		*scanner.target = nil
+		return nil
+	}
+	var data []byte
+	switch typed := value.(type) {
+	case []byte:
+		data = typed
+	case string:
+		data = []byte(typed)
+	default:
+		return fmt.Errorf("unsupported claim service lines type %T", value)
+	}
+	if len(data) == 0 {
+		*scanner.target = nil
+		return nil
+	}
+	return json.Unmarshal(data, scanner.target)
 }
 
 func providerAllowedBoost(rank domain.Rank) int64 {

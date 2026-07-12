@@ -869,6 +869,76 @@ pre {
   padding: 16px;
 }
 
+.service-line-breakdown {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  border: 1px solid rgba(145, 215, 255, 0.2);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(145, 215, 255, 0.16), transparent 34%),
+    rgba(255, 255, 255, 0.05);
+  padding: 16px;
+}
+
+.service-line-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.service-line-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(135, 226, 167, 0.16);
+  border-radius: 18px;
+  background: rgba(14, 9, 20, 0.66);
+  padding: 14px;
+}
+
+.service-line-card > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.service-line-card span {
+  color: #87e2a7;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.service-line-card small {
+  color: #c5b8aa;
+}
+
+.service-line-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.service-line-card dl div {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 8px;
+}
+
+.service-line-card dt {
+  color: #f6b95a;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.service-line-card dd {
+  margin: 2px 0 0;
+  font-weight: 900;
+}
+
 .documentation-checklist {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

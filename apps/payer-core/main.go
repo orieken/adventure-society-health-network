@@ -26,7 +26,7 @@ import (
 )
 
 const societyID = "adventure-society"
-const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status`
+const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status, COALESCE(service_lines, '[]'::jsonb)`
 
 type store struct {
 	mu           sync.RWMutex
@@ -288,13 +288,18 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	serviceLines, amountCents, err := normalizeClaimServiceLines(req)
+	if err != nil {
+		fail(w, http.StatusBadRequest, "invalid service lines", err.Error())
+		return
+	}
 	adventurer, provider, ok := s.findAdventurerProvider(w, req.AdventurerID, req.ProviderID)
 	if !ok {
 		return
 	}
 	claim := domain.Claim{
 		ID: domain.NewID(), AdventurerID: adventurer.ID, ProviderID: provider.ID,
-		IncidentSeverity: req.IncidentSeverity, AmountCents: req.AmountCents, Status: domain.ClaimSubmitted,
+		IncidentSeverity: req.IncidentSeverity, AmountCents: amountCents, ServiceLines: serviceLines, Status: domain.ClaimSubmitted,
 	}
 	if strings.TrimSpace(req.AuthorizationTransactionID) != "" {
 		authStatus, authReason, ok := s.authorizationForClaim(req.AuthorizationTransactionID, adventurer.ID, provider.ID)
@@ -1098,8 +1103,9 @@ func (s *store) saveClaim(claim domain.Claim) {
 	defer s.mu.Unlock()
 	s.claims[claim.ID] = claim
 	if s.db != nil {
-		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, status = EXCLUDED.status`,
-			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, claim.Status)
+		serviceLines := claimServiceLinesJSON(claim.ServiceLines)
+		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, service_lines, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, service_lines = EXCLUDED.service_lines, status = EXCLUDED.status`,
+			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, serviceLines, claim.Status)
 		if err != nil {
 			ashnlog.Error("postgres_claim_persistence_failed", err, "service", "payer-core", "claimId", claim.ID)
 		}
@@ -1341,6 +1347,8 @@ func loadClaims(db *sql.DB) map[string]domain.Claim {
 }
 
 func scanClaimDest(claim *domain.Claim) []any {
+	var serviceLinesJSON claimServiceLinesScanner
+	serviceLinesJSON.target = &claim.ServiceLines
 	return []any{
 		&claim.ID,
 		&claim.AdventurerID,
@@ -1358,7 +1366,102 @@ func scanClaimDest(claim *domain.Claim) []any {
 		&claim.AdjustmentReason,
 		&claim.DenialReason,
 		&claim.Status,
+		&serviceLinesJSON,
 	}
+}
+
+func normalizeClaimServiceLines(req domain.ClaimRequest) ([]domain.ClaimServiceLine, int64, error) {
+	if len(req.ServiceLines) == 0 {
+		if req.AmountCents <= 0 {
+			return nil, 0, errors.New("amountCents must be greater than zero")
+		}
+		return []domain.ClaimServiceLine{{
+			LineNumber:    1,
+			ProcedureCode: "ASHN1",
+			Description:   defaultClaimLineDescription(req.IncidentSeverity),
+			Units:         1,
+			AmountCents:   req.AmountCents,
+		}}, req.AmountCents, nil
+	}
+	lines := make([]domain.ClaimServiceLine, 0, len(req.ServiceLines))
+	var total int64
+	for index, raw := range req.ServiceLines {
+		line := domain.ClaimServiceLine{
+			LineNumber:    raw.LineNumber,
+			ProcedureCode: strings.ToUpper(strings.TrimSpace(raw.ProcedureCode)),
+			Description:   strings.TrimSpace(raw.Description),
+			Units:         raw.Units,
+			AmountCents:   raw.AmountCents,
+		}
+		if line.LineNumber <= 0 {
+			line.LineNumber = index + 1
+		}
+		if line.ProcedureCode == "" {
+			line.ProcedureCode = fmt.Sprintf("ASHN%d", line.LineNumber)
+		}
+		if line.Description == "" {
+			line.Description = defaultClaimLineDescription(req.IncidentSeverity)
+		}
+		if line.Units <= 0 {
+			line.Units = 1
+		}
+		if line.AmountCents <= 0 {
+			return nil, 0, fmt.Errorf("service line %d amountCents must be greater than zero", line.LineNumber)
+		}
+		total += line.AmountCents
+		lines = append(lines, line)
+	}
+	return lines, total, nil
+}
+
+func defaultClaimLineDescription(severity domain.IncidentSeverity) string {
+	switch severity {
+	case domain.SeverityDiamond:
+		return "Catastrophic resurrection encounter"
+	case domain.SeverityAwakened:
+		return "Awakened injury stabilization"
+	default:
+		return "Guild clinic encounter"
+	}
+}
+
+func claimServiceLinesJSON(lines []domain.ClaimServiceLine) string {
+	if lines == nil {
+		lines = []domain.ClaimServiceLine{}
+	}
+	payload, err := json.Marshal(lines)
+	if err != nil {
+		return "[]"
+	}
+	return string(payload)
+}
+
+type claimServiceLinesScanner struct {
+	target *[]domain.ClaimServiceLine
+}
+
+func (scanner *claimServiceLinesScanner) Scan(value any) error {
+	if scanner.target == nil {
+		return nil
+	}
+	if value == nil {
+		*scanner.target = nil
+		return nil
+	}
+	var data []byte
+	switch typed := value.(type) {
+	case []byte:
+		data = typed
+	case string:
+		data = []byte(typed)
+	default:
+		return fmt.Errorf("unsupported claim service lines type %T", value)
+	}
+	if len(data) == 0 {
+		*scanner.target = nil
+		return nil
+	}
+	return json.Unmarshal(data, scanner.target)
 }
 
 func loadTransactions(db *sql.DB) map[string]domain.Transaction {

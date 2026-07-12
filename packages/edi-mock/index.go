@@ -116,7 +116,7 @@ func Generate835(claim domain.Claim, paymentAmountCents int64) domain.Transactio
 		"billedAmountCents": claim.AmountCents, "allowedAmountCents": claim.AllowedAmountCents,
 		"paymentAmountCents": paymentAmountCents, "patientResponsibilityCents": claim.PatientResponsibilityCents,
 		"adjustmentAmountCents": claim.AdjustmentAmountCents, "adjustmentReason": claim.AdjustmentReason,
-		"denialReason": claim.DenialReason, "claimStatus": claim.Status,
+		"denialReason": claim.DenialReason, "claimStatus": claim.Status, "serviceLines": claim.ServiceLines,
 		"lore": lore.ThemeTransaction(domain.Tx835, claim.ID, claim.ProviderID),
 	})
 }
@@ -258,7 +258,7 @@ func transactionSegments(tx domain.Transaction) []string {
 		}
 	case domain.Tx837:
 		claim := claimInfo(tx)
-		return []string{
+		segments := []string{
 			"HL*1**20*1~",
 			"NM1*41*2*" + element(tx.SenderID) + "*****46*" + element(tx.SenderID) + "~",
 			"PER*IC*ASHN CLAIM OFFICE*TE*5550100~",
@@ -268,16 +268,17 @@ func transactionSegments(tx domain.Transaction) []string {
 			"CLM*" + element(claim.ID) + "*" + cents(claim.AmountCents) + "***11:B:1*Y*A*Y*I~",
 			"DTP*472*D8*" + tx.CreatedAt.Format("20060102") + "~",
 			"HI*ABK:" + diagnosisCode(claim.Severity) + "~",
-			"SV1*HC:ASHN1*" + cents(claim.AmountCents) + "*UN*1***1~",
 		}
+		return append(segments, serviceLineSegments(claim)...)
 	case domain.Tx835:
 		remit := remittanceAmounts(tx)
-		return []string{
+		segments := []string{
 			"BPR*I*" + cents(remit.Paid) + "*C*CHK************" + tx.CreatedAt.Format("20060102") + "~",
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"CLP*" + element(remit.ClaimID) + "*" + remit.ClaimStatusCode + "*" + cents(remit.Billed) + "*" + cents(remit.Paid) + "*" + cents(remit.PatientResponsibility) + "*MC*" + element(tx.ID) + "~",
 			"CAS*CO*45*" + cents(remit.Adjustment) + "~",
 		}
+		return append(segments, remittanceServiceLineSegments(remit)...)
 	case domain.Tx276:
 		return []string{
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
@@ -400,6 +401,7 @@ type remittance struct {
 	Paid                  int64
 	PatientResponsibility int64
 	Adjustment            int64
+	ServiceLines          []domain.ClaimServiceLine
 }
 
 type x12ClaimInfo struct {
@@ -408,6 +410,7 @@ type x12ClaimInfo struct {
 	ProviderID   string
 	Severity     domain.IncidentSeverity
 	AmountCents  int64
+	ServiceLines []domain.ClaimServiceLine
 }
 
 type x12AttachmentInfo struct {
@@ -484,6 +487,7 @@ func claimInfo(tx domain.Transaction) x12ClaimInfo {
 		info.Severity = payload.Claim.IncidentSeverity
 	}
 	info.AmountCents = payload.Claim.AmountCents
+	info.ServiceLines = payload.Claim.ServiceLines
 	return info
 }
 
@@ -498,10 +502,76 @@ func remittanceAmounts(tx domain.Transaction) remittance {
 	remit.Paid = int64Value(payload, "paymentAmountCents")
 	remit.PatientResponsibility = int64Value(payload, "patientResponsibilityCents")
 	remit.Adjustment = int64Value(payload, "adjustmentAmountCents")
+	remit.ServiceLines = serviceLinesValue(payload, "serviceLines")
 	if stringValue(payload, "denialReason", "") != "" {
 		remit.ClaimStatusCode = "4"
 	}
 	return remit
+}
+
+func serviceLineSegments(claim x12ClaimInfo) []string {
+	lines := claim.ServiceLines
+	if len(lines) == 0 {
+		lines = []domain.ClaimServiceLine{{
+			LineNumber:    1,
+			ProcedureCode: "ASHN1",
+			Units:         1,
+			AmountCents:   claim.AmountCents,
+		}}
+	}
+	segments := make([]string, 0, len(lines))
+	for index, line := range lines {
+		lineNumber := line.LineNumber
+		if lineNumber <= 0 {
+			lineNumber = index + 1
+		}
+		procedureCode := strings.TrimSpace(line.ProcedureCode)
+		if procedureCode == "" {
+			procedureCode = fmt.Sprintf("ASHN%d", lineNumber)
+		}
+		units := line.Units
+		if units <= 0 {
+			units = 1
+		}
+		segments = append(segments, "SV1*HC:"+element(procedureCode)+"*"+cents(line.AmountCents)+"*UN*"+strconv.Itoa(units)+"***"+strconv.Itoa(lineNumber)+"~")
+	}
+	return segments
+}
+
+func remittanceServiceLineSegments(remit remittance) []string {
+	segments := make([]string, 0, len(remit.ServiceLines)*3)
+	for index, line := range remit.ServiceLines {
+		lineNumber := line.LineNumber
+		if lineNumber <= 0 {
+			lineNumber = index + 1
+		}
+		procedureCode := strings.TrimSpace(line.ProcedureCode)
+		if procedureCode == "" {
+			procedureCode = fmt.Sprintf("ASHN%d", lineNumber)
+		}
+		segments = append(segments,
+			"SVC*HC:"+element(procedureCode)+"*"+cents(line.AmountCents)+"*"+cents(line.PaidAmountCents)+"~",
+			"CAS*CO*45*"+cents(line.AdjustmentAmountCents)+"~",
+			"REF*6R*"+strconv.Itoa(lineNumber)+"~",
+		)
+	}
+	return segments
+}
+
+func serviceLinesValue(payload map[string]any, key string) []domain.ClaimServiceLine {
+	value, ok := payload[key]
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var lines []domain.ClaimServiceLine
+	if err := json.Unmarshal(data, &lines); err != nil {
+		return nil
+	}
+	return lines
 }
 
 func payloadString(tx domain.Transaction, key string, fallback string) string {

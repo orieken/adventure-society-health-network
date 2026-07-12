@@ -17,6 +17,10 @@ func TestGenerate837IncludesCompanionGuideInspiredSegments(t *testing.T) {
 		IncidentSeverity: domain.SeverityAwakened,
 		AmountCents:      125000,
 		Status:           domain.ClaimSubmitted,
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000},
+			{LineNumber: 2, ProcedureCode: "ASHN2", Description: "Dragonfire trauma supplies", Units: 1, AmountCents: 30000},
+		},
 	}
 
 	tx := Generate837(claim)
@@ -25,7 +29,8 @@ func TestGenerate837IncludesCompanionGuideInspiredSegments(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "NM1*IL*1*adv-1")
 	assert.Contains(t, tx.RawX12, "CLM*claim-1*1250.00")
 	assert.Contains(t, tx.RawX12, "HI*ABK:T509")
-	assert.Contains(t, tx.RawX12, "SV1*HC:ASHN1*1250.00")
+	assert.Contains(t, tx.RawX12, "SV1*HC:ASHN1*950.00*UN*1***1")
+	assert.Contains(t, tx.RawX12, "SV1*HC:ASHN2*300.00*UN*1***2")
 }
 
 func TestGenerate835IncludesPaymentAndAdjustmentSegments(t *testing.T) {
@@ -39,6 +44,10 @@ func TestGenerate835IncludesPaymentAndAdjustmentSegments(t *testing.T) {
 		AdjustmentAmountCents:      25000,
 		AdjustmentReason:           "ASHN contractual allowance",
 		Status:                     domain.ClaimApproved,
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "ASHN1", AmountCents: 95000, PaidAmountCents: 64600, AdjustmentAmountCents: 19000},
+			{LineNumber: 2, ProcedureCode: "ASHN2", AmountCents: 30000, PaidAmountCents: 20400, AdjustmentAmountCents: 6000},
+		},
 	}
 
 	tx := Generate835(claim, 100000)
@@ -46,6 +55,9 @@ func TestGenerate835IncludesPaymentAndAdjustmentSegments(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "BPR*I*850.00")
 	assert.Contains(t, tx.RawX12, "CLP*claim-1*1*1250.00*850.00*150.00")
 	assert.Contains(t, tx.RawX12, "CAS*CO*45*250.00")
+	assert.Contains(t, tx.RawX12, "SVC*HC:ASHN1*950.00*646.00")
+	assert.Contains(t, tx.RawX12, "SVC*HC:ASHN2*300.00*204.00")
+	assert.Contains(t, tx.RawX12, "REF*6R*2")
 }
 
 func TestGenerate835RepresentsDeniedClaimWithoutPayment(t *testing.T) {
