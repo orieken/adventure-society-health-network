@@ -166,9 +166,23 @@ Example `837` claim submission:
     <ProviderId>provider-vitesse-temple</ProviderId>
     <IncidentSeverity>Awakened</IncidentSeverity>
     <AmountCents>125000</AmountCents>
+    <ServiceLine lineNumber="1">
+      <ProcedureCode>ASHN1</ProcedureCode>
+      <Description>Resurrection stabilization</Description>
+      <Units>1</Units>
+      <AmountCents>95000</AmountCents>
+    </ServiceLine>
+    <ServiceLine lineNumber="2">
+      <ProcedureCode>ASHN2</ProcedureCode>
+      <Description>Dragonfire trauma supplies</Description>
+      <Units>1</Units>
+      <AmountCents>30000</AmountCents>
+    </ServiceLine>
   </Claim>
 </AshnX12Transaction>
 ```
+
+`ServiceLine` is optional for legacy/simple demos. When present, `edi-intake` forwards the lines to `payer-core`, which persists them, adjudicates allowed/paid/patient responsibility/adjustment amounts per line, rolls the totals back up to the claim, and emits line-level `835` remittance detail.
 
 Example `270` eligibility inquiry:
 
@@ -190,7 +204,7 @@ Example `270` eligibility inquiry:
 3. Add structured logs that include transaction IDs, partner IDs, claim IDs, authorization IDs, and replay IDs.
 4. Add basic OpenTelemetry traces for intake, routing, queue processing, and replay.
 5. Add migration tests and seed-data reset tests for reliable demos.
-6. Expand raw X12 parsing beyond the current `837` and `275` subset and add optional file-drop intake.
+6. Expand raw X12 parsing beyond the current `837`/`275` subset and add optional file-drop intake.
 
 ## Decision Summary
 

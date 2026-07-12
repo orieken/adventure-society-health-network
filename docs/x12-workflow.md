@@ -130,12 +130,13 @@ In ASHN, the claim includes:
 - provider ID
 - incident severity
 - claim amount
+- optional service lines
 - claim status
 - linked transaction ID
 
-The mock payload also adds a severity description so the fantasy event maps back to the claim type: normal wounds, awakened-tier injuries, or diamond-tier catastrophic cases.
+The mock payload also adds a severity description so the fantasy event maps back to the claim type: normal wounds, awakened-tier injuries, or diamond-tier catastrophic cases. Claims can now carry service-line details with procedure code, description, units, and billed amount. Payer-core adjudicates those lines individually, rolls totals up to the claim, and emits line-level `835` remittance detail.
 
-Raw delimiter-based `837` intake is available at `POST /v1/x12/raw` with `Content-Type: application/edi-x12` or `text/plain`. The first parser pass reads ASHN-style envelope segments (`ISA`, `GS`, `ST`, `SE`, `GE`, `IEA`), detects the transaction type from `ST01`, extracts claim data from `NM1`, `CLM`, and `HI`, audits the original raw payload, emits a `999`, and forwards the canonical claim request to `payer-core`.
+Raw delimiter-based `837` intake is available at `POST /v1/x12/raw` with `Content-Type: application/edi-x12` or `text/plain`. The first parser pass reads ASHN-style envelope segments (`ISA`, `GS`, `ST`, `SE`, `GE`, `IEA`), detects the transaction type from `ST01`, extracts claim data from `NM1`, `CLM`, `HI`, and all `SV1` service-line segments, audits the original raw payload, emits a `999`, and forwards the canonical claim request to `payer-core`.
 
 ### 5. Patient Information Attachments: `275`
 

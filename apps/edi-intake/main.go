@@ -70,11 +70,20 @@ type xmlPriorAuth struct {
 }
 
 type xmlClaim struct {
-	AdventurerID               string `xml:"AdventurerId" json:"adventurerId"`
-	ProviderID                 string `xml:"ProviderId" json:"providerId"`
-	IncidentSeverity           string `xml:"IncidentSeverity" json:"incidentSeverity"`
-	AmountCents                string `xml:"AmountCents" json:"amountCents"`
-	AuthorizationTransactionID string `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
+	AdventurerID               string                `xml:"AdventurerId" json:"adventurerId"`
+	ProviderID                 string                `xml:"ProviderId" json:"providerId"`
+	IncidentSeverity           string                `xml:"IncidentSeverity" json:"incidentSeverity"`
+	AmountCents                string                `xml:"AmountCents" json:"amountCents"`
+	AuthorizationTransactionID string                `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
+	ServiceLines               []xmlClaimServiceLine `xml:"ServiceLine" json:"serviceLines,omitempty"`
+}
+
+type xmlClaimServiceLine struct {
+	LineNumber    int    `xml:"lineNumber,attr" json:"lineNumber,omitempty"`
+	ProcedureCode string `xml:"ProcedureCode" json:"procedureCode"`
+	Description   string `xml:"Description" json:"description,omitempty"`
+	Units         int    `xml:"Units" json:"units,omitempty"`
+	AmountCents   string `xml:"AmountCents" json:"amountCents"`
 }
 
 type xmlAttachment struct {
@@ -337,6 +346,7 @@ func raw837Claim(segmentMap map[string][][]string, senderID string) (xmlClaim, e
 		AdventurerID:     rawNM1ID(segmentMap, "IL"),
 		IncidentSeverity: rawSeverity(segmentMap),
 		AmountCents:      rawAmountCents(clm[2]),
+		ServiceLines:     raw837ServiceLines(segmentMap),
 	}
 	if claim.AdventurerID == "" {
 		return xmlClaim{}, fmt.Errorf("missing subscriber NM1 segment")
@@ -351,6 +361,50 @@ func raw837Claim(segmentMap map[string][][]string, senderID string) (xmlClaim, e
 		claim.IncidentSeverity = string(domain.SeverityNormal)
 	}
 	return claim, nil
+}
+
+func raw837ServiceLines(segmentMap map[string][][]string) []xmlClaimServiceLine {
+	serviceLines := []xmlClaimServiceLine{}
+	for index, sv1 := range segmentMap["SV1"] {
+		if len(sv1) < 3 {
+			continue
+		}
+		amountCents := rawAmountCents(sv1[2])
+		if amountCents == "" {
+			continue
+		}
+		line := xmlClaimServiceLine{
+			LineNumber:    index + 1,
+			ProcedureCode: rawProcedureCode(sv1[1]),
+			Description:   "Raw X12 service line",
+			Units:         rawServiceUnits(sv1),
+			AmountCents:   amountCents,
+		}
+		if len(sv1) > 7 {
+			if parsed, err := strconv.Atoi(strings.TrimSpace(sv1[7])); err == nil && parsed > 0 {
+				line.LineNumber = parsed
+			}
+		}
+		serviceLines = append(serviceLines, line)
+	}
+	return serviceLines
+}
+
+func rawProcedureCode(composite string) string {
+	parts := strings.Split(composite, ":")
+	if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+		return strings.TrimSpace(parts[1])
+	}
+	return strings.TrimSpace(composite)
+}
+
+func rawServiceUnits(segment []string) int {
+	if len(segment) > 4 {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(segment[4])); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 1
 }
 
 func raw275Attachment(segmentMap map[string][][]string, senderID string) (xmlAttachment, error) {
@@ -600,10 +654,15 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		if amountCents > 500000000 {
 			return "", "", nil, fmt.Errorf("invalid field AmountCents")
 		}
+		serviceLines, err := t.Claim.toServiceLines()
+		if err != nil {
+			return "", "", nil, err
+		}
 		return http.MethodPost, "/claims", domain.ClaimRequest{
 			AdventurerID: strings.TrimSpace(t.Claim.AdventurerID), ProviderID: strings.TrimSpace(t.Claim.ProviderID),
 			IncidentSeverity: domain.IncidentSeverity(strings.TrimSpace(t.Claim.IncidentSeverity)), AmountCents: amountCents,
 			AuthorizationTransactionID: strings.TrimSpace(t.Claim.AuthorizationTransactionID),
+			ServiceLines:               serviceLines,
 		}, nil
 	case domain.Tx276:
 		if t.ClaimStatusRequest == nil {
@@ -633,6 +692,38 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 	default:
 		return "", "", nil, fmt.Errorf("unsupported transaction type")
 	}
+}
+
+func (claim xmlClaim) toServiceLines() ([]domain.ClaimServiceLine, error) {
+	if len(claim.ServiceLines) == 0 {
+		return nil, nil
+	}
+	serviceLines := make([]domain.ClaimServiceLine, 0, len(claim.ServiceLines))
+	for index, raw := range claim.ServiceLines {
+		amountCents, err := parsePositiveInt64("ServiceLine.AmountCents", raw.AmountCents)
+		if err != nil {
+			return nil, err
+		}
+		if amountCents > 500000000 {
+			return nil, fmt.Errorf("invalid field ServiceLine.AmountCents")
+		}
+		lineNumber := raw.LineNumber
+		if lineNumber <= 0 {
+			lineNumber = index + 1
+		}
+		units := raw.Units
+		if units <= 0 {
+			units = 1
+		}
+		serviceLines = append(serviceLines, domain.ClaimServiceLine{
+			LineNumber:    lineNumber,
+			ProcedureCode: strings.TrimSpace(raw.ProcedureCode),
+			Description:   strings.TrimSpace(raw.Description),
+			Units:         units,
+			AmountCents:   amountCents,
+		})
+	}
+	return serviceLines, nil
 }
 
 func (t inboundTransaction) attachmentRequests() ([]domain.AttachmentRequest, string, string, string, error) {

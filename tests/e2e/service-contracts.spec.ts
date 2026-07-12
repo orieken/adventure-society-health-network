@@ -280,8 +280,9 @@ test.describe("ASHN mutating demo contracts", () => {
       `NM1*IL*1*${enrolled.data?.id}****MI*${enrolled.data?.id}~`,
       `CLM*${rawClaimId}*1250.00***11:B:1*Y*A*Y*I~`,
       "HI*ABK:S062X9A~",
-      "SV1*HC:ASHN1*1250.00*UN*1***1~",
-      `SE*12*${rawControl}~`,
+      "SV1*HC:ASHN1*950.00*UN*1***1~",
+      "SV1*HC:ASHN2*300.00*UN*1***2~",
+      `SE*13*${rawControl}~`,
       `GE*1*${rawControl}~`,
       `IEA*1*${rawControl}~`
     ].join("\n");
@@ -295,6 +296,15 @@ test.describe("ASHN mutating demo contracts", () => {
     const rawEnvelope = (await rawIntake.json()) as Envelope<{ id: string }>;
     expect(rawEnvelope.transaction?.type).toBe("837");
     expect(rawEnvelope.data?.id).toBeTruthy();
+
+    const rawClaim = await request.get(`${serviceUrls.apiGateway}/v1/claims/${rawEnvelope.data?.id}`);
+    expect(rawClaim.ok()).toBeTruthy();
+    const rawClaimEnvelope = (await rawClaim.json()) as Envelope<{
+      id: string;
+      serviceLines?: Array<{ procedureCode: string; amountCents: number }>;
+    }>;
+    expect(rawClaimEnvelope.data?.serviceLines?.map((line) => line.procedureCode)).toEqual(["ASHN1", "ASHN2"]);
+    expect(rawClaimEnvelope.data?.serviceLines?.map((line) => line.amountCents)).toEqual([95000, 30000]);
 
     const ledger = await request.get(`${serviceUrls.apiGateway}/v1/transactions?limit=5&type=837`);
     expect(ledger.ok()).toBeTruthy();
