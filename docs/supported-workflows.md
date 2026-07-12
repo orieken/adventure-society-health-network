@@ -333,6 +333,7 @@ flowchart LR
 - Every inbound representation is visible in the XML Intake tab.
 - Accepted and rejected submissions create audit records.
 - Transactions and intake messages can be exported and replayed for demos.
+- Rejected partner submissions are summarized in an operational audit panel by partner, transaction type, and validation reason, so profile failures can be inspected or replayed without scrolling the full audit list.
 
 ## Recommended 275 Expansion Paths
 

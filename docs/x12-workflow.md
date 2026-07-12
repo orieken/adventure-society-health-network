@@ -249,7 +249,7 @@ The important architectural choice is that ASHN stores normalized business entit
 | `edi-intake` | XML/JSON representation handling, validation, audit, acknowledgments, and mapping into existing payer endpoints |
 | `payer-core` | Enrollment, eligibility, authorization, claims, payments, transaction ledger, and business state ownership |
 | `provider-service` | Provider registry and provider-facing lookup behavior |
-| `dashboard` | Visual workflow, trading partner visibility, ledger search, filters, pagination, and detail views |
+| `dashboard` | Visual workflow, trading partner visibility, ledger search, filters, pagination, intake rejection operations, and detail views |
 | `ashn-cli` | Scriptable demo workflow from the terminal |
 | `tx-worker` | Polls queued async jobs for `278` authorization review and claim adjudication status transitions |
 
@@ -261,6 +261,7 @@ ASHN supports demo-oriented export and replay tools:
 - XML intake audit export as raw XML or JSON
 - transaction replay, which records a new related ledger transaction
 - inbound XML replay, which resubmits the original XML through validation, routing, audit, and acknowledgment flow
+- operational rejection summaries for failed partner submissions, grouped by partner, transaction type, and companion-guide-style validation reason
 
 This lets a demo operator capture a ledger event, show it outside the UI, and replay it back through the system for testing or storytelling.
 

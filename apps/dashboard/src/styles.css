@@ -869,6 +869,56 @@ pre {
   padding: 16px;
 }
 
+.intake-rejection-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(255, 118, 118, 0.2);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 118, 118, 0.14), transparent 34%),
+    rgba(255, 255, 255, 0.05);
+  margin-bottom: 14px;
+  padding: 16px;
+}
+
+.rejection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rejection-actions button {
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
+.rejection-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.rejection-stats article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(14, 9, 20, 0.62);
+  padding: 12px;
+}
+
+.rejection-stats span {
+  color: #ffb176;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rejection-stats strong {
+  overflow-wrap: anywhere;
+}
+
 .service-line-breakdown {
   display: grid;
   grid-column: 1 / -1;

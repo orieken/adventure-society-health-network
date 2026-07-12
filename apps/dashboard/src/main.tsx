@@ -192,6 +192,7 @@ type PayloadTab = "json" | "xml" | "x12";
 
 type InboundMessage = {
   id: string;
+  partnerId?: string;
   contentType: string;
   transactionType?: string;
   rawPayload: string;
@@ -212,6 +213,13 @@ type TransactionJob = {
   deadLetter: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+type IntakeRejectionSummary = {
+  messages: InboundMessage[];
+  byPartner: Array<{ label: string; count: number }>;
+  byType: Array<{ label: string; count: number }>;
+  byReason: Array<{ label: string; count: number }>;
 };
 
 const apiUrl = import.meta.env.VITE_ASHN_API_URL ?? "http://localhost:8080";
@@ -381,6 +389,11 @@ function App() {
   const authorizationAttachmentTransactions = useMemo(
     () => (authorizationTransaction ? authorizationDocumentationTransactions(authorizationTransaction, recentTransactions) : []),
     [authorizationTransaction, recentTransactions]
+  );
+
+  const intakeRejectionSummary = useMemo(
+    () => buildIntakeRejectionSummary(inboundMessages),
+    [inboundMessages]
   );
 
   const providerFilters = useMemo(
@@ -1416,11 +1429,26 @@ function App() {
             <h2>XML / Raw Intake Audits</h2>
             <span className="muted">from edi-intake</span>
           </div>
+          <IntakeRejectionPanel
+            summary={intakeRejectionSummary}
+            busy={busy}
+            onShowRejected={() => {
+              setAuditStatusFilter("rejected");
+              setAuditOffset(0);
+            }}
+            onShowRejected837={() => {
+              setAuditStatusFilter("rejected");
+              setAuditTypeFilter("837");
+              setAuditOffset(0);
+            }}
+            onSelect={openInboundMessageDetail}
+            onReplay={replayInboundMessage}
+          />
           {inboundMessages.length === 0 ? (
             <p className="muted">No intake messages match the current filters.</p>
           ) : (
             inboundMessages.map((message) => (
-              <InboundMessageRow key={message.id} message={message} onSelect={openInboundMessageDetail} />
+              <InboundMessageRow key={message.id} message={message} busy={busy} onSelect={openInboundMessageDetail} onReplay={replayInboundMessage} />
             ))
           )}
           <Pager page={auditPage} onPrevious={() => setAuditOffset(Math.max(0, auditPage.offset - auditPage.limit))} onNext={() => setAuditOffset(auditPage.offset + auditPage.limit)} />
@@ -1895,6 +1923,114 @@ function money(value?: number) {
   return `$${((value ?? 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function buildIntakeRejectionSummary(messages: InboundMessage[]): IntakeRejectionSummary {
+  const rejected = messages.filter((message) => message.status === "rejected");
+  return {
+    messages: rejected,
+    byPartner: topCounts(rejected.map((message) => message.partnerId || "Unknown partner")),
+    byType: topCounts(rejected.map((message) => message.transactionType || "Unknown type")),
+    byReason: topCounts(rejected.map((message) => rejectionReasonLabel(message.error)))
+  };
+}
+
+function topCounts(values: string[], limit = 3) {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+    .slice(0, limit);
+}
+
+function rejectionReasonLabel(error?: string) {
+  const text = (error || "Unknown rejection").trim();
+  if (text.includes("diagnosis code")) return "Diagnosis code profile";
+  if (text.includes("diagnosis qualifier")) return "Diagnosis qualifier profile";
+  if (text.includes("procedure code")) return "Procedure profile";
+  if (text.includes("attachment type")) return "Attachment type profile";
+  if (text.includes("report type")) return "Report type profile";
+  if (text.includes("trading partner")) return "Trading partner routing";
+  if (text.includes("transaction type")) return "Transaction set profile";
+  return text;
+}
+
+function IntakeRejectionPanel({
+  summary,
+  busy,
+  onShowRejected,
+  onShowRejected837,
+  onSelect,
+  onReplay
+}: {
+  summary: IntakeRejectionSummary;
+  busy: boolean;
+  onShowRejected: () => void;
+  onShowRejected837: () => void;
+  onSelect: (message: InboundMessage) => void;
+  onReplay: (messageId: string) => void;
+}) {
+  const latest = summary.messages.slice(0, 3);
+  return (
+    <section className="intake-rejection-panel" aria-label="intake rejections">
+      <div className="relationship-heading">
+        <div>
+          <h3>Intake Rejections</h3>
+          <p className="muted">Operational view of partner profile failures, rejected payloads, and replay candidates.</p>
+        </div>
+        <span>{summary.messages.length} rejected</span>
+      </div>
+      <div className="rejection-actions">
+        <button type="button" className="secondary" onClick={onShowRejected}>Show Rejected</button>
+        <button type="button" className="secondary" onClick={onShowRejected837}>Rejected 837s</button>
+      </div>
+      {summary.messages.length === 0 ? (
+        <p className="muted">No rejected intake messages on the loaded audit page.</p>
+      ) : (
+        <>
+          <div className="rejection-stats">
+            <RejectionCountList title="Partners" items={summary.byPartner} />
+            <RejectionCountList title="Types" items={summary.byType} />
+            <RejectionCountList title="Reasons" items={summary.byReason} />
+          </div>
+          <div className="document-review-list">
+            <h4>Latest Rejections</h4>
+            {latest.map((message) => (
+              <article key={message.id} className="document-review-row">
+                <div>
+                  <span>{message.transactionType || "unknown"} · {message.partnerId || "unknown partner"}</span>
+                  <strong>{rejectionReasonLabel(message.error)}</strong>
+                  <small>{message.error || "No error detail"} · {new Date(message.createdAt).toLocaleString()}</small>
+                </div>
+                <div className="review-actions">
+                  <button className="secondary" type="button" onClick={() => onSelect(message)}>Inspect</button>
+                  <button type="button" disabled={busy} onClick={() => onReplay(message.id)}>Replay</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function RejectionCountList({ title, items }: { title: string; items: Array<{ label: string; count: number }> }) {
+  return (
+    <article>
+      <span>{title}</span>
+      {items.length === 0 ? (
+        <strong>—</strong>
+      ) : (
+        items.map((item) => (
+          <strong key={item.label}>{item.label} · {item.count}</strong>
+        ))
+      )}
+    </article>
+  );
+}
+
 function TimelineGroupCard({ group, onSelect }: { group: TimelineGroup; onSelect: (transactionId: string) => void }) {
   return (
     <article className="timeline-card">
@@ -2267,14 +2403,29 @@ function TransactionRow({ transaction, onSelect }: { transaction: Transaction; o
   );
 }
 
-function InboundMessageRow({ message, onSelect }: { message: InboundMessage; onSelect: (message: InboundMessage) => void }) {
+function InboundMessageRow({
+  message,
+  busy,
+  onSelect,
+  onReplay
+}: {
+  message: InboundMessage;
+  busy: boolean;
+  onSelect: (message: InboundMessage) => void;
+  onReplay: (messageId: string) => void;
+}) {
   return (
-    <article className="compact-row clickable" onClick={() => onSelect(message)}>
+    <article className="compact-row">
       <div>
         <strong>{message.transactionType || "unknown"} · {message.status}</strong>
         <span>{message.downstreamStatus ? `${message.downstreamStatus} · ` : ""}{new Date(message.createdAt).toLocaleString()}</span>
+        {message.error && <span>{rejectionReasonLabel(message.error)} · {message.error}</span>}
       </div>
       <code>{message.id}</code>
+      <div className="row-actions">
+        <button className="secondary" type="button" onClick={() => onSelect(message)}>Inspect</button>
+        {message.status === "rejected" && <button type="button" disabled={busy} onClick={() => onReplay(message.id)}>Replay</button>}
+      </div>
     </article>
   );
 }

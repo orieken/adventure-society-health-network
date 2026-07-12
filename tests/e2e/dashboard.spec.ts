@@ -19,6 +19,18 @@ type DemoTransaction = {
   createdAt: string;
 };
 
+type DemoInboundMessage = {
+  id: string;
+  partnerId?: string;
+  contentType: string;
+  transactionType?: string;
+  rawPayload: string;
+  status: string;
+  error?: string;
+  downstreamStatus?: number;
+  createdAt: string;
+};
+
 const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) => ({
   id: `tx-e2e-${type.toLowerCase()}`,
   type,
@@ -46,6 +58,30 @@ const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) =
   relatedId: index > 0 ? "tx-e2e-834" : undefined,
   createdAt: new Date(Date.UTC(2026, 6, 8, 12, index, 0)).toISOString()
 }));
+
+const demoInboundMessages: DemoInboundMessage[] = [
+  {
+    id: "msg-e2e-rejected-837",
+    partnerId: "tp-vitesse-temple",
+    contentType: "application/xml",
+    transactionType: "837",
+    rawPayload: "<AshnX12Transaction type=\"837\"><Diagnosis><Code>M542</Code></Diagnosis></AshnX12Transaction>",
+    status: "rejected",
+    error: "diagnosis code M542 is not allowed for trading partner tp-vitesse-temple; allowed: S610, T509, S062X9A",
+    downstreamStatus: 400,
+    createdAt: new Date(Date.UTC(2026, 6, 8, 13, 0, 0)).toISOString()
+  },
+  {
+    id: "msg-e2e-accepted-834",
+    partnerId: "tp-greenstone-guild",
+    contentType: "application/xml",
+    transactionType: "834",
+    rawPayload: "<AshnX12Transaction type=\"834\" />",
+    status: "accepted",
+    downstreamStatus: 201,
+    createdAt: new Date(Date.UTC(2026, 6, 8, 13, 1, 0)).toISOString()
+  }
+];
 
 test.describe("ASHN dashboard smoke", () => {
   test.skip(!dashboardUrl, "Set ASHN_DASHBOARD_URL to run dashboard browser smoke tests.");
@@ -140,6 +176,33 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latestEvent.locator("p").filter({ hasText: "Raw X12 claim submitted." })).toBeVisible();
     await latestEvent.getByText("Raw payload").click();
     await expect(latestEvent.getByText("tx-e2e-raw-837")).toBeVisible();
+  });
+
+  test("shows operational audit dashboard for partner rejections", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await expect(page.getByRole("heading", { name: /Intake Rejections/i })).toBeVisible();
+    await expect(page.getByText("1 rejected")).toBeVisible();
+    await expect(page.getByText("tp-vitesse-temple · 1")).toBeVisible();
+    await expect(page.getByText("837 · 1")).toBeVisible();
+    await expect(page.getByText("Diagnosis code profile · 1")).toBeVisible();
+    await expect(page.getByLabel("intake rejections").getByText("diagnosis code M542 is not allowed")).toBeVisible();
+
+    await page.getByRole("button", { name: "Rejected 837s" }).click();
+    await expect(page.getByLabel("XML status")).toHaveValue("rejected");
+    await expect(page.getByLabel("XML type")).toHaveValue("837");
+
+    const replayResponse = page.waitForResponse((response) => response.url().includes("/v1/x12/messages/msg-e2e-rejected-837/replay"));
+    await page.locator(".intake-rejection-panel").getByRole("button", { name: "Replay" }).click();
+    const response = await replayResponse;
+    expect(response.status()).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({ lore: "Replay queued for rejected 837 intake." });
+
+    await page.locator(".intake-rejection-panel").getByRole("button", { name: "Inspect" }).click();
+    await expect(page.getByRole("heading", { name: /Intake Detail/i })).toBeVisible();
+    await expect(page.getByLabel("Selected record details").getByText("msg-e2e-rejected-837")).toBeVisible();
   });
 
   test("exports the loaded transaction ledger to CSV", async ({ page }) => {
@@ -820,6 +883,17 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
+    if (path === "/v1/x12/messages/msg-e2e-rejected-837/replay") {
+      await route.fulfill({
+        status: 202,
+        json: {
+          lore: "Replay queued for rejected 837 intake.",
+          data: { id: "msg-e2e-rejected-837", status: "replay-queued" }
+        }
+      });
+      return;
+    }
+
     const transactionMatch = path.match(/^\/v1\/transactions\/([^/]+)$/);
     if (transactionMatch) {
       const transaction = demoTransactions.find((item) => item.id === transactionMatch[1]);
@@ -828,7 +902,14 @@ async function mockDashboardApi(page: Page) {
     }
 
     if (path === "/v1/x12/messages") {
-      await route.fulfill({ json: { data: [], page: pageInfo(0, 10) } });
+      const status = url.searchParams.get("status");
+      const type = url.searchParams.get("type");
+      const data = demoInboundMessages.filter((message) => {
+        const matchesStatus = !status || status === "All" || message.status === status;
+        const matchesType = !type || type === "All" || message.transactionType === type;
+        return matchesStatus && matchesType;
+      });
+      await route.fulfill({ json: { data, page: pageInfo(data.length, 10) } });
       return;
     }
 
