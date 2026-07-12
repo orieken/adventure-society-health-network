@@ -88,6 +88,8 @@ type DocumentationChecklistItem = {
 
 type AttachmentDraft = {
   packetId: string;
+  packetSequence?: number;
+  packetCount?: number;
   attachmentType: string;
   attachmentControlNumber: string;
   reportTypeCode: string;
@@ -347,6 +349,11 @@ function App() {
   const selectedClaimAttachmentTransactions = useMemo(
     () => (selectedClaim ? claimAttachmentTransactions(selectedClaim, recentTransactions) : []),
     [recentTransactions, selectedClaim]
+  );
+
+  const authorizationAttachmentTransactions = useMemo(
+    () => (authorizationTransaction ? authorizationDocumentationTransactions(authorizationTransaction, recentTransactions) : []),
+    [authorizationTransaction, recentTransactions]
   );
 
   const providerFilters = useMemo(
@@ -770,6 +777,22 @@ function App() {
     setBusy(false);
   }
 
+  async function submitAuthorizationDocumentationPacket() {
+    if (!authorizationTransaction) return;
+    setBusy(true);
+    const packetId = `auth-packet-${authorizationTransaction.id.slice(0, 8)}`;
+    const result = await request<Record<string, string>>(`/v1/auth-requests/${authorizationTransaction.id}/attachments`, {
+      method: "POST",
+      body: JSON.stringify({
+        packetId,
+        attachments: documentationChecklist.slice(0, 2).map((item, index) => buildAuthorizationAttachmentDraft(authorizationTransaction, item, packetId, index + 1, 2))
+      })
+    });
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
   async function submitClaim() {
     if (!adventurer) return;
     setBusy(true);
@@ -1096,9 +1119,17 @@ function App() {
               <p>Manual council review can approve or deny the pending resurrection authorization before the worker decides.</p>
               <div className="actions compact-actions">
                 <button disabled={busy} onClick={attachAuthorizationDocumentation}>Send 275 Auth Docs</button>
+                <button disabled={busy} onClick={submitAuthorizationDocumentationPacket}>Submit Auth 275 Packet</button>
                 <button disabled={busy || authorizationTransaction.status !== "Pending"} onClick={() => decideAuthorization("Approved")}>Approve Auth</button>
                 <button className="danger" disabled={busy || authorizationTransaction.status !== "Pending"} onClick={() => decideAuthorization("Denied")}>Deny Auth</button>
               </div>
+              <AuthorizationDocumentationWorkbench
+                authorizationTransaction={authorizationTransaction}
+                checklist={documentationChecklist.slice(0, 2)}
+                attachmentTransactions={authorizationAttachmentTransactions}
+                busy={busy}
+                onReview={reviewAttachmentTransaction}
+              />
             </div>
           )}
           {claim && (
@@ -1668,6 +1699,67 @@ function DocumentationWorkbench({
   );
 }
 
+function AuthorizationDocumentationWorkbench({
+  authorizationTransaction,
+  checklist,
+  attachmentTransactions,
+  busy,
+  onReview
+}: {
+  authorizationTransaction: Transaction;
+  checklist: DocumentationChecklistItem[];
+  attachmentTransactions: Transaction[];
+  busy: boolean;
+  onReview: (transactionId: string, status: "Accepted" | "Rejected") => void;
+}) {
+  const receivedCount = attachmentTransactions.length;
+  const statusLabel = receivedCount > 0 ? `${receivedCount} auth docs received` : `${checklist.length} requested doc types`;
+
+  return (
+    <section className="documentation-workbench" aria-label="278 authorization documentation workbench">
+      <div className="relationship-heading">
+        <div>
+          <h3>278 Authorization Documentation</h3>
+          <p className="muted">Collect and review 275 support before approving or denying this authorization.</p>
+        </div>
+        <span>{statusLabel}</span>
+      </div>
+      <div className="documentation-checklist">
+        {checklist.map((item) => (
+          <article key={item.code} className="documentation-item">
+            <span>{item.required ? "Expected" : "Optional"}</span>
+            <strong>{item.label}</strong>
+            <small>{item.attachmentType}/{item.reportTypeCode} · {item.contentType}</small>
+          </article>
+        ))}
+      </div>
+      {attachmentTransactions.length === 0 ? (
+        <p className="muted">No 275 support is linked to {authorizationTransaction.id} yet.</p>
+      ) : (
+        <div className="document-review-list">
+          <h4>Authorization Document Review</h4>
+          {attachmentTransactions.map((transaction) => {
+            const reviewStatus = payloadString(transaction, "attachmentReviewStatus") ?? "Received";
+            return (
+              <article key={transaction.id} className="document-review-row">
+                <div>
+                  <span>{reviewStatus}</span>
+                  <strong>{payloadString(transaction, "description") ?? payloadString(transaction, "attachmentControlNumber") ?? transaction.id}</strong>
+                  <small>{payloadString(transaction, "attachmentType")}/{payloadString(transaction, "reportTypeCode")} · {payloadString(transaction, "documentReferenceId") ?? transaction.id}</small>
+                </div>
+                <div className="review-actions">
+                  <button disabled={busy || reviewStatus === "Accepted"} onClick={() => onReview(transaction.id, "Accepted")}>Accept Doc</button>
+                  <button className="danger" disabled={busy || reviewStatus === "Rejected"} onClick={() => onReview(transaction.id, "Rejected")}>Reject Doc</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function money(value?: number) {
   return `$${((value ?? 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -1816,6 +1908,18 @@ function claimAttachmentTransactions(claim: Claim, transactions: Transaction[]) 
     });
 }
 
+function authorizationDocumentationTransactions(authorizationTransaction: Transaction, transactions: Transaction[]) {
+  return transactions
+    .filter((transaction) => transaction.type === "275")
+    .filter((transaction) => payloadString(transaction, "authorizationTransactionId") === authorizationTransaction.id || transaction.relatedId === authorizationTransaction.id)
+    .sort((left, right) => {
+      const leftSequence = Number(payloadString(left, "packetSequence") ?? "0");
+      const rightSequence = Number(payloadString(right, "packetSequence") ?? "0");
+      if (leftSequence !== rightSequence) return leftSequence - rightSequence;
+      return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+    });
+}
+
 function checklistItemForTransaction(transaction: Transaction) {
   const description = payloadString(transaction, "description");
   const documentReferenceId = payloadString(transaction, "documentReferenceId") ?? "";
@@ -1841,6 +1945,24 @@ function buildAttachmentDraft(claim: Claim, item: DocumentationChecklistItem, pa
     documentReferenceId: `${item.code.toLowerCase()}-${claimToken}${mode === "resubmission" ? "-resub" : ""}`,
     documentReferenceUrl: `https://docs.example.test/${claim.id}/${item.code.toLowerCase()}${mode === "resubmission" ? "-resub" : ""}.txt`,
     content: `${item.label} ${mode === "resubmission" ? "corrected resubmission" : "supporting document"} for claim ${claim.id}. Packet document ${sequence} of ${count}.`
+  };
+}
+
+function buildAuthorizationAttachmentDraft(transaction: Transaction, item: DocumentationChecklistItem, packetId: string, sequence: number, count: number): AttachmentDraft {
+  const token = transaction.id.slice(0, 8);
+  return {
+    packetId,
+    packetSequence: sequence,
+    packetCount: count,
+    attachmentType: item.attachmentType,
+    attachmentControlNumber: `AUTH-${item.code}-${token.toUpperCase()}`,
+    reportTypeCode: item.reportTypeCode,
+    transmissionCode: "EL",
+    contentType: item.contentType,
+    description: `${item.label} for authorization`,
+    documentReferenceId: `auth-${item.code.toLowerCase()}-${token}`,
+    documentReferenceUrl: `https://docs.example.test/auth/${transaction.id}/${item.code.toLowerCase()}.txt`,
+    content: `${item.label} supporting document ${sequence} of ${count} for authorization ${transaction.id}.`
   };
 }
 
