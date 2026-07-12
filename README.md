@@ -64,7 +64,7 @@ The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSO
 Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`; those profiles now enforce partner-specific `275` attachment rules plus `837` diagnosis/procedure rules before accepted intake is forwarded to `payer-core`.
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 Intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
-The dashboard XML Intake tab includes an operational rejection panel that groups failed partner submissions by partner, transaction type, and validation reason, with one-click inspect/replay controls for demos and debugging.
+The dashboard XML Intake tab includes an operational rejection console that trends failed partner submissions, groups them by partner, transaction type, and validation reason, and offers one-click drilldown, inspect, and replay controls for demos and debugging.
 
 API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-separated list of accepted keys; protected `/v1` routes then accept either `Authorization: Bearer <key>` or `X-ASHN-API-Key: <key>`. `GET /v1/health` stays public for health checks. If the dashboard talks to an authenticated gateway, set `VITE_ASHN_API_KEY` to the same demo key at build/runtime.
 

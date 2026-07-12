@@ -224,10 +224,10 @@ The dashboard exposes the ledger as a usable demo surface.
 - Transaction detail panel
 - Raw X12 display, copy, and download
 - XML intake audit visibility
-- Operational partner rejection summaries with inspect and replay controls
+- Operational partner rejection trends with drilldown, inspect, and replay controls
 
 **Talk track:**  
-The dashboard is the bridge between business story and technical evidence. We can show a narrative workflow, then click into the exact transaction records that prove what happened. When partner intake fails, the XML Intake view now acts like an operations console: it groups rejections by partner, transaction type, and validation reason so the failure pattern is obvious before we inspect or replay a payload.
+The dashboard is the bridge between business story and technical evidence. We can show a narrative workflow, then click into the exact transaction records that prove what happened. When partner intake fails, the XML Intake view now acts like an operations console: it trends rejection volume and groups failures by partner, transaction type, and validation reason so the failure pattern is obvious before we drill in, inspect, or replay a payload.
 
 ---
 

@@ -222,6 +222,28 @@ type IntakeRejectionSummary = {
   byReason: Array<{ label: string; count: number }>;
 };
 
+type IntakeRejectionCount = {
+  label: string;
+  count: number;
+  query?: string;
+  type?: string;
+  partnerId?: string;
+};
+
+type IntakeRejectionTrend = {
+  date: string;
+  count: number;
+};
+
+type IntakeRejectionMetrics = {
+  total: number;
+  byPartner: IntakeRejectionCount[];
+  byType: IntakeRejectionCount[];
+  byReason: IntakeRejectionCount[];
+  trend: IntakeRejectionTrend[];
+  latest: InboundMessage[];
+};
+
 const apiUrl = import.meta.env.VITE_ASHN_API_URL ?? "http://localhost:8080";
 const apiKey = String(import.meta.env.VITE_ASHN_API_KEY ?? "");
 const adventurerPageSize = 10;
@@ -336,6 +358,7 @@ function App() {
   const [recentClaims, setRecentClaims] = useState<Claim[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [inboundMessages, setInboundMessages] = useState<InboundMessage[]>([]);
+  const [intakeRejectionMetrics, setIntakeRejectionMetrics] = useState<IntakeRejectionMetrics | null>(null);
   const [transactionJobs, setTransactionJobs] = useState<TransactionJob[]>([]);
   const [adventurerPage, setAdventurerPage] = useState<PageInfo>({ limit: adventurerPageSize, offset: 0, count: 0, hasMore: false });
   const [claimPage, setClaimPage] = useState<PageInfo>({ limit: claimPageSize, offset: 0, count: 0, hasMore: false });
@@ -444,7 +467,11 @@ function App() {
       status: auditStatusFilter,
       type: auditTypeFilter
     });
-    const [healthResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, jobsResult] = await Promise.allSettled([
+    const rejectionQuery = buildQuery({
+      q: searchTerm,
+      type: auditTypeFilter
+    });
+    const [healthResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, rejectionResult, jobsResult] = await Promise.allSettled([
       request<Record<string, string>>("/v1/health"),
       request<Provider[]>("/v1/providers"),
       request<TradingPartner[]>("/v1/x12/trading-partners"),
@@ -452,6 +479,7 @@ function App() {
       request<Claim[]>(`/v1/claims?${claimQuery}`),
       request<Transaction[]>(`/v1/transactions?${transactionQuery}`),
       request<InboundMessage[]>(`/v1/x12/messages?${auditQuery}`),
+      request<IntakeRejectionMetrics>(`/v1/x12/messages/rejections?${rejectionQuery}`),
       request<TransactionJob[]>("/v1/jobs?limit=8")
     ]);
     const healthEnvelope = settledValue(healthResult);
@@ -461,6 +489,7 @@ function App() {
     const claimsEnvelope = settledValue(claimsResult);
     const transactionsEnvelope = settledValue(transactionsResult);
     const auditEnvelope = settledValue(auditResult);
+    const rejectionEnvelope = settledValue(rejectionResult);
     const jobsEnvelope = settledValue(jobsResult);
     if (healthEnvelope) setHealth(healthEnvelope);
     if (providersEnvelope) setProviders(providersEnvelope.data ?? []);
@@ -481,6 +510,7 @@ function App() {
       setInboundMessages(auditEnvelope.data ?? []);
       setAuditPage(auditEnvelope.page ?? { limit: auditPageSize, offset: auditOffset, count: auditEnvelope.data?.length ?? 0, hasMore: false });
     }
+    if (rejectionEnvelope) setIntakeRejectionMetrics(rejectionEnvelope.data ?? null);
     if (jobsEnvelope) setTransactionJobs(jobsEnvelope.data ?? []);
     if (pushProviderEvent && providersEnvelope?.lore) {
       pushEvent(providersEnvelope);
@@ -492,6 +522,14 @@ function App() {
     setClaimOffset(0);
     setTransactionOffset(0);
     setAuditOffset(0);
+  }
+
+  function applyRejectionDrilldown(item: IntakeRejectionCount) {
+    setAuditStatusFilter("rejected");
+    setAuditTypeFilter(item.type || "All");
+    setSearchTerm(item.query || item.partnerId || item.label);
+    setAuditOffset(0);
+    setActiveTab("xml");
   }
 
   function currentFilterState(name: string): SavedFilter {
@@ -1431,6 +1469,7 @@ function App() {
           </div>
           <IntakeRejectionPanel
             summary={intakeRejectionSummary}
+            metrics={intakeRejectionMetrics}
             busy={busy}
             onShowRejected={() => {
               setAuditStatusFilter("rejected");
@@ -1441,6 +1480,7 @@ function App() {
               setAuditTypeFilter("837");
               setAuditOffset(0);
             }}
+            onDrilldown={applyRejectionDrilldown}
             onSelect={openInboundMessageDetail}
             onReplay={replayInboundMessage}
           />
@@ -1958,41 +1998,50 @@ function rejectionReasonLabel(error?: string) {
 
 function IntakeRejectionPanel({
   summary,
+  metrics,
   busy,
   onShowRejected,
   onShowRejected837,
+  onDrilldown,
   onSelect,
   onReplay
 }: {
   summary: IntakeRejectionSummary;
+  metrics: IntakeRejectionMetrics | null;
   busy: boolean;
   onShowRejected: () => void;
   onShowRejected837: () => void;
+  onDrilldown: (item: IntakeRejectionCount) => void;
   onSelect: (message: InboundMessage) => void;
   onReplay: (messageId: string) => void;
 }) {
-  const latest = summary.messages.slice(0, 3);
+  const total = metrics?.total ?? summary.messages.length;
+  const latest = (metrics?.latest.length ? metrics.latest : summary.messages).slice(0, 5);
+  const byPartner = metrics?.byPartner.length ? metrics.byPartner : summary.byPartner;
+  const byType = metrics?.byType.length ? metrics.byType : summary.byType;
+  const byReason = metrics?.byReason.length ? metrics.byReason : summary.byReason;
   return (
     <section className="intake-rejection-panel" aria-label="intake rejections">
       <div className="relationship-heading">
         <div>
-          <h3>Intake Rejections</h3>
-          <p className="muted">Operational view of partner profile failures, rejected payloads, and replay candidates.</p>
+          <h3>Partner Rejection Ops</h3>
+          <p className="muted">Trend, drilldown, and replay view for partner profile failures.</p>
         </div>
-        <span>{summary.messages.length} rejected</span>
+        <span>{total} rejected</span>
       </div>
       <div className="rejection-actions">
         <button type="button" className="secondary" onClick={onShowRejected}>Show Rejected</button>
         <button type="button" className="secondary" onClick={onShowRejected837}>Rejected 837s</button>
       </div>
-      {summary.messages.length === 0 ? (
-        <p className="muted">No rejected intake messages on the loaded audit page.</p>
+      {total === 0 ? (
+        <p className="muted">No rejected intake messages match the current filters.</p>
       ) : (
         <>
+          <RejectionTrendChart trend={metrics?.trend ?? []} />
           <div className="rejection-stats">
-            <RejectionCountList title="Partners" items={summary.byPartner} />
-            <RejectionCountList title="Types" items={summary.byType} />
-            <RejectionCountList title="Reasons" items={summary.byReason} />
+            <RejectionCountList title="Partners" items={byPartner} onSelect={onDrilldown} />
+            <RejectionCountList title="Types" items={byType} onSelect={onDrilldown} />
+            <RejectionCountList title="Reasons" items={byReason} onSelect={onDrilldown} />
           </div>
           <div className="document-review-list">
             <h4>Latest Rejections</h4>
@@ -2016,7 +2065,34 @@ function IntakeRejectionPanel({
   );
 }
 
-function RejectionCountList({ title, items }: { title: string; items: Array<{ label: string; count: number }> }) {
+function RejectionTrendChart({ trend }: { trend: IntakeRejectionTrend[] }) {
+  const maxCount = Math.max(1, ...trend.map((item) => item.count));
+  return (
+    <div className="rejection-trend" aria-label="rejection trend">
+      <div className="relationship-heading compact">
+        <h4>Rejection Trend</h4>
+        <span>{trend.length} day window</span>
+      </div>
+      {trend.length === 0 ? (
+        <p className="muted">No trend buckets yet.</p>
+      ) : (
+        <div className="trend-bars">
+          {trend.map((item) => (
+            <div key={item.date} className="trend-bar-item">
+              <span>{item.count}</span>
+              <div className="trend-bar-track">
+                <div className="trend-bar-fill" style={{ height: `${Math.max(12, (item.count / maxCount) * 100)}%` }} />
+              </div>
+              <small>{shortDate(item.date)}</small>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RejectionCountList({ title, items, onSelect }: { title: string; items: Array<IntakeRejectionCount | { label: string; count: number }>; onSelect?: (item: IntakeRejectionCount) => void }) {
   return (
     <article>
       <span>{title}</span>
@@ -2024,11 +2100,19 @@ function RejectionCountList({ title, items }: { title: string; items: Array<{ la
         <strong>—</strong>
       ) : (
         items.map((item) => (
-          <strong key={item.label}>{item.label} · {item.count}</strong>
+          <button key={item.label} type="button" onClick={() => onSelect?.(item as IntakeRejectionCount)}>
+            {item.label} · {item.count}
+          </button>
         ))
       )}
     </article>
   );
+}
+
+function shortDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function TimelineGroupCard({ group, onSelect }: { group: TimelineGroup; onSelect: (transactionId: string) => void }) {

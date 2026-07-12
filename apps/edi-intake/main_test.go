@@ -956,6 +956,46 @@ func TestListMessagesWithoutDatabaseReturnsEmptyPage(t *testing.T) {
 	assert.Equal(t, 0, envelope.Page.Count)
 }
 
+func TestRejectionMetricsSummarizePartnerTrends(t *testing.T) {
+	db, mock, cleanup := newIntakeMockDB(t)
+	defer cleanup()
+	app := intakeApp{db: db}
+	first := time.Date(2026, 7, 8, 13, 0, 0, 0, time.UTC)
+	second := first.Add(24 * time.Hour)
+
+	mock.ExpectQuery("SELECT id, COALESCE\\(partner_id").
+		WithArgs("rejected", 101, 0).
+		WillReturnRows(messageRows().
+			AddRow("msg-1", "tp-vitesse-temple", "application/xml", "837", "<xml />", "rejected", "diagnosis code M542 is not allowed", 400, second).
+			AddRow("msg-2", "tp-vitesse-temple", "application/xml", "837", "<xml />", "rejected", "diagnosis code BAD is not allowed", 400, first).
+			AddRow("msg-3", "tp-rimaros", "application/xml", "275", "<xml />", "rejected", "attachment type ZZ is not allowed", 400, first))
+
+	metrics, err := app.queryRejectionMetrics(messageFilters{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 3, metrics.Total)
+	assert.Equal(t, []domain.InboundRejectionCount{{Label: "tp-vitesse-temple", Count: 2, Query: "tp-vitesse-temple", PartnerID: "tp-vitesse-temple"}, {Label: "tp-rimaros", Count: 1, Query: "tp-rimaros", PartnerID: "tp-rimaros"}}, metrics.ByPartner)
+	assert.Equal(t, []domain.InboundRejectionCount{{Label: "837", Count: 2, Type: "837"}, {Label: "275", Count: 1, Type: "275"}}, metrics.ByType)
+	assert.Equal(t, []domain.InboundRejectionCount{{Label: "Diagnosis code profile", Count: 2, Query: "diagnosis code"}, {Label: "Attachment type profile", Count: 1, Query: "attachment type"}}, metrics.ByReason)
+	assert.Equal(t, []domain.InboundRejectionTrend{{Date: "2026-07-08", Count: 2}, {Date: "2026-07-09", Count: 1}}, metrics.Trend)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRejectionMetricsRouteWithoutDatabaseReturnsEmptyMetrics(t *testing.T) {
+	handler := newIntakeTestMux(intakeApp{})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/x12/messages/rejections", nil)
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	var metrics domain.InboundRejectionMetrics
+	require.NoError(t, json.Unmarshal(envelope.Data, &metrics))
+	assert.Equal(t, 0, metrics.Total)
+	assert.Contains(t, envelope.Lore, "not connected")
+}
+
 func TestMessageArchiveQueriesExportsAndReplaysMissingMessages(t *testing.T) {
 	db, mock, cleanup := newIntakeMockDB(t)
 	defer cleanup()
@@ -1253,6 +1293,7 @@ func TestEDIOpenAPIIncludesIntakeRoutes(t *testing.T) {
 	assert.Contains(t, paths, "/x12/transactions")
 	assert.Contains(t, paths, "/x12/xml")
 	assert.Contains(t, paths, "/x12/raw")
+	assert.Contains(t, paths, "/x12/messages/rejections")
 	assert.Contains(t, paths, "/x12/messages/{id}/replay")
 	assert.Contains(t, paths, "/x12/trading-partners")
 }
@@ -1264,6 +1305,7 @@ func newIntakeTestMux(app intakeApp) http.Handler {
 	mux.HandleFunc("POST /x12/xml", app.acceptXML)
 	mux.HandleFunc("POST /x12/raw", app.acceptTransaction)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
+	mux.HandleFunc("GET /x12/messages/rejections", app.rejectionMetrics)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
 	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
 	mux.HandleFunc("GET /x12/trading-partners", app.listTradingPartners)

@@ -80,6 +80,17 @@ const demoInboundMessages: DemoInboundMessage[] = [
     status: "accepted",
     downstreamStatus: 201,
     createdAt: new Date(Date.UTC(2026, 6, 8, 13, 1, 0)).toISOString()
+  },
+  {
+    id: "msg-e2e-rejected-837-older",
+    partnerId: "tp-vitesse-temple",
+    contentType: "application/xml",
+    transactionType: "837",
+    rawPayload: "<AshnX12Transaction type=\"837\"><Diagnosis><Code>BAD</Code></Diagnosis></AshnX12Transaction>",
+    status: "rejected",
+    error: "diagnosis code BAD is not allowed for trading partner tp-vitesse-temple",
+    downstreamStatus: 400,
+    createdAt: new Date(Date.UTC(2026, 6, 7, 13, 0, 0)).toISOString()
   }
 ];
 
@@ -183,24 +194,30 @@ test.describe("ASHN dashboard smoke", () => {
     await page.goto(dashboardUrl);
 
     await page.getByRole("button", { name: /XML Intake/i }).click();
-    await expect(page.getByRole("heading", { name: /Intake Rejections/i })).toBeVisible();
-    await expect(page.getByText("1 rejected")).toBeVisible();
-    await expect(page.getByText("tp-vitesse-temple · 1")).toBeVisible();
-    await expect(page.getByText("837 · 1")).toBeVisible();
-    await expect(page.getByText("Diagnosis code profile · 1")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Partner Rejection Ops/i })).toBeVisible();
+    await expect(page.getByText("2 rejected")).toBeVisible();
+    await expect(page.getByLabel("rejection trend")).toBeVisible();
+    await expect(page.getByText("tp-vitesse-temple · 2")).toBeVisible();
+    await expect(page.getByText("837 · 2")).toBeVisible();
+    await expect(page.getByText("Diagnosis code profile · 2")).toBeVisible();
     await expect(page.getByLabel("intake rejections").getByText("diagnosis code M542 is not allowed")).toBeVisible();
+
+    await page.getByLabel("intake rejections").getByRole("button", { name: "Diagnosis code profile · 2" }).click();
+    await expect(page.getByPlaceholder("Search IDs, names, statuses, providers...")).toHaveValue("diagnosis code");
+    await expect(page.getByLabel("XML status")).toHaveValue("rejected");
 
     await page.getByRole("button", { name: "Rejected 837s" }).click();
     await expect(page.getByLabel("XML status")).toHaveValue("rejected");
     await expect(page.getByLabel("XML type")).toHaveValue("837");
 
+    const m542Rejection = page.locator(".document-review-row", { hasText: "M542" });
     const replayResponse = page.waitForResponse((response) => response.url().includes("/v1/x12/messages/msg-e2e-rejected-837/replay"));
-    await page.locator(".intake-rejection-panel").getByRole("button", { name: "Replay" }).click();
+    await m542Rejection.getByRole("button", { name: "Replay" }).click();
     const response = await replayResponse;
     expect(response.status()).toBe(202);
     await expect(response.json()).resolves.toMatchObject({ lore: "Replay queued for rejected 837 intake." });
 
-    await page.locator(".intake-rejection-panel").getByRole("button", { name: "Inspect" }).click();
+    await m542Rejection.getByRole("button", { name: "Inspect" }).click();
     await expect(page.getByRole("heading", { name: /Intake Detail/i })).toBeVisible();
     await expect(page.getByLabel("Selected record details").getByText("msg-e2e-rejected-837")).toBeVisible();
   });
@@ -894,6 +911,17 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
+    if (path === "/v1/x12/messages/rejections") {
+      const type = url.searchParams.get("type");
+      const q = url.searchParams.get("q")?.toLowerCase() ?? "";
+      const rejected = demoInboundMessages.filter((message) => {
+        const searchable = `${message.id} ${message.partnerId ?? ""} ${message.transactionType ?? ""} ${message.rawPayload} ${message.status} ${message.error ?? ""}`.toLowerCase();
+        return message.status === "rejected" && (!type || message.transactionType === type) && (!q || searchable.includes(q));
+      });
+      await route.fulfill({ json: { data: rejectionMetrics(rejected) } });
+      return;
+    }
+
     const transactionMatch = path.match(/^\/v1\/transactions\/([^/]+)$/);
     if (transactionMatch) {
       const transaction = demoTransactions.find((item) => item.id === transactionMatch[1]);
@@ -904,10 +932,13 @@ async function mockDashboardApi(page: Page) {
     if (path === "/v1/x12/messages") {
       const status = url.searchParams.get("status");
       const type = url.searchParams.get("type");
+      const q = url.searchParams.get("q")?.toLowerCase() ?? "";
       const data = demoInboundMessages.filter((message) => {
+        const searchable = `${message.id} ${message.partnerId ?? ""} ${message.transactionType ?? ""} ${message.rawPayload} ${message.status} ${message.error ?? ""}`.toLowerCase();
         const matchesStatus = !status || status === "All" || message.status === status;
         const matchesType = !type || type === "All" || message.transactionType === type;
-        return matchesStatus && matchesType;
+        const matchesSearch = !q || searchable.includes(q);
+        return matchesStatus && matchesType && matchesSearch;
       });
       await route.fulfill({ json: { data, page: pageInfo(data.length, 10) } });
       return;
@@ -915,6 +946,32 @@ async function mockDashboardApi(page: Page) {
 
     await route.fulfill({ status: 404, json: { error: `unmocked route ${path}` } });
   });
+}
+
+function rejectionMetrics(messages: DemoInboundMessage[]) {
+  const rejected = messages.filter((message) => message.status === "rejected");
+  return {
+    total: rejected.length,
+    byPartner: topCounts(rejected.map((message) => ({ label: message.partnerId ?? "Unknown partner", query: message.partnerId ?? "Unknown partner", partnerId: message.partnerId }))),
+    byType: topCounts(rejected.map((message) => ({ label: message.transactionType ?? "Unknown type", type: message.transactionType }))),
+    byReason: topCounts(rejected.map((message) => ({ label: rejectionReason(message.error), query: "diagnosis code" }))),
+    trend: topCounts(rejected.map((message) => ({ label: message.createdAt.slice(0, 10) }))).map((item) => ({ date: item.label, count: item.count })).sort((left, right) => left.date.localeCompare(right.date)),
+    latest: rejected.slice(0, 5)
+  };
+}
+
+function topCounts(items: Array<{ label: string; query?: string; type?: string; partnerId?: string }>) {
+  const counts = new Map<string, { label: string; count: number; query?: string; type?: string; partnerId?: string }>();
+  for (const item of items) {
+    const current = counts.get(item.label) ?? { ...item, count: 0 };
+    current.count += 1;
+    counts.set(item.label, current);
+  }
+  return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
+function rejectionReason(error?: string) {
+  return error?.includes("diagnosis code") ? "Diagnosis code profile" : "Unknown rejection";
 }
 
 function pageInfo(count: number, limit: number) {

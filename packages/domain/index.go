@@ -177,6 +177,28 @@ type InboundMessage struct {
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
+type InboundRejectionCount struct {
+	Label     string `json:"label"`
+	Count     int    `json:"count"`
+	Query     string `json:"query,omitempty"`
+	Type      string `json:"type,omitempty"`
+	PartnerID string `json:"partnerId,omitempty"`
+}
+
+type InboundRejectionTrend struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+type InboundRejectionMetrics struct {
+	Total     int                     `json:"total"`
+	ByPartner []InboundRejectionCount `json:"byPartner"`
+	ByType    []InboundRejectionCount `json:"byType"`
+	ByReason  []InboundRejectionCount `json:"byReason"`
+	Trend     []InboundRejectionTrend `json:"trend"`
+	Latest    []InboundMessage        `json:"latest"`
+}
+
 type Claim struct {
 	ID                         string             `json:"id"`
 	AdventurerID               string             `json:"adventurerId"`

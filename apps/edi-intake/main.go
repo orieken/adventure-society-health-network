@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -142,6 +143,7 @@ func main() {
 	mux.HandleFunc("POST /x12/xml", app.acceptTransaction)
 	mux.HandleFunc("POST /x12/raw", app.acceptTransaction)
 	mux.HandleFunc("GET /x12/messages", app.listMessages)
+	mux.HandleFunc("GET /x12/messages/rejections", app.rejectionMetrics)
 	mux.HandleFunc("GET /x12/messages/{id}/export", app.exportMessage)
 	mux.HandleFunc("POST /x12/messages/{id}/replay", app.replayMessage)
 	mux.HandleFunc("GET /x12/trading-partners", app.listTradingPartners)
@@ -1311,6 +1313,20 @@ func (a intakeApp) listMessages(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, domain.Envelope{Data: messages, Lore: "The XML intake archive opened its scroll case.", Page: &pageInfo})
 }
 
+func (a intakeApp) rejectionMetrics(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		respond(w, http.StatusOK, domain.Envelope{Data: domain.InboundRejectionMetrics{}, Lore: "The XML rejection dashboard is not connected to a database."})
+		return
+	}
+	metrics, err := a.queryRejectionMetrics(parseMessageFilters(r))
+	if err != nil {
+		ashnlog.Error("postgres_inbound_rejection_metrics_failed", err, "service", "edi-intake")
+		fail(w, http.StatusInternalServerError, "rejection metrics failed", "The intake rejection dashboard could not read the archive.")
+		return
+	}
+	respond(w, http.StatusOK, domain.Envelope{Data: metrics, Lore: "The intake rejection dashboard lit its warning runes."})
+}
+
 func (a intakeApp) exportMessage(w http.ResponseWriter, r *http.Request) {
 	message, ok := a.findMessage(r.PathValue("id"))
 	if !ok {
@@ -1366,6 +1382,45 @@ func (a intakeApp) queryMessages(page pageRequest, filters messageFilters) ([]do
 	return messages, pageInfo, nil
 }
 
+func (a intakeApp) queryRejectionMetrics(filters messageFilters) (domain.InboundRejectionMetrics, error) {
+	rejectionFilters := filters
+	rejectionFilters.Status = "rejected"
+	messages, _, err := a.queryMessages(pageRequest{Limit: 100, Offset: 0}, rejectionFilters)
+	if err != nil {
+		return domain.InboundRejectionMetrics{}, err
+	}
+	metrics := domain.InboundRejectionMetrics{Total: len(messages), Latest: messages}
+	partnerCounts := map[string]int{}
+	typeCounts := map[string]int{}
+	reasonCounts := map[string]int{}
+	reasonQueries := map[string]string{}
+	trendCounts := map[string]int{}
+	for _, message := range messages {
+		partnerLabel := fallbackLabel(message.PartnerID, "Unknown partner")
+		typeLabel := fallbackLabel(message.TransactionType, "Unknown type")
+		reasonLabel, reasonQuery := rejectionReason(message.Error)
+		partnerCounts[partnerLabel]++
+		typeCounts[typeLabel]++
+		reasonCounts[reasonLabel]++
+		reasonQueries[reasonLabel] = reasonQuery
+		trendCounts[message.CreatedAt.Format("2006-01-02")]++
+	}
+	metrics.ByPartner = countItems(partnerCounts, 5, func(label string) domain.InboundRejectionCount {
+		return domain.InboundRejectionCount{Label: label, Count: partnerCounts[label], Query: label, PartnerID: label}
+	})
+	metrics.ByType = countItems(typeCounts, 5, func(label string) domain.InboundRejectionCount {
+		return domain.InboundRejectionCount{Label: label, Count: typeCounts[label], Type: label}
+	})
+	metrics.ByReason = countItems(reasonCounts, 5, func(label string) domain.InboundRejectionCount {
+		return domain.InboundRejectionCount{Label: label, Count: reasonCounts[label], Query: reasonQueries[label]}
+	})
+	metrics.Trend = trendItems(trendCounts)
+	if len(metrics.Latest) > 5 {
+		metrics.Latest = metrics.Latest[:5]
+	}
+	return metrics, nil
+}
+
 func (a intakeApp) findMessage(id string) (domain.InboundMessage, bool) {
 	if a.db == nil {
 		return domain.InboundMessage{}, false
@@ -1391,6 +1446,72 @@ type messageFilters struct {
 	Status string
 	Type   string
 	Q      string
+}
+
+func fallbackLabel(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func rejectionReason(errorText string) (string, string) {
+	text := strings.ToLower(strings.TrimSpace(errorText))
+	switch {
+	case strings.Contains(text, "diagnosis code"):
+		return "Diagnosis code profile", "diagnosis code"
+	case strings.Contains(text, "diagnosis qualifier"):
+		return "Diagnosis qualifier profile", "diagnosis qualifier"
+	case strings.Contains(text, "procedure code"):
+		return "Procedure profile", "procedure code"
+	case strings.Contains(text, "attachment type"):
+		return "Attachment type profile", "attachment type"
+	case strings.Contains(text, "report type"):
+		return "Report type profile", "report type"
+	case strings.Contains(text, "trading partner"):
+		return "Trading partner routing", "trading partner"
+	case strings.Contains(text, "transaction type"):
+		return "Transaction set profile", "transaction type"
+	case strings.TrimSpace(errorText) == "":
+		return "Unknown rejection", "Unknown rejection"
+	default:
+		return strings.TrimSpace(errorText), strings.TrimSpace(errorText)
+	}
+}
+
+func countItems(counts map[string]int, limit int, build func(string) domain.InboundRejectionCount) []domain.InboundRejectionCount {
+	labels := make([]string, 0, len(counts))
+	for label := range counts {
+		labels = append(labels, label)
+	}
+	sort.Slice(labels, func(i, j int) bool {
+		if counts[labels[i]] == counts[labels[j]] {
+			return labels[i] < labels[j]
+		}
+		return counts[labels[i]] > counts[labels[j]]
+	})
+	if len(labels) > limit {
+		labels = labels[:limit]
+	}
+	items := make([]domain.InboundRejectionCount, 0, len(labels))
+	for _, label := range labels {
+		items = append(items, build(label))
+	}
+	return items
+}
+
+func trendItems(counts map[string]int) []domain.InboundRejectionTrend {
+	dates := make([]string, 0, len(counts))
+	for date := range counts {
+		dates = append(dates, date)
+	}
+	sort.Strings(dates)
+	items := make([]domain.InboundRejectionTrend, 0, len(dates))
+	for _, date := range dates {
+		items = append(items, domain.InboundRejectionTrend{Date: date, Count: counts[date]})
+	}
+	return items
 }
 
 func parsePage(r *http.Request, fallback int) pageRequest {
@@ -1697,6 +1818,9 @@ func ediOpenAPI() map[string]any {
 			},
 			"/x12/messages": {
 				"get": {Summary: "List XML intake audit messages", Tags: []string{"xml", "audit"}},
+			},
+			"/x12/messages/rejections": {
+				"get": {Summary: "Summarize rejected XML intake messages", Tags: []string{"xml", "audit", "operations"}},
 			},
 			"/x12/messages/{id}/export": {
 				"get": {Summary: "Export XML intake audit as JSON or XML", Tags: []string{"xml", "export"}},

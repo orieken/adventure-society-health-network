@@ -352,6 +352,7 @@ func apiGatewayOpenAPI() map[string]any {
 			"/v1/x12/xml":                  {"post": {Summary: "Accept XML intake compatibility route", Tags: []string{"xml", "x12"}, RequestBody: true}},
 			"/v1/x12/raw":                  {"post": {Summary: "Accept raw delimiter-based X12 intake", Tags: []string{"raw x12", "x12"}, RequestBody: true}},
 			"/v1/x12/messages":             {"get": {Summary: "List XML intake audits", Tags: []string{"xml"}}},
+			"/v1/x12/messages/rejections":  {"get": {Summary: "Summarize XML intake rejections", Tags: []string{"xml", "operations"}}},
 			"/v1/x12/messages/{id}/export": {"get": {Summary: "Export XML intake audit", Tags: []string{"xml", "export"}}},
 			"/v1/x12/messages/{id}/replay": {"post": {Summary: "Replay XML intake", Tags: []string{"xml", "replay"}}},
 			"/v1/x12/trading-partners": {

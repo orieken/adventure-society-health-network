@@ -141,7 +141,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add replay controls for transactions and inbound XML messages.
 - [x] Add ledger export to CSV.
 - [x] Add visual links between request/response transaction pairs.
-- [x] Add operational intake rejection summaries grouped by partner, type, and validation reason.
+- [x] Add operational intake rejection summaries grouped by partner, type, validation reason, and day-level trend with drilldown filters.
 
 ### P3 — Security and Operational Readiness
 

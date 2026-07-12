@@ -915,8 +915,77 @@ pre {
   text-transform: uppercase;
 }
 
-.rejection-stats strong {
+.rejection-stats button {
+  justify-content: flex-start;
+  min-height: auto;
+  border: 1px solid rgba(255, 177, 118, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 177, 118, 0.08);
+  color: #fff7eb;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.rejection-stats button:hover {
+  border-color: rgba(255, 177, 118, 0.42);
+  background: rgba(255, 177, 118, 0.14);
+}
+
+.rejection-stats strong,
+.rejection-stats button {
   overflow-wrap: anywhere;
+}
+
+.rejection-trend {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(14, 9, 20, 0.48);
+  padding: 12px;
+}
+
+.relationship-heading.compact {
+  align-items: center;
+}
+
+.relationship-heading.compact h4 {
+  margin: 0;
+}
+
+.trend-bars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(54px, 1fr));
+  align-items: end;
+  gap: 10px;
+  min-height: 118px;
+}
+
+.trend-bar-item {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
+  min-height: 118px;
+  color: #d8c8b8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.trend-bar-track {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.trend-bar-fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffcf8a, #d45d5d);
+  box-shadow: 0 0 18px rgba(255, 118, 118, 0.32);
 }
 
 .service-line-breakdown {

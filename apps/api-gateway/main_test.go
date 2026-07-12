@@ -402,6 +402,9 @@ func TestGatewayRoutesXMLAuditMessagesToEDIIntake(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		downstreamURI = r.URL.RequestURI()
 		assert.Equal(t, http.MethodGet, r.Method)
+		if r.URL.Path == "/x12/messages/rejections" {
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: domain.InboundRejectionMetrics{Total: 2}, Lore: "Rejections returned."})
+		}
 		return jsonResponse(http.StatusOK, domain.Envelope{Data: []domain.InboundMessage{}, Lore: "Messages returned."})
 	})}
 
@@ -413,6 +416,14 @@ func TestGatewayRoutesXMLAuditMessagesToEDIIntake(t *testing.T) {
 	assert.Equal(t, http.StatusOK, response.Code)
 	assert.Equal(t, "/x12/messages?limit=10&offset=20&status=accepted&type=834&q=farros", downstreamURI)
 	assert.Equal(t, "Messages returned.", decodeGatewayEnvelope(t, response).Lore)
+
+	rejectionResponse := httptest.NewRecorder()
+	rejectionRequest := httptest.NewRequest(http.MethodGet, "/v1/x12/messages/rejections?type=837&q=diagnosis", nil)
+	handler.ServeHTTP(rejectionResponse, rejectionRequest)
+
+	assert.Equal(t, http.StatusOK, rejectionResponse.Code)
+	assert.Equal(t, "/x12/messages/rejections?type=837&q=diagnosis", downstreamURI)
+	assert.Equal(t, "Rejections returned.", decodeGatewayEnvelope(t, rejectionResponse).Lore)
 }
 
 func TestGatewayRoutesXMLMessageActionsAndTradingPartnersToEDIIntake(t *testing.T) {
@@ -660,6 +671,7 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	assert.Contains(t, paths, "/v1/health")
 	assert.Contains(t, paths, "/v1/x12/xml")
 	assert.Contains(t, paths, "/v1/x12/raw")
+	assert.Contains(t, paths, "/v1/x12/messages/rejections")
 	assert.Contains(t, paths, "/v1/transactions/{id}/export")
 	assert.Contains(t, paths, "/v1/transactions/{id}/document-reference")
 	components := spec["components"].(map[string]any)
