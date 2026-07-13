@@ -941,6 +941,70 @@ pre {
   background: rgba(142, 240, 176, 0.08);
 }
 
+.scenario-library {
+  grid-column: 1 / -1;
+}
+
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.scenario-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(145, 215, 255, 0.18);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(145, 215, 255, 0.13), transparent 38%),
+    rgba(14, 9, 20, 0.72);
+  padding: 16px;
+}
+
+.scenario-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scenario-card h3 {
+  margin: 4px 0 0;
+}
+
+.scenario-card p {
+  margin: 0;
+}
+
+.scenario-card-header > span,
+.scenario-exports {
+  color: #91d7ff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.scenario-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.scenario-steps li {
+  padding-left: 4px;
+}
+
+.scenario-steps strong,
+.scenario-steps span,
+.scenario-steps small {
+  display: block;
+}
+
+.scenario-steps small {
+  color: #d8c8b8;
+}
+
 .intake-rejection-panel {
   display: grid;
   gap: 14px;

@@ -232,6 +232,22 @@ type TransactionJob = {
   updatedAt: string;
 };
 
+type DemoScenario = {
+  id: string;
+  title: string;
+  outcome: string;
+  audience: string;
+  duration: string;
+  story: string;
+  highlights: string[];
+  steps: Array<{
+    label: string;
+    action: string;
+    expected: string;
+  }>;
+  exports: string[];
+};
+
 type IntakeRejectionSummary = {
   messages: InboundMessage[];
   byPartner: Array<{ label: string; count: number }>;
@@ -403,6 +419,56 @@ const dashboardTabs: { id: DashboardTab; label: string; detail: string }[] = [
   { id: "partners", label: "Partners", detail: "Review routing profiles" }
 ];
 const filterTabs: DashboardTab[] = ["timeline", "ledger", "xml"];
+const demoScenarios: DemoScenario[] = [
+  {
+    id: "premium-current-claim",
+    title: "Premium-Current Claim Adjudication",
+    outcome: "Shows how an accepted 820 premium changes async claim adjudication and appears in the related 277 explanation.",
+    audience: "Stakeholder / payer operations demo",
+    duration: "4–6 minutes",
+    story: "An adventurer enrolls, pays guild dues, receives care, and the payer explains why the paid amount improved.",
+    highlights: ["834 enrollment", "820 premium", "837 claim", "277 async adjudication", "835 payment"],
+    steps: [
+      { label: "Enroll", action: "Send 834 Enrollment", expected: "Adventurer appears with active coverage." },
+      { label: "Premium", action: "Click 820 Pay Premium", expected: "Ledger records accepted premium dues." },
+      { label: "Claim", action: "Submit 837 Claim and wait for tx-worker", expected: "Claim reaches Approved with premium-current adjudication context." },
+      { label: "Explain", action: "Open the claim detail drawer", expected: "Adjudication Explanation shows premium current, paid amount, and patient responsibility." }
+    ],
+    exports: ["Ledger CSV", "277 JSON/XML/X12", "835 JSON/XML/X12"]
+  },
+  {
+    id: "275-deficiency-resubmission",
+    title: "275 Deficiency + Resubmission",
+    outcome: "Demonstrates a payer requesting documentation, rejecting one document, and accepting a corrected resubmission.",
+    audience: "Claims documentation / EDI education demo",
+    duration: "6–8 minutes",
+    story: "A high-value encounter needs supporting scrolls; one document is deficient and only that document is resubmitted.",
+    highlights: ["277 documentation request", "275 packet", "per-document review", "deficiency follow-up", "targeted resubmission"],
+    steps: [
+      { label: "Open claim", action: "Select a claim from Recent Claims", expected: "Claim detail shows the 275 Documentation Workbench." },
+      { label: "Request docs", action: "Click Request 275 Docs", expected: "Claim moves to Pending Documentation and emits a 277 request." },
+      { label: "Submit packet", action: "Click Submit 275 Packet", expected: "Multiple 275 transactions share a packet ID." },
+      { label: "Reject one", action: "Reject Encounter notes, then Request + Resubmit", expected: "A follow-up request and single replacement 275 are added." }
+    ],
+    exports: ["277 request JSON/XML/X12", "275 packet JSON/XML/X12", "Ledger CSV"]
+  },
+  {
+    id: "partner-rejection-ops",
+    title: "Partner Rejection Operations",
+    outcome: "Shows partner-specific validation failures, audit persistence, rejection trends, and replay controls.",
+    audience: "Integration / operations demo",
+    duration: "3–5 minutes",
+    story: "A trading partner sends a claim that violates its companion guide; operations can drill into the failed payload.",
+    highlights: ["partner profiles", "837 validation", "999 rejection", "audit trend", "inspect + replay"],
+    steps: [
+      { label: "Open XML Intake", action: "Filter status to rejected", expected: "Operational dashboard groups failures by partner, type, and reason." },
+      { label: "Inspect", action: "Open a rejected 837 audit record", expected: "Raw payload and validation error are visible." },
+      { label: "Export", action: "Export XML or JSON audit artifact", expected: "Demo operator can hand off the failed message." },
+      { label: "Replay", action: "Replay Intake", expected: "The same payload re-enters validation and audit flow." }
+    ],
+    exports: ["Inbound audit JSON/XML", "999 JSON/XML/X12", "Rejection drilldown filters"]
+  }
+];
 
 function providerLabel(providerId: string, providers: Provider[]) {
   if (providerId === "All") return "All";
@@ -749,6 +815,14 @@ function App() {
 
   function exportLedgerCSV() {
     downloadText("ashn-ledger-transactions.csv", transactionsToCSV(recentTransactions));
+  }
+
+  function exportDemoScenario(scenario: DemoScenario) {
+    downloadText(`ashn-demo-scenario-${scenario.id}.json`, JSON.stringify(demoScenarioExport(scenario), null, 2));
+  }
+
+  function copyDemoScenario(scenario: DemoScenario) {
+    copyText(scenario.steps.map((step, index) => `${index + 1}. ${step.action} → ${step.expected}`).join("\n"));
   }
 
   async function downloadFromPath(path: string) {
@@ -1417,6 +1491,26 @@ function App() {
           transactionJobs.map((job) => <JobRow key={job.id} job={job} busy={busy} onReplay={replayJob} />)
         )}
       </section>
+
+      <section className="panel scenario-library">
+        <div className="ledger-title">
+          <div>
+            <h2>Exportable Demo Scenarios</h2>
+            <p className="muted">Download repeatable runbooks for stakeholder walkthroughs, training, and regression demos.</p>
+          </div>
+          <span className="muted">{demoScenarios.length} runbooks</span>
+        </div>
+        <div className="scenario-grid">
+          {demoScenarios.map((scenario) => (
+            <DemoScenarioCard
+              key={scenario.id}
+              scenario={scenario}
+              onExport={exportDemoScenario}
+              onCopy={copyDemoScenario}
+            />
+          ))}
+        </div>
+      </section>
       </>
       )}
 
@@ -1807,6 +1901,49 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
       <strong>{value}</strong>
       <p>{detail}</p>
     </div>
+  );
+}
+
+function DemoScenarioCard({
+  scenario,
+  onExport,
+  onCopy
+}: {
+  scenario: DemoScenario;
+  onExport: (scenario: DemoScenario) => void;
+  onCopy: (scenario: DemoScenario) => void;
+}) {
+  return (
+    <article className="scenario-card">
+      <div className="scenario-card-header">
+        <div>
+          <span className="eyebrow">{scenario.duration} · {scenario.audience}</span>
+          <h3>{scenario.title}</h3>
+        </div>
+        <span>{scenario.steps.length} steps</span>
+      </div>
+      <p>{scenario.outcome}</p>
+      <p className="muted">{scenario.story}</p>
+      <div className="chips">
+        {scenario.highlights.map((highlight) => <span key={highlight}>{highlight}</span>)}
+      </div>
+      <ol className="scenario-steps">
+        {scenario.steps.map((step) => (
+          <li key={step.label}>
+            <strong>{step.label}</strong>
+            <span>{step.action}</span>
+            <small>{step.expected}</small>
+          </li>
+        ))}
+      </ol>
+      <div className="scenario-exports">
+        <span>Exports: {scenario.exports.join(", ")}</span>
+      </div>
+      <div className="actions compact-actions">
+        <button type="button" onClick={() => onExport(scenario)}>Export Scenario JSON</button>
+        <button type="button" className="secondary" onClick={() => onCopy(scenario)}>Copy Operator Steps</button>
+      </div>
+    </article>
   );
 }
 
@@ -2674,6 +2811,27 @@ function valueNumber(value: unknown) {
 
 function valueBool(value: unknown) {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function demoScenarioExport(scenario: DemoScenario) {
+  return {
+    schema: "ashn.demo-scenario.v1",
+    exportedAt: new Date().toISOString(),
+    scenario,
+    runbook: {
+      prerequisites: [
+        "Start the local stack with `make dev-stack` or open the deployed dashboard.",
+        "Use `make demo-reset` before formal demos when a clean database is preferred.",
+        "Keep the Ledger and Timeline tabs available for transaction evidence."
+      ],
+      evidenceToExport: scenario.exports,
+      followUpQuestions: [
+        "Which transaction proves the request was accepted?",
+        "Which related transaction explains the business outcome?",
+        "Which payload would an external partner need to debug or replay?"
+      ]
+    }
+  };
 }
 
 function transactionPayloadView(transaction: Transaction, tab: PayloadTab) {

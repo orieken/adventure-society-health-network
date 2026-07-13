@@ -365,6 +365,20 @@ test.describe("ASHN dashboard smoke", () => {
     expect(download.suggestedFilename()).toBe("ashn-ledger-transactions.csv");
   });
 
+  test("exports repeatable demo scenario runbooks", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await expect(page.getByRole("heading", { name: /Exportable Demo Scenarios/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Premium-Current Claim Adjudication/i })).toBeVisible();
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator(".scenario-card").filter({ hasText: "Premium-Current Claim Adjudication" }).getByRole("button", { name: "Export Scenario JSON" }).click();
+    const download = await downloadPromise;
+
+    expect(download.suggestedFilename()).toBe("ashn-demo-scenario-premium-current-claim.json");
+  });
+
   test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
