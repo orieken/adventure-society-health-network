@@ -201,6 +201,18 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latest276Event.locator("p").filter({ hasText: "Raw X12 claim status checked." })).toBeVisible();
     await latest276Event.getByText("Raw payload").click();
     await expect(latest276Event.getByText("tx-e2e-raw-276")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "Load Sample 278" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*278");
+    const raw278Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw278Response;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest278Event = page.locator(".event").first();
+    await expect(latest278Event.locator("p").filter({ hasText: "Raw X12 prior authorization queued." })).toBeVisible();
+    await latest278Event.getByText("Raw payload").click();
+    await expect(latest278Event.getByText("tx-e2e-raw-278")).toBeVisible();
   });
 
   test("shows operational audit dashboard for partner rejections", async ({ page }) => {
@@ -974,6 +986,21 @@ async function mockDashboardApi(page: Page) {
               ...demoTransactions.find((transaction) => transaction.type === "277"),
               id: "tx-e2e-raw-276",
               payload: { x12: "276 raw dashboard intake fixture", claimId: "claim-e2e-dashboard" }
+            }
+          }
+        });
+        return;
+      }
+      if (rawPayload.includes("ST*278")) {
+        await route.fulfill({
+          status: 202,
+          json: {
+            data: { transactionId: "tx-e2e-raw-278", status: "Pending" },
+            lore: "Raw X12 prior authorization queued.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "278"),
+              id: "tx-e2e-raw-278",
+              payload: { x12: "278 raw dashboard intake fixture", serviceType: "resurrection" }
             }
           }
         });

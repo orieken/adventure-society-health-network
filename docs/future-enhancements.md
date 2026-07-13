@@ -4,13 +4,13 @@ This backlog captures what ASHN already supports and the next useful build paths
 
 ## Current Foundation
 
-ASHN now has a working EDI intake boundary that accepts canonical XML/JSON payloads plus first-pass raw X12 `270`/`276`/`837`/`275`, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
+ASHN now has a working EDI intake boundary that accepts canonical XML/JSON payloads plus first-pass raw X12 `270`/`276`/`278`/`837`/`275`, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
 
 This keeps `payer-core` focused on business state while giving us a clean place to experiment with external data formats, trading partner rules, replay, and broader raw X12 intake.
 
 ## Recommended Next Milestone
 
-Move ASHN from a strong integration lab into a richer training/demo environment: broaden raw X12 intake beyond the current `270`/`276`/`837`/`275` subset, add optional file-drop intake, deepen benefit-plan and service-line adjudication rules, expand partner-specific companion-guide variants, and add operational views for audit errors, retries, and rejection trends.
+Move ASHN from a strong integration lab into a richer training/demo environment: broaden raw X12 intake beyond the current `270`/`276`/`278`/`837`/`275` subset, add optional file-drop intake, deepen benefit-plan and service-line adjudication rules, expand partner-specific companion-guide variants, and add operational views for audit errors, retries, and rejection trends.
 
 ## Priority Backlog
 
@@ -51,7 +51,7 @@ Why this deserves a new service:
 - It supports XML, JSON, first-pass raw X12, and can later add file drops and async queues.
 - `payer-core` remains the source of truth for business rules, state transitions, transaction generation, and async jobs.
 
-Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. ASHN now uses XML/JSON for readable canonical demos and a small raw X12 parser for `270`, `276`, `837`, and `275` segment intake.
+Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. ASHN now uses XML/JSON for readable canonical demos and a small raw X12 parser for `270`, `276`, `278`, `837`, and `275` segment intake.
 
 ## XML Intake Architecture Decisions
 
@@ -70,6 +70,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Show raw X12 in the dashboard transaction detail panel.
 - [x] Parse raw X12 `270` eligibility into canonical eligibility requests.
 - [x] Parse raw X12 `276` claim status into canonical status requests.
+- [x] Parse raw X12 `278` prior authorization into canonical authorization requests.
 - [x] Add copy buttons for raw transaction payloads.
 - [x] Add download buttons for raw transaction payloads.
 - [x] Expand segment generation toward companion-guide examples.
@@ -213,7 +214,7 @@ Example `270` eligibility inquiry:
 
 ## Suggested Next Implementation Order
 
-1. Expand raw X12 parsing beyond the current `270`/`276`/`837`/`275` subset.
+1. Expand raw X12 parsing beyond the current `270`/`276`/`278`/`837`/`275` subset.
 2. Add optional file-drop intake for batch/demo payloads. ✅
 3. Add richer benefit-plan rules that influence service-line adjudication.
 4. Add more companion-guide variants per trading partner and transaction type.

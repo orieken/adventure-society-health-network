@@ -114,6 +114,8 @@ The `278 Prior Authorization Request` payload includes:
 
 The request is initially `Pending`. A dashboard reviewer can manually approve or deny it through the `POST /auth-requests/{transactionId}/decision` endpoint, which updates the stored authorization row and visible `278` transaction. If nobody reviews it manually, `payer-core` enqueues an `auth_review` job and `tx-worker` later updates the authorization and visible `278` transaction status to `Approved` or `Denied`.
 
+Raw delimiter-based `278` intake is available at `POST /v1/x12/raw`. The parser reads the provider and subscriber from `NM1`, extracts the requested service type from `UM`, derives incident severity from companion `HI` diagnosis codes, validates partner-specific service/severity rules, emits a `999`, and forwards the canonical prior authorization request to `payer-core`.
+
 The dashboard shows this as a small prior-auth review widget after the `278` is created:
 
 - `Approve Auth` moves the `278` to `Approved`.
@@ -293,7 +295,7 @@ This gives the demo a realistic EDI boundary: not every external sender can subm
 
 ## What Is Real vs. Simplified
 
-ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `270` eligibility, `276` claim status, `837` claim, and `275` attachment messages into canonical ASHN requests.
+ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `270` eligibility, `276` claim status, `278` prior authorization, `837` claim, and `275` attachment messages into canonical ASHN requests.
 
 What it models well:
 
@@ -333,5 +335,5 @@ For the completed foundation and remaining implementation backlog, see [ASHN Fut
 Good next expansions include:
 
 - model `820` premium payment in the visible workflow
-- expand raw X12 parsing beyond the current `270`, `276`, `837`, and `275` subset
+- expand raw X12 parsing beyond the current `270`, `276`, `278`, `837`, and `275` subset
 - add richer service-line and diagnosis mappings for claims

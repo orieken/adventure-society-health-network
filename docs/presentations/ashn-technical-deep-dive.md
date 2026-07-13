@@ -302,7 +302,7 @@ This is a feature, not a flaw. The simulator keeps the core lifecycle understand
 
 Recommended next build sequence:
 
-1. Continue expanding raw X12 parsing beyond the current `270`, `276`, `837`, and `275` subset.
+1. Continue expanding raw X12 parsing beyond the current `270`, `276`, `278`, `837`, and `275` subset.
 2. Add optional file-drop intake for batch/demo payloads.
 3. Add richer benefit-plan rules that affect service-line adjudication.
 4. Add more companion-guide variants per partner and transaction type.

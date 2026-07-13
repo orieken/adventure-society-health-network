@@ -412,6 +412,12 @@ func parseInboundRawX12(body []byte) (inboundTransaction, error) {
 			return inbound, err
 		}
 		inbound.ClaimStatusRequest = &claimStatus
+	case domain.Tx278:
+		priorAuth, err := raw278PriorAuthorization(segmentMap, inbound.Sender.ID)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.PriorAuthorization = &priorAuth
 	case domain.Tx837:
 		claim, err := raw837Claim(segmentMap, inbound.Sender.ID)
 		if err != nil {
@@ -457,6 +463,35 @@ func rawClaimReference(segmentMap map[string][][]string) string {
 		if len(ref) >= 3 && strings.EqualFold(strings.TrimSpace(ref[1]), "1K") {
 			return strings.TrimSpace(ref[2])
 		}
+	}
+	return ""
+}
+
+func raw278PriorAuthorization(segmentMap map[string][][]string, senderID string) (xmlPriorAuth, error) {
+	priorAuth := xmlPriorAuth{
+		AdventurerID:     rawNM1ID(segmentMap, "IL"),
+		ProviderID:       firstNonEmpty(rawNM1ID(segmentMap, "1P"), senderID),
+		ServiceType:      raw278ServiceType(segmentMap),
+		IncidentSeverity: rawSeverity(segmentMap),
+	}
+	if priorAuth.AdventurerID == "" {
+		return xmlPriorAuth{}, fmt.Errorf("missing subscriber NM1 segment")
+	}
+	if priorAuth.ProviderID == "" {
+		return xmlPriorAuth{}, fmt.Errorf("missing provider NM1 segment")
+	}
+	if priorAuth.ServiceType == "" {
+		return xmlPriorAuth{}, fmt.Errorf("missing UM service type")
+	}
+	return priorAuth, nil
+}
+
+func raw278ServiceType(segmentMap map[string][][]string) string {
+	if um := firstRawSegment(segmentMap, "UM"); len(um) > 6 && strings.TrimSpace(um[6]) != "" {
+		return strings.TrimSpace(um[6])
+	}
+	if sv1 := firstRawSegment(segmentMap, "SV1"); len(sv1) > 1 {
+		return rawProcedureCode(sv1[1])
 	}
 	return ""
 }

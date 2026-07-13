@@ -298,6 +298,51 @@ func TestAcceptRawX12RoutesClaimStatusToPayerCore(t *testing.T) {
 	assert.Equal(t, "Raw X12 claim status checked.", decodeEnvelope(t, response).Lore)
 }
 
+func TestAcceptRawX12RoutesPriorAuthorizationToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var priorAuthRequest domain.PriorAuthRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/auth-requests":
+			assert.Equal(t, http.MethodPost, r.Method)
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&priorAuthRequest))
+			return jsonResponse(http.StatusAccepted, domain.Envelope{
+				Data: map[string]string{"transactionId": "tx-raw-278", "status": "Pending"},
+				Lore: "Raw X12 prior authorization queued.",
+				Transaction: &domain.Transaction{
+					ID:     "tx-raw-278",
+					Type:   domain.Tx278,
+					Status: domain.TxStatusPending,
+				},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx278, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw278Fixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusAccepted, response.Code)
+	assert.Equal(t, []string{"/auth-requests", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "adv-raw-278", priorAuthRequest.AdventurerID)
+	assert.Equal(t, "provider-vitesse-temple", priorAuthRequest.ProviderID)
+	assert.Equal(t, "resurrection", priorAuthRequest.ServiceType)
+	assert.Equal(t, domain.SeverityDiamond, priorAuthRequest.IncidentSeverity)
+	assert.Equal(t, "Raw X12 prior authorization queued.", decodeEnvelope(t, response).Lore)
+}
+
 func TestAcceptRawX12RoutesAttachmentToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	var attachmentRequest domain.AttachmentRequest
@@ -592,6 +637,17 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	assert.Equal(t, "Adventure Society", status.Receiver.ID)
 	require.NotNil(t, status.ClaimStatusRequest)
 	assert.Equal(t, "claim-raw-276", status.ClaimStatusRequest.ClaimID)
+
+	priorAuth, err := parseInboundRawX12([]byte(raw278Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "278", priorAuth.Type)
+	assert.Equal(t, "provider-vitesse-temple", priorAuth.Sender.ID)
+	assert.Equal(t, "Adventure Society", priorAuth.Receiver.ID)
+	require.NotNil(t, priorAuth.PriorAuthorization)
+	assert.Equal(t, "adv-raw-278", priorAuth.PriorAuthorization.AdventurerID)
+	assert.Equal(t, "provider-vitesse-temple", priorAuth.PriorAuthorization.ProviderID)
+	assert.Equal(t, "resurrection", priorAuth.PriorAuthorization.ServiceType)
+	assert.Equal(t, "Diamond", priorAuth.PriorAuthorization.IncidentSeverity)
 
 	claim, err := parseInboundRawX12([]byte(raw837Fixture()))
 	require.NoError(t, err)
@@ -1553,6 +1609,26 @@ func raw276Fixture() string {
 		"SE*10*000000276~",
 		"GE*1*000000276~",
 		"IEA*1*000000276~",
+	}, "\n")
+}
+
+func raw278Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000278*0*T*:~",
+		"GS*HI*provider-vitesse-temple*Adventure Society*20260708*1200*000000278*X*005010X217~",
+		"ST*278*000000278~",
+		"BHT*0007*13*000000278*20260708*1200~",
+		"TRN*1*tx-raw-278*provider-vitesse-temple~",
+		"HL*1**20*1~",
+		"NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+		"HL*2*1*22*0~",
+		"NM1*IL*1*adv-raw-278****MI*adv-raw-278~",
+		"UM*AR*I*2***resurrection~",
+		"HI*ABK:S062X9A~",
+		"DTP*472*D8*20260708~",
+		"SE*12*000000278~",
+		"GE*1*000000278~",
+		"IEA*1*000000278~",
 	}, "\n")
 }
 
