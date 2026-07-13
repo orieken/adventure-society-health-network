@@ -171,6 +171,23 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByLabel("Saved filters")).not.toContainText("Accepted 275s");
   });
 
+  test("records an 820 premium payment from the workflow", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: "Send 834 Enrollment" }).click();
+    await expect(page.locator(".result").getByText("Filter Fixture Ranger", { exact: true })).toBeVisible();
+
+    const premiumResponse = page.waitForResponse((response) => response.url().includes("/v1/premium-payments"));
+    await page.getByRole("button", { name: "820 Pay Premium" }).click();
+    await premiumResponse;
+
+    const latestEvent = page.locator(".event").first();
+    await expect(latestEvent.locator("p").filter({ hasText: "Guild dues payment recorded." })).toBeVisible();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("tx-e2e-820-premium")).toBeVisible();
+  });
+
   test("submits raw X12 intake from the XML tab", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -619,6 +636,23 @@ async function mockDashboardApi(page: Page) {
         json: {
           data: { id: "adv-e2e-dashboard", name: "Filter Fixture Ranger", rank: "Gold", guild: "E2E Guild", region: "Vitesse", coverageStatus: "Active" },
           transaction: demoTransactions.find((transaction) => transaction.type === "834")
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/premium-payments" && route.request().method() === "POST") {
+      await route.fulfill({
+        status: 201,
+        json: {
+          data: { adventurerId: "adv-e2e-dashboard", amountCents: 5000, status: "Accepted" },
+          lore: "Guild dues payment recorded.",
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.type === "820"),
+            id: "tx-e2e-820-premium",
+            payload: { x12: "820 premium workflow fixture", adventurerId: "adv-e2e-dashboard", amountCents: "5000" },
+            rawX12: "ST*820*workflow-premium~BPR*C*50.00~SE*3*workflow-premium~"
+          }
         }
       });
       return;

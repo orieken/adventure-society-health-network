@@ -30,7 +30,7 @@ ASHN supports both **business-state APIs** and an **EDI-style transaction ledger
 | Workflow | X12 transactions | Current entry points | Current UI support | Notes |
 | --- | --- | --- | --- | --- |
 | Enrollment | `834` | `POST /v1/adventurers`, XML `834`, raw X12 `834` | Workflow card, ledger, timeline, raw X12 form | Creates adventurer and enrollment transaction. |
-| Premium payment | `820` | `POST /v1/premium-payments`, XML `820`, raw X12 `820` | Ledger, timeline, raw X12 form | Records sponsor/member premium dues against an adventurer. |
+| Premium payment | `820` | `POST /v1/premium-payments`, XML `820`, raw X12 `820` | Workflow card, ledger, timeline, raw X12 form | Records sponsor/member premium dues against an adventurer. |
 | Eligibility | `270 → 271` | `POST /v1/eligibility`, XML `270`, raw X12 `270` | Workflow card, ledger, timeline | Returns active/inactive coverage. |
 | Prior authorization | `278 → 275` | `POST /v1/auth-requests`, `POST /v1/auth-requests/{id}/attachments`, `POST /v1/auth-requests/{id}/decision`, XML `278`, raw X12 `278`, XML `275` | Workflow card, auth documentation workbench, manual review widget, ledger, timeline, raw X12 form | Starts pending; supporting 275 documentation can attach and be reviewed before manual/worker decision. |
 | Claim submission | `837 → 277CA` | `POST /v1/claims`, XML `837`, raw X12 `837` | Workflow card, claims panel, ledger, timeline | Emits claim and claim acknowledgment. |

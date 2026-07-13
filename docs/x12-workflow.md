@@ -342,6 +342,6 @@ For the completed foundation and remaining implementation backlog, see [ASHN Fut
 
 Good next expansions include:
 
-- deepen `820` premium payment visibility in the dashboard workflow
+- add richer `820` premium payment history and reconciliation views
 - expand raw X12 parsing beyond the current demo transaction subset
 - add richer service-line and diagnosis mappings for claims

@@ -908,6 +908,18 @@ function App() {
     setBusy(false);
   }
 
+  async function payPremium() {
+    if (!adventurer) return;
+    setBusy(true);
+    const result = await request<Record<string, string | number>>("/v1/premium-payments", {
+      method: "POST",
+      body: JSON.stringify({ adventurerId: adventurer.id, amountCents: 5000 })
+    });
+    pushEvent(result);
+    await refresh();
+    setBusy(false);
+  }
+
   async function requestAuth() {
     if (!adventurer) return;
     setBusy(true);
@@ -1299,6 +1311,7 @@ function App() {
               <strong>{adventurer.name}</strong>
               <span>{adventurer.rank} · {adventurer.coverageStatus}</span>
               <code>{adventurer.id}</code>
+              <button type="button" className="secondary" disabled={busy} onClick={payPremium}>820 Pay Premium</button>
             </div>
           )}
         </div>
