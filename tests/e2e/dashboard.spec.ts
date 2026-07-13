@@ -13,7 +13,7 @@ type DemoTransaction = {
   status: string;
   senderId: string;
   receiverId: string;
-  payload: Record<string, string>;
+  payload: Record<string, unknown>;
   rawX12: string;
   relatedId?: string;
   createdAt: string;
@@ -41,6 +41,24 @@ const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) =
     x12: `${type} dashboard display fixture`,
     claimId: `claim-e2e-${type.toLowerCase()}`,
     adventurerId: "adv-e2e-dashboard",
+    ...(type === "277"
+      ? {
+          claimId: "claim-e2e-dashboard",
+          adjudication: {
+            engine: "async-worker",
+            allowedAmountCents: 10000,
+            paidAmountCents: 8800,
+            patientResponsibilityCents: 1200,
+            adjustmentAmountCents: 2500,
+            adjustmentReason: "ASHN contractual allowance with current premium",
+            coverageStatus: "Active",
+            providerTier: "Diamond",
+            adventurerRank: "Gold",
+            premiumCurrent: true,
+            premiumPaidAmountCents: 5000
+          }
+        }
+      : {}),
     ...(type === "275"
       ? {
           attachmentType: "OZ",
@@ -55,7 +73,7 @@ const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) =
       : {})
   },
   rawX12: `ISA*00*          *00*          *ZZ*ASHN           *ZZ*PARTNER        *260708*1200*^*00501*${String(index + 1).padStart(9, "0")}*0*T*:~ST*${type}*0001~SE*2*0001~`,
-  relatedId: index > 0 ? "tx-e2e-834" : undefined,
+  relatedId: type === "277" ? "tx-e2e-837" : (index > 0 ? "tx-e2e-834" : undefined),
   createdAt: new Date(Date.UTC(2026, 6, 8, 12, index, 0)).toISOString()
 }));
 
@@ -485,6 +503,10 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(drawer.locator(".detail-item").filter({ hasText: "Status" }).getByText("Submitted", { exact: true })).toBeVisible();
     await expect(drawer.locator(".detail-item").filter({ hasText: "Prior Auth" }).getByText("tx-e2e-auth-review")).toBeVisible();
     await expect(drawer.locator(".detail-item").filter({ hasText: "Auth Status" }).getByText("Approved")).toBeVisible();
+    await expect(drawer.getByRole("heading", { name: /Adjudication Explanation/i })).toBeVisible();
+    await expect(drawer.getByText("Premium Current: Yes")).toBeVisible();
+    await expect(drawer.getByText("Premium Paid: $50.00")).toBeVisible();
+    await expect(drawer.getByText("ASHN contractual allowance with current premium")).toBeVisible();
     await expect(drawer.getByRole("heading", { name: /275 Documentation Workbench/i })).toBeVisible();
     await expect(drawer.getByText("Medical necessity letter")).toBeVisible();
     await expect(drawer.getByText("Encounter notes")).toBeVisible();

@@ -918,6 +918,29 @@ pre {
   padding: 16px;
 }
 
+.adjudication-explanation {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  border: 1px solid rgba(142, 240, 176, 0.22);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(142, 240, 176, 0.16), transparent 34%),
+    rgba(255, 255, 255, 0.05);
+  padding: 16px;
+}
+
+.adjudication-money-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.adjudication-signals span {
+  border-color: rgba(142, 240, 176, 0.22);
+  background: rgba(142, 240, 176, 0.08);
+}
+
 .intake-rejection-panel {
   display: grid;
   gap: 14px;

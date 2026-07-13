@@ -106,6 +106,21 @@ type ClaimServiceLine = {
   denialReason?: string;
 };
 
+type AdjudicationExplanation = {
+  engine?: string;
+  allowedAmountCents?: number;
+  paidAmountCents?: number;
+  patientResponsibilityCents?: number;
+  adjustmentAmountCents?: number;
+  adjustmentReason?: string;
+  denialReason?: string;
+  coverageStatus?: string;
+  providerTier?: string;
+  adventurerRank?: string;
+  premiumCurrent?: boolean;
+  premiumPaidAmountCents?: number;
+};
+
 type DocumentationChecklistItem = {
   code: string;
   label: string;
@@ -494,6 +509,11 @@ function App() {
 
   const selectedClaimAttachmentTransactions = useMemo(
     () => (selectedClaim ? claimAttachmentTransactions(selectedClaim, recentTransactions) : []),
+    [recentTransactions, selectedClaim]
+  );
+
+  const selectedClaimAdjudication = useMemo(
+    () => (selectedClaim ? latestClaimAdjudication(selectedClaim, recentTransactions) : null),
     [recentTransactions, selectedClaim]
   );
 
@@ -1731,6 +1751,7 @@ function App() {
                 onReview={reviewAttachmentTransaction}
                 onResubmit={requestDeficiencyAndResubmit}
               />
+              <AdjudicationExplanationPanel claim={selectedClaim} explanation={selectedClaimAdjudication} />
               <DetailItem label="Status" value={selectedClaim.status} />
               <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
               <DetailItem label="Billed" value={money(selectedClaim.amountCents)} />
@@ -2005,6 +2026,53 @@ function DiagnosisBreakdown({ diagnoses }: { diagnoses: ClaimDiagnosis[] }) {
           </article>
         ))}
       </div>
+    </section>
+  );
+}
+
+function AdjudicationExplanationPanel({ claim, explanation }: { claim: Claim; explanation: AdjudicationExplanation | null }) {
+  if (!explanation && !claim.adjustmentReason && !claim.denialReason) {
+    return null;
+  }
+
+  const signals = [
+    { label: "Engine", value: explanation?.engine ?? "payer-core" },
+    { label: "Coverage", value: explanation?.coverageStatus ?? "—" },
+    { label: "Provider Tier", value: explanation?.providerTier ?? "—" },
+    { label: "Adventurer Rank", value: explanation?.adventurerRank ?? "—" },
+    {
+      label: "Premium Current",
+      value: explanation?.premiumCurrent === undefined ? "—" : (explanation.premiumCurrent ? "Yes" : "No")
+    },
+    {
+      label: "Premium Paid",
+      value: explanation?.premiumPaidAmountCents === undefined ? "—" : money(explanation.premiumPaidAmountCents)
+    }
+  ];
+
+  const reason = explanation?.denialReason || explanation?.adjustmentReason || claim.denialReason || claim.adjustmentReason || "No adjudication reason recorded yet.";
+
+  return (
+    <section className="adjudication-explanation" aria-label="adjudication explanation">
+      <div className="relationship-heading">
+        <div>
+          <h3>Adjudication Explanation</h3>
+          <p className="muted">Readable benefit signals from the latest related 277 status response.</p>
+        </div>
+        <span>Latest 277</span>
+      </div>
+      <div className="adjudication-money-grid">
+        <DetailItem label="Allowed" value={money(explanation?.allowedAmountCents ?? claim.allowedAmountCents)} />
+        <DetailItem label="Paid" value={money(explanation?.paidAmountCents ?? claim.paidAmountCents)} />
+        <DetailItem label="Patient Resp." value={money(explanation?.patientResponsibilityCents ?? claim.patientResponsibilityCents)} />
+        <DetailItem label="Adjustment" value={money(explanation?.adjustmentAmountCents ?? claim.adjustmentAmountCents)} />
+      </div>
+      <div className="chips adjudication-signals">
+        {signals.map((signal) => (
+          <span key={signal.label}>{signal.label}: {signal.value}</span>
+        ))}
+      </div>
+      <p className="muted">{reason}</p>
     </section>
   );
 }
@@ -2438,6 +2506,34 @@ function claimAttachmentTransactions(claim: Claim, transactions: Transaction[]) 
     });
 }
 
+function latestClaimAdjudication(claim: Claim, transactions: Transaction[]): AdjudicationExplanation | null {
+  const matching = transactions
+    .filter((transaction) => transaction.type === "277")
+    .filter((transaction) => payloadString(transaction, "claimId") === claim.id || transaction.relatedId === claim.transactionId)
+    .filter((transaction) => Boolean(payloadRecord(payloadRecord(transaction.payload)?.adjudication)))
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+
+  const adjudication = payloadRecord(payloadRecord(matching[0]?.payload)?.adjudication);
+  if (!adjudication) {
+    return null;
+  }
+
+  return {
+    engine: valueString(adjudication.engine),
+    allowedAmountCents: valueNumber(adjudication.allowedAmountCents),
+    paidAmountCents: valueNumber(adjudication.paidAmountCents),
+    patientResponsibilityCents: valueNumber(adjudication.patientResponsibilityCents),
+    adjustmentAmountCents: valueNumber(adjudication.adjustmentAmountCents),
+    adjustmentReason: valueString(adjudication.adjustmentReason),
+    denialReason: valueString(adjudication.denialReason),
+    coverageStatus: valueString(adjudication.coverageStatus),
+    providerTier: valueString(adjudication.providerTier),
+    adventurerRank: valueString(adjudication.adventurerRank),
+    premiumCurrent: valueBool(adjudication.premiumCurrent),
+    premiumPaidAmountCents: valueNumber(adjudication.premiumPaidAmountCents)
+  };
+}
+
 function authorizationDocumentationTransactions(authorizationTransaction: Transaction, transactions: Transaction[]) {
   return transactions
     .filter((transaction) => transaction.type === "275")
@@ -2566,6 +2662,18 @@ function payloadNestedString(transaction: Transaction, parentKey: string, childK
 function payloadRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
+}
+
+function valueString(value: unknown) {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function valueNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function valueBool(value: unknown) {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function transactionPayloadView(transaction: Transaction, tab: PayloadTab) {
