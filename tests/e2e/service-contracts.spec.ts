@@ -2,6 +2,31 @@ import { expect, test } from "@orieken/saturday-playwright";
 
 import { runMutatingE2E, services, serviceUrls, uniqueDemoName } from "./config.js";
 
+type TransactionSummary = {
+  id: string;
+  type: string;
+  status: string;
+  relatedId?: string;
+  payload?: {
+    adjudication?: {
+      paidAmountCents?: number;
+      patientResponsibilityCents?: number;
+      adjustmentReason?: string;
+      premiumCurrent?: boolean;
+      premiumPaidAmountCents?: number;
+    };
+  };
+};
+
+type ClaimDetail = {
+  id: string;
+  status: string;
+  allowedAmountCents?: number;
+  paidAmountCents?: number;
+  patientResponsibilityCents?: number;
+  adjustmentReason?: string;
+};
+
 type Envelope<T = unknown> = {
   data?: T;
   error?: string;
@@ -12,18 +37,8 @@ type Envelope<T = unknown> = {
     count: number;
     hasMore: boolean;
   };
-  transaction?: {
-    id: string;
-    type: string;
-    status: string;
-    relatedId?: string;
-  };
-  transactions?: Array<{
-    id: string;
-    type: string;
-    status: string;
-    relatedId?: string;
-  }>;
+  transaction?: TransactionSummary;
+  transactions?: TransactionSummary[];
 };
 
 test.describe("ASHN service contracts", () => {
@@ -320,6 +335,79 @@ test.describe("ASHN mutating demo contracts", () => {
 
     const attachmentLedgerEnvelope = (await attachmentLedger.json()) as Envelope<Array<{ id: string; type: string; relatedId?: string }>>;
     expect(attachmentLedgerEnvelope.data?.some((transaction) => transaction.type === "275")).toBeTruthy();
+  });
+
+  test("gateway applies recent 820 premium context during async claim adjudication", async ({ request }) => {
+    const enrollment = await request.post(`${serviceUrls.apiGateway}/v1/adventurers`, {
+      data: {
+        name: uniqueDemoName("Premium Current Ranger"),
+        rank: "Iron",
+        guild: "Premium Contract Guild",
+        region: "Greenstone"
+      }
+    });
+    expect(enrollment.status()).toBe(201);
+
+    const enrolled = (await enrollment.json()) as Envelope<{ id: string }>;
+    expect(enrolled.data?.id).toBeTruthy();
+
+    const premium = await request.post(`${serviceUrls.apiGateway}/v1/premium-payments`, {
+      data: {
+        adventurerId: enrolled.data?.id,
+        amountCents: 25_00
+      }
+    });
+    expect(premium.status()).toBe(201);
+
+    const premiumEnvelope = (await premium.json()) as Envelope<{ status: string; amountCents: number }>;
+    expect(premiumEnvelope.transaction?.type).toBe("820");
+    expect(premiumEnvelope.data?.status).toBe("Accepted");
+
+    const claim = await request.post(`${serviceUrls.apiGateway}/v1/claims`, {
+      data: {
+        adventurerId: enrolled.data?.id,
+        providerId: "provider-greenstone-roadside",
+        incidentSeverity: "Awakened",
+        amountCents: 100_000
+      }
+    });
+    expect(claim.status()).toBe(201);
+
+    const claimEnvelope = (await claim.json()) as Envelope<ClaimDetail>;
+    expect(claimEnvelope.data?.id).toBeTruthy();
+    expect(claimEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["837", "277CA"]);
+
+    await expect.poll(async () => {
+      const response = await request.get(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}`);
+      if (!response.ok()) {
+        return "missing";
+      }
+      const current = (await response.json()) as Envelope<ClaimDetail>;
+      return `${current.data?.status}:${current.data?.paidAmountCents ?? 0}`;
+    }, {
+      intervals: [1_000, 2_000, 3_000],
+      timeout: 20_000
+    }).toBe("Approved:70400");
+
+    const finalizedClaimResponse = await request.get(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}`);
+    const finalizedClaim = (await finalizedClaimResponse.json()) as Envelope<ClaimDetail>;
+    expect(finalizedClaim.data?.allowedAmountCents).toBe(80_000);
+    expect(finalizedClaim.data?.paidAmountCents).toBe(70_400);
+    expect(finalizedClaim.data?.patientResponsibilityCents).toBe(9_600);
+    expect(finalizedClaim.data?.adjustmentReason).toBe("ASHN contractual allowance with current premium");
+
+    const ledger = await request.get(`${serviceUrls.apiGateway}/v1/transactions?limit=10&type=277&q=${encodeURIComponent(claimEnvelope.data?.id ?? "")}`);
+    expect(ledger.ok()).toBeTruthy();
+
+    const ledgerEnvelope = (await ledger.json()) as Envelope<TransactionSummary[]>;
+    const adjudication277 = ledgerEnvelope.data?.find((transaction) => transaction.payload?.adjudication?.premiumCurrent);
+    expect(adjudication277?.payload?.adjudication).toMatchObject({
+      paidAmountCents: 70_400,
+      patientResponsibilityCents: 9_600,
+      adjustmentReason: "ASHN contractual allowance with current premium",
+      premiumCurrent: true,
+      premiumPaidAmountCents: 2_500
+    });
   });
 
   test("gateway accepts XML intake and exposes audit visibility", async ({ request }) => {
