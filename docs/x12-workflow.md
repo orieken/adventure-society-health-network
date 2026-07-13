@@ -98,6 +98,8 @@ Raw delimiter-based `834` intake is available at `POST /v1/x12/raw`. The parser 
 
 ASHN can record premium dues through `POST /v1/premium-payments`, canonical XML/JSON `820`, or raw delimiter-based `820` intake. The raw parser reads the adventurer/member identifier from `NM1*IL` and the paid amount from `RMR` or `BPR`, emits a `999`, and forwards the canonical premium payment request to `payer-core`.
 
+Accepted `820` payments now participate in the benefit-plan simulation: a recent accepted premium marks the adventurer as premium-current for claim adjudication, slightly improving paid amount calculations and reducing patient responsibility in the async worker’s `277` adjudication payload.
+
 ### 2. Eligibility: `270 → 271`
 
 Before treatment, a provider checks whether the adventurer is covered.
@@ -215,7 +217,7 @@ Before payment, `tx-worker` adjudicates the claim and calculates:
 - adjustment amount and reason
 - denial reason, when applicable
 
-The adjudication rules are intentionally explainable: severity and billed amount set the baseline, approved prior authorization can unlock catastrophic encounters, provider tier can improve allowance/payment, adventurer rank can reduce responsibility, and inactive/suspended coverage denies the claim.
+The adjudication rules are intentionally explainable: severity and billed amount set the baseline, approved prior authorization can unlock catastrophic encounters, provider tier can improve allowance/payment, adventurer rank can reduce responsibility, recent accepted `820` premiums can improve paid amount, and inactive/suspended coverage denies the claim.
 
 The `835` represents the payer saying: “Here is what we paid, what we allowed, what was adjusted, and why.” In the dashboard, this is the final satisfying ledger event: the healer gets paid and the claim reaches `Paid`.
 

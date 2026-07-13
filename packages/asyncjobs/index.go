@@ -236,13 +236,25 @@ func processClaimFinalization(db *sql.DB, claimID string) error {
 	serviceLinesJSON.target = &claim.ServiceLines
 	err := db.QueryRow(
 		`SELECT c.id, c.adventurer_id, c.provider_id, c.incident_severity, COALESCE(c.transaction_id, ''), COALESCE(c.authorization_transaction_id, ''), COALESCE(c.authorization_status, ''), COALESCE(c.authorization_reason, ''), c.amount_cents, COALESCE(c.service_lines, '[]'::jsonb), c.status,
-		        COALESCE(a.rank, ''), COALESCE(a.coverage_status, ''), COALESCE(p.tier_rank, '')
+		        COALESCE(a.rank, ''), COALESCE(a.coverage_status, ''), COALESCE(p.tier_rank, ''),
+		        EXISTS (
+		          SELECT 1 FROM premium_payments pp
+		          WHERE pp.adventurer_id = c.adventurer_id
+		            AND pp.status = 'Accepted'
+		            AND pp.created_at >= now() - interval '45 days'
+		        ),
+		        COALESCE((
+		          SELECT SUM(pp.amount_cents) FROM premium_payments pp
+		          WHERE pp.adventurer_id = c.adventurer_id
+		            AND pp.status = 'Accepted'
+		            AND pp.created_at >= now() - interval '45 days'
+		        ), 0)
 		 FROM claims c
 		 LEFT JOIN adventurers a ON a.id = c.adventurer_id
 		 LEFT JOIN providers p ON p.id = c.provider_id
 		 WHERE c.id = $1`,
 		claimID,
-	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AuthorizationTransactionID, &claim.AuthorizationStatus, &claim.AuthorizationReason, &claim.AmountCents, &serviceLinesJSON, &claim.Status, &context.AdventurerRank, &context.CoverageStatus, &context.ProviderTier)
+	).Scan(&claim.ID, &claim.AdventurerID, &claim.ProviderID, &claim.IncidentSeverity, &claim.TransactionID, &claim.AuthorizationTransactionID, &claim.AuthorizationStatus, &claim.AuthorizationReason, &claim.AmountCents, &serviceLinesJSON, &claim.Status, &context.AdventurerRank, &context.CoverageStatus, &context.ProviderTier, &context.PremiumCurrent, &context.PremiumPaidAmountCents)
 	if err != nil {
 		return err
 	}
@@ -268,6 +280,8 @@ func processClaimFinalization(db *sql.DB, claimID string) error {
 			"coverageStatus":             context.CoverageStatus,
 			"providerTier":               context.ProviderTier,
 			"adventurerRank":             context.AdventurerRank,
+			"premiumCurrent":             context.PremiumCurrent,
+			"premiumPaidAmountCents":     context.PremiumPaidAmountCents,
 		},
 		"relatedId": claim.TransactionID,
 	})
@@ -290,9 +304,11 @@ func adjudicateClaim(claim *domain.Claim) {
 }
 
 type adjudicationContext struct {
-	AdventurerRank domain.Rank
-	CoverageStatus domain.CoverageStatus
-	ProviderTier   domain.Rank
+	AdventurerRank         domain.Rank
+	CoverageStatus         domain.CoverageStatus
+	ProviderTier           domain.Rank
+	PremiumCurrent         bool
+	PremiumPaidAmountCents int64
 }
 
 func adjudicateClaimWithContext(claim *domain.Claim, context adjudicationContext) {
@@ -312,6 +328,14 @@ func adjudicateClaimWithContext(claim *domain.Claim, context adjudicationContext
 	if context.CoverageStatus == domain.CoveragePending {
 		paidPercent -= 15
 		adjustmentReason = "ASHN contractual allowance with pending benefits review"
+	}
+	if context.PremiumCurrent {
+		paidPercent += 3
+		if context.CoverageStatus == domain.CoveragePending {
+			adjustmentReason = "ASHN contractual allowance with pending benefits review and current premium"
+		} else {
+			adjustmentReason = "ASHN contractual allowance with current premium"
+		}
 	}
 	if allowedPercent > 98 {
 		allowedPercent = 98

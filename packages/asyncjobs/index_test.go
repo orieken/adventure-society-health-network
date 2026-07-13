@@ -209,7 +209,7 @@ func TestProcessClaimFinalizationUpdatesClaimAndRecords277(t *testing.T) {
 	mock.ExpectQuery(claimFinalizationQueryPattern()).
 		WithArgs("claim-1").
 		WillReturnRows(claimFinalizationRows().
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), `[{"lineNumber":1,"procedureCode":"ASHN1","description":"Stabilization","units":1,"amountCents":100000}]`, domain.ClaimPending, "", "", ""))
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityAwakened, "tx-837", "", "", "", int64(100000), `[{"lineNumber":1,"procedureCode":"ASHN1","description":"Stabilization","units":1,"amountCents":100000}]`, domain.ClaimPending, "", "", "", false, int64(0)))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET status = $1, allowed_amount_cents = $2, paid_amount_cents = $3, patient_responsibility_cents = $4, adjustment_amount_cents = $5, adjustment_reason = NULLIF($6, ''), denial_reason = NULLIF($7, ''), service_lines = $8::jsonb WHERE id = $9`)).
 		WithArgs(string(domain.ClaimApproved), int64(80000), int64(68000), int64(12000), int64(20000), "ASHN contractual allowance", "", jsonServiceLinesArg{contains: `"paidAmountCents":68000`}, "claim-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -229,7 +229,7 @@ func TestProcessClaimFinalizationSkipsCompletedClaims(t *testing.T) {
 	mock.ExpectQuery(claimFinalizationQueryPattern()).
 		WithArgs("claim-1").
 		WillReturnRows(claimFinalizationRows().
-			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", "", "", "", int64(100000), `[]`, domain.ClaimPaid, "", "", ""))
+			AddRow("claim-1", "adv-1", "provider-1", domain.SeverityNormal, "tx-837", "", "", "", int64(100000), `[]`, domain.ClaimPaid, "", "", "", false, int64(0)))
 
 	require.NoError(t, processClaimFinalization(db, "claim-1"))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -432,6 +432,15 @@ func TestAdjudicateClaimPartialPaymentVariants(t *testing.T) {
 			patientResponsibility: 9600,
 			adjustmentAmount:      20000,
 		},
+		{
+			name:                  "current premium improves paid amount",
+			claim:                 domain.Claim{IncidentSeverity: domain.SeverityAwakened, AmountCents: 100000},
+			context:               adjudicationContext{PremiumCurrent: true, PremiumPaidAmountCents: 25000},
+			allowedAmount:         80000,
+			paidAmount:            70400,
+			patientResponsibility: 9600,
+			adjustmentAmount:      20000,
+		},
 	}
 
 	for _, tt := range tests {
@@ -485,7 +494,7 @@ func claimFinalizationQueryPattern() string {
 func claimFinalizationRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "adventurer_id", "provider_id", "incident_severity", "transaction_id", "authorization_transaction_id", "authorization_status", "authorization_reason", "amount_cents", "service_lines", "status",
-		"adventurer_rank", "coverage_status", "provider_tier",
+		"adventurer_rank", "coverage_status", "provider_tier", "premium_current", "premium_paid_amount_cents",
 	})
 }
 
