@@ -85,6 +85,7 @@ func main() {
 	mux.HandleFunc("POST /enrollments", app.enroll)
 	mux.HandleFunc("GET /adventurers", app.listAdventurers)
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
+	mux.HandleFunc("POST /premium-payments", app.recordPremiumPayment)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)
@@ -709,6 +710,29 @@ func (s *store) payClaim(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx835, claim.ID, claim.ProviderID), Transaction: &tx})
 }
 
+func (s *store) recordPremiumPayment(w http.ResponseWriter, r *http.Request) {
+	var req domain.PremiumPaymentRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	req.AdventurerID = strings.TrimSpace(req.AdventurerID)
+	if req.AdventurerID == "" || req.AmountCents <= 0 {
+		fail(w, http.StatusBadRequest, "invalid premium payment", "The dues ledger needs an adventurer and a positive amount.")
+		return
+	}
+	s.mu.RLock()
+	adventurer, ok := s.adventurers[req.AdventurerID]
+	s.mu.RUnlock()
+	if !ok {
+		fail(w, http.StatusNotFound, "adventurer not found", "The Society archives contain no record of that adventurer.")
+		return
+	}
+	tx := edimock.Generate820(adventurer, req.AmountCents)
+	s.saveTransaction(tx)
+	s.savePremiumPayment(tx, req.AmountCents)
+	respond(w, http.StatusCreated, domain.Envelope{Data: map[string]any{"adventurerId": adventurer.ID, "amountCents": req.AmountCents, "status": "Accepted"}, Lore: lore.ThemeTransaction(domain.Tx820, adventurer.Name, "Adventure Society"), Transaction: &tx})
+}
+
 func (s *store) getTransaction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	tx, ok := s.findTransaction(id)
@@ -1126,6 +1150,17 @@ func (s *store) saveTransaction(tx domain.Transaction) {
 		}
 	}
 	ashnlog.Info("transaction_saved", "service", "payer-core", "transactionId", tx.ID, "type", tx.Type, "status", tx.Status, "lore", lore.ThemeTransaction(tx.Type, tx.SenderID, tx.ReceiverID))
+}
+
+func (s *store) savePremiumPayment(tx domain.Transaction, amountCents int64) {
+	if s.db == nil {
+		return
+	}
+	_, err := s.db.Exec(`INSERT INTO premium_payments (id, adventurer_id, transaction_id, amount_cents, status, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+		domain.NewID(), tx.SenderID, tx.ID, amountCents, string(tx.Status), tx.CreatedAt)
+	if err != nil {
+		ashnlog.Error("postgres_premium_payment_persistence_failed", err, "service", "payer-core", "transactionId", tx.ID)
+	}
 }
 
 func (s *store) updateTransaction(tx domain.Transaction) error {
@@ -1886,6 +1921,9 @@ func payerOpenAPI() map[string]any {
 			},
 			"/adventurers/{id}": {
 				"get": {Summary: "Get adventurer detail", Tags: []string{"adventurers"}},
+			},
+			"/premium-payments": {
+				"post": {Summary: "Record 820 premium payment", Tags: []string{"premium", "x12"}, RequestBody: true},
 			},
 			"/eligibility/query": {
 				"post": {Summary: "Run 270/271 eligibility", Tags: []string{"eligibility", "x12"}, RequestBody: true},

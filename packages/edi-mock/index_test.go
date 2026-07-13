@@ -182,7 +182,8 @@ func TestGenerateEnrollmentEligibilityAuthAndStatusTransactions(t *testing.T) {
 
 	premium := Generate820(adventurer, 5000)
 	assert.Equal(t, domain.Tx820, premium.Type)
-	assert.Contains(t, premium.RawX12, "ASHN placeholder transaction")
+	assert.Contains(t, premium.RawX12, "005010X218")
+	assert.Contains(t, premium.RawX12, "BPR*C*50.00")
 
 	eligibilityRequest := Generate270(adventurer, provider)
 	assert.Equal(t, domain.Tx270, eligibilityRequest.Type)

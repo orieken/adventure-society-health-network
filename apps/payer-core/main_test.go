@@ -54,6 +54,31 @@ func TestEnrollCreatesActiveAdventurerAnd834(t *testing.T) {
 	assert.Equal(t, adventurer, app.adventurers[adventurer.ID])
 }
 
+func TestRecordPremiumPaymentCreates820(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/premium-payments", domain.PremiumPaymentRequest{AdventurerID: "adv-1", AmountCents: 5000})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx820, envelope.Transaction.Type)
+	assert.Equal(t, domain.TxStatusAccepted, envelope.Transaction.Status)
+	assert.Contains(t, envelope.Transaction.RawX12, "BPR*C*50.00")
+}
+
+func TestRecordPremiumPaymentRejectsMissingAdventurer(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/premium-payments", domain.PremiumPaymentRequest{AdventurerID: "missing", AmountCents: 5000})
+
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.Equal(t, "adventurer not found", decodeEnvelope(t, response).Error)
+}
+
 func TestEligibilityReturns270And271Pair(t *testing.T) {
 	app := newTestStore()
 	adventurer := domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankIron, Guild: "Grim Foundations", Region: domain.RegionGreenstone, CoverageStatus: domain.CoverageActive}
@@ -1293,6 +1318,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("POST /enrollments", app.enroll)
 	mux.HandleFunc("GET /adventurers", app.listAdventurers)
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
+	mux.HandleFunc("POST /premium-payments", app.recordPremiumPayment)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)

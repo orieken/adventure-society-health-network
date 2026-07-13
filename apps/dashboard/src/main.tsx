@@ -267,6 +267,34 @@ const payloadTabs: { id: PayloadTab; label: string }[] = [
   { id: "xml", label: "XML" },
   { id: "x12", label: "X12" }
 ];
+const sampleRaw834 = [
+  "ISA*00*          *00*          *ZZ*partner-greenstone*ZZ*Adventure Society*260708*1200*^*00501*000000834*0*T*:~",
+  "GS*BE*partner-greenstone*Adventure Society*20260708*1200*000000834*X*005010X220A1~",
+  "ST*834*000000834~",
+  "BGN*00*000000834*20260708~",
+  "INS*Y*18*030*XN*A***FT~",
+  "NM1*IL*1*Raw Enrollee****MI*adv-raw-834~",
+  "K3*Rank: Iron~",
+  "K3*Guild: Grim Foundations~",
+  "K3*Region: Greenstone~",
+  "HD*030**HLT~",
+  "SE*8*000000834~",
+  "GE*1*000000834~",
+  "IEA*1*000000834~"
+].join("\n");
+const sampleRaw820 = [
+  "ISA*00*          *00*          *ZZ*partner-greenstone*ZZ*Adventure Society*260708*1200*^*00501*000000820*0*T*:~",
+  "GS*RA*partner-greenstone*Adventure Society*20260708*1200*000000820*X*005010X218~",
+  "ST*820*000000820~",
+  "BPR*C*50.00*C*ACH************20260708~",
+  "TRN*1*000000820*partner-greenstone~",
+  "N1*PR*Adventure Society~",
+  "NM1*IL*1*adv-e2e-dashboard****MI*adv-e2e-dashboard~",
+  "RMR*IK*adv-e2e-dashboard**50.00~",
+  "SE*6*000000820~",
+  "GE*1*000000820~",
+  "IEA*1*000000820~"
+].join("\n");
 const sampleRawX12 = [
   "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000777*0*T*:~",
   "GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000777*X*005010X837P~",
@@ -329,6 +357,18 @@ const sampleRaw278 = [
   "SE*12*000000278~",
   "GE*1*000000278~",
   "IEA*1*000000278~"
+].join("\n");
+const sampleRaw835 = [
+  "ISA*00*          *00*          *ZZ*Adventure Society*ZZ*provider-vitesse-temple*260708*1200*^*00501*000000835*0*T*:~",
+  "GS*HP*Adventure Society*provider-vitesse-temple*20260708*1200*000000835*X*005010X221A1~",
+  "ST*835*000000835~",
+  "BPR*I*1000.00*C*CHK************20260708~",
+  "TRN*1*000000835*Adventure Society~",
+  "CLP*claim-e2e-dashboard*1*1250.00*1000.00*50.00*MC*000000835~",
+  "CAS*CO*45*250.00~",
+  "SE*5*000000835~",
+  "GE*1*000000835~",
+  "IEA*1*000000835~"
 ].join("\n");
 const savedFiltersStorageKey = "ashn.savedFilters.v1";
 const initialPartnerForm: PartnerFormState = {
@@ -1519,13 +1559,16 @@ function App() {
           <div className="ledger-title">
             <div>
               <h2>Raw X12 Intake</h2>
-              <p className="muted">Paste delimiter-based `270`, `276`, `278`, `837`, or `275` text and map it into canonical ASHN workflow.</p>
+              <p className="muted">Paste delimiter-based `834`, `820`, `270`, `276`, `278`, `837`, `835`, or `275` text and map it into canonical ASHN workflow.</p>
             </div>
             <div className="actions compact-actions">
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw834)}>Load Sample 834</button>
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw820)}>Load Sample 820</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw270)}>Load Sample 270</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw276)}>Load Sample 276</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw278)}>Load Sample 278</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw835)}>Load Sample 835</button>
             </div>
           </div>
           <label>

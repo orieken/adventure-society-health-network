@@ -92,6 +92,12 @@ When a user enrolls an adventurer, ASHN creates an adventurer record and emits a
 
 This represents the moment a member becomes known to the plan. The payload includes the adventurer profile, sponsor, and lore summary. The transaction sender is the adventurer ID and the receiver is the Society.
 
+Raw delimiter-based `834` intake is available at `POST /v1/x12/raw`. The parser reads the member name from `NM1*IL` and ASHN demo metadata from `K3` lines (`Rank`, `Guild`, and `Region`) before forwarding the canonical enrollment request to `payer-core`.
+
+### 1.5 Premium Payment: `820`
+
+ASHN can record premium dues through `POST /v1/premium-payments`, canonical XML/JSON `820`, or raw delimiter-based `820` intake. The raw parser reads the adventurer/member identifier from `NM1*IL` and the paid amount from `RMR` or `BPR`, emits a `999`, and forwards the canonical premium payment request to `payer-core`.
+
 ### 2. Eligibility: `270 → 271`
 
 Before treatment, a provider checks whether the adventurer is covered.
@@ -213,6 +219,8 @@ The adjudication rules are intentionally explainable: severity and billed amount
 
 The `835` represents the payer saying: “Here is what we paid, what we allowed, what was adjusted, and why.” In the dashboard, this is the final satisfying ledger event: the healer gets paid and the claim reaches `Paid`.
 
+Raw delimiter-based `835` intake is also available at `POST /v1/x12/raw`. The parser reads the claim ID and payment amount from `CLP`, falls back to `BPR` for the payment amount, validates the remittance trading partner, emits a `999`, and routes the payment through the existing claim payment endpoint.
+
 ## ASHN Transaction Record Shape
 
 Every emitted X12-inspired event becomes a `Transaction` record:
@@ -295,7 +303,7 @@ This gives the demo a realistic EDI boundary: not every external sender can subm
 
 ## What Is Real vs. Simplified
 
-ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `270` eligibility, `276` claim status, `278` prior authorization, `837` claim, and `275` attachment messages into canonical ASHN requests.
+ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `834` enrollment, `820` premium payment, `270` eligibility, `276` claim status, `278` prior authorization, `837` claim, `835` remittance/payment, and `275` attachment messages into canonical ASHN requests.
 
 What it models well:
 
@@ -334,6 +342,6 @@ For the completed foundation and remaining implementation backlog, see [ASHN Fut
 
 Good next expansions include:
 
-- model `820` premium payment in the visible workflow
-- expand raw X12 parsing beyond the current `270`, `276`, `278`, `837`, and `275` subset
+- deepen `820` premium payment visibility in the dashboard workflow
+- expand raw X12 parsing beyond the current demo transaction subset
 - add richer service-line and diagnosis mappings for claims

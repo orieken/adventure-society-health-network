@@ -400,6 +400,18 @@ func parseInboundRawX12(body []byte) (inboundTransaction, error) {
 		Receiver: party{ID: rawReceiverID(segmentMap)},
 	}
 	switch domain.TransactionType(inbound.Type) {
+	case domain.Tx834:
+		enrollment, err := raw834Enrollment(segmentMap)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.Enrollment = &enrollment
+	case domain.Tx820:
+		premium, err := raw820PremiumPayment(segmentMap)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.PremiumPayment = &premium
 	case domain.Tx270:
 		eligibility, err := raw270Eligibility(segmentMap, inbound.Sender.ID)
 		if err != nil {
@@ -430,10 +442,46 @@ func parseInboundRawX12(body []byte) (inboundTransaction, error) {
 			return inbound, err
 		}
 		inbound.Attachment = &attachment
+	case domain.Tx835:
+		payment, err := raw835Payment(segmentMap)
+		if err != nil {
+			return inbound, err
+		}
+		inbound.Payment = &payment
 	default:
 		return inbound, fmt.Errorf("raw X12 transaction type %s not implemented", inbound.Type)
 	}
 	return inbound, nil
+}
+
+func raw834Enrollment(segmentMap map[string][][]string) (xmlEnrollment, error) {
+	enrollment := xmlEnrollment{
+		Name:   firstNonEmpty(rawNM1Name(segmentMap, "IL"), rawK3Value(segmentMap, "Name")),
+		Rank:   rawK3Value(segmentMap, "Rank"),
+		Guild:  rawK3Value(segmentMap, "Guild"),
+		Region: rawK3Value(segmentMap, "Region"),
+	}
+	if enrollment.Name == "" {
+		return xmlEnrollment{}, fmt.Errorf("missing subscriber NM1 segment")
+	}
+	if enrollment.Rank == "" || enrollment.Guild == "" || enrollment.Region == "" {
+		return xmlEnrollment{}, fmt.Errorf("missing enrollment K3 metadata")
+	}
+	return enrollment, nil
+}
+
+func raw820PremiumPayment(segmentMap map[string][][]string) (xmlPremiumPayment, error) {
+	premium := xmlPremiumPayment{
+		AdventurerID: rawNM1ID(segmentMap, "IL"),
+		AmountCents:  raw820AmountCents(segmentMap),
+	}
+	if premium.AdventurerID == "" {
+		return xmlPremiumPayment{}, fmt.Errorf("missing subscriber NM1 segment")
+	}
+	if premium.AmountCents == "" {
+		return xmlPremiumPayment{}, fmt.Errorf("invalid premium amount")
+	}
+	return premium, nil
 }
 
 func raw270Eligibility(segmentMap map[string][][]string, senderID string) (xmlEligibility, error) {
@@ -684,6 +732,24 @@ func raw275Attachment(segmentMap map[string][][]string, senderID string) (xmlAtt
 	return attachment, nil
 }
 
+func raw835Payment(segmentMap map[string][][]string) (xmlPayment, error) {
+	payment := xmlPayment{}
+	if clp := firstRawSegment(segmentMap, "CLP"); len(clp) > 4 {
+		payment.ClaimID = strings.TrimSpace(clp[1])
+		payment.PaymentAmountCents = rawAmountCents(clp[4])
+	}
+	if payment.PaymentAmountCents == "" {
+		payment.PaymentAmountCents = raw835BPRAmountCents(segmentMap)
+	}
+	if payment.ClaimID == "" {
+		return xmlPayment{}, fmt.Errorf("missing CLP claim segment")
+	}
+	if payment.PaymentAmountCents == "" {
+		return xmlPayment{}, fmt.Errorf("invalid payment amount")
+	}
+	return payment, nil
+}
+
 func rawNM1ID(segmentMap map[string][][]string, entityCode string) string {
 	for _, nm1 := range segmentMap["NM1"] {
 		if len(nm1) < 4 || !strings.EqualFold(nm1[1], entityCode) {
@@ -693,6 +759,29 @@ func rawNM1ID(segmentMap map[string][][]string, entityCode string) string {
 			return strings.TrimSpace(nm1[9])
 		}
 		return strings.TrimSpace(nm1[3])
+	}
+	return ""
+}
+
+func rawNM1Name(segmentMap map[string][][]string, entityCode string) string {
+	for _, nm1 := range segmentMap["NM1"] {
+		if len(nm1) >= 4 && strings.EqualFold(nm1[1], entityCode) {
+			return strings.TrimSpace(nm1[3])
+		}
+	}
+	return ""
+}
+
+func rawK3Value(segmentMap map[string][][]string, key string) string {
+	prefix := strings.ToLower(strings.TrimSpace(key)) + ":"
+	for _, k3 := range segmentMap["K3"] {
+		if len(k3) < 2 {
+			continue
+		}
+		value := strings.TrimSpace(k3[1])
+		if strings.HasPrefix(strings.ToLower(value), prefix) {
+			return strings.TrimSpace(value[len(prefix):])
+		}
 	}
 	return ""
 }
@@ -734,6 +823,23 @@ func rawAmountCents(value string) string {
 		return ""
 	}
 	return strconv.FormatInt(amount*100, 10)
+}
+
+func raw820AmountCents(segmentMap map[string][][]string) string {
+	if rmr := firstRawSegment(segmentMap, "RMR"); len(rmr) > 4 && strings.TrimSpace(rmr[4]) != "" {
+		return rawAmountCents(rmr[4])
+	}
+	if bpr := firstRawSegment(segmentMap, "BPR"); len(bpr) > 2 {
+		return rawAmountCents(bpr[2])
+	}
+	return ""
+}
+
+func raw835BPRAmountCents(segmentMap map[string][][]string) string {
+	if bpr := firstRawSegment(segmentMap, "BPR"); len(bpr) > 2 {
+		return rawAmountCents(bpr[2])
+	}
+	return ""
 }
 
 func rawPacketReference(value string) (string, int, int) {
@@ -915,7 +1021,17 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		}
 		return http.MethodPost, "/claims/" + strings.TrimSpace(t.Payment.ClaimID) + "/payment", domain.PaymentRequest{PaymentAmountCents: amountCents}, nil
 	case domain.Tx820:
-		return "", "", nil, fmt.Errorf("transaction type 820 not implemented")
+		if t.PremiumPayment == nil {
+			return "", "", nil, fmt.Errorf("missing premium payment")
+		}
+		if err := requireFields(map[string]string{"AdventurerId": t.PremiumPayment.AdventurerID, "AmountCents": t.PremiumPayment.AmountCents}); err != nil {
+			return "", "", nil, err
+		}
+		amountCents, err := parsePositiveInt64("AmountCents", t.PremiumPayment.AmountCents)
+		if err != nil {
+			return "", "", nil, err
+		}
+		return http.MethodPost, "/premium-payments", domain.PremiumPaymentRequest{AdventurerID: strings.TrimSpace(t.PremiumPayment.AdventurerID), AmountCents: amountCents}, nil
 	default:
 		return "", "", nil, fmt.Errorf("unsupported transaction type")
 	}
@@ -1874,6 +1990,7 @@ func seedTradingPartners() map[string]domain.TradingPartner {
 		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
 		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
 		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
+		{ID: "tp-adventure-society-remittance", Name: "Adventure Society Remittance", SenderID: "Adventure Society", ReceiverID: "provider-vitesse-temple", AllowedTransactionTypes: []string{"835"}, RouteTarget: "payer-core", Status: "active"},
 	} {
 		partners[partner.ID] = partner
 	}

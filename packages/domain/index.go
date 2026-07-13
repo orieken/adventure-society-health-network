@@ -336,6 +336,11 @@ type PaymentRequest struct {
 	PaymentAmountCents int64 `json:"paymentAmountCents"`
 }
 
+type PremiumPaymentRequest struct {
+	AdventurerID string `json:"adventurerId"`
+	AmountCents  int64  `json:"amountCents"`
+}
+
 type PageInfo struct {
 	Limit   int  `json:"limit"`
 	Offset  int  `json:"offset"`

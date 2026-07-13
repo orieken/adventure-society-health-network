@@ -260,6 +260,84 @@ func TestAcceptRawX12RoutesEligibilityToPayerCore(t *testing.T) {
 	assert.Equal(t, "Raw X12 eligibility checked.", decodeEnvelope(t, response).Lore)
 }
 
+func TestAcceptRawX12RoutesEnrollmentToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var enrollmentRequest domain.EnrollmentRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/enrollments":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&enrollmentRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Data:        domain.Adventurer{ID: "adv-raw-834", Name: enrollmentRequest.Name, Rank: enrollmentRequest.Rank, Guild: enrollmentRequest.Guild, Region: enrollmentRequest.Region, CoverageStatus: domain.CoverageActive},
+				Lore:        "Raw X12 enrollment accepted.",
+				Transaction: &domain.Transaction{Type: domain.Tx834, Status: domain.TxStatusAccepted},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx834, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw834Fixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/enrollments", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "Raw Enrollee", enrollmentRequest.Name)
+	assert.Equal(t, domain.RankIron, enrollmentRequest.Rank)
+	assert.Equal(t, "Grim Foundations", enrollmentRequest.Guild)
+	assert.Equal(t, domain.RegionGreenstone, enrollmentRequest.Region)
+	assert.Equal(t, "Raw X12 enrollment accepted.", decodeEnvelope(t, response).Lore)
+}
+
+func TestAcceptRawX12RoutesPremiumPaymentToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var premiumRequest domain.PremiumPaymentRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/premium-payments":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&premiumRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Data:        map[string]any{"adventurerId": premiumRequest.AdventurerID, "amountCents": premiumRequest.AmountCents, "status": "Accepted"},
+				Lore:        "Raw X12 premium accepted.",
+				Transaction: &domain.Transaction{Type: domain.Tx820, Status: domain.TxStatusAccepted},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx820, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw820Fixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/premium-payments", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "adv-raw-820", premiumRequest.AdventurerID)
+	assert.Equal(t, int64(5000), premiumRequest.AmountCents)
+	assert.Equal(t, "Raw X12 premium accepted.", decodeEnvelope(t, response).Lore)
+}
+
 func TestAcceptRawX12RoutesClaimStatusToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -341,6 +419,43 @@ func TestAcceptRawX12RoutesPriorAuthorizationToPayerCore(t *testing.T) {
 	assert.Equal(t, "resurrection", priorAuthRequest.ServiceType)
 	assert.Equal(t, domain.SeverityDiamond, priorAuthRequest.IncidentSeverity)
 	assert.Equal(t, "Raw X12 prior authorization queued.", decodeEnvelope(t, response).Lore)
+}
+
+func TestAcceptRawX12RoutesPaymentToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var paymentRequest domain.PaymentRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims/claim-raw-835/payment":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&paymentRequest))
+			return jsonResponse(http.StatusOK, domain.Envelope{
+				Data:        domain.Claim{ID: "claim-raw-835", Status: domain.ClaimPaid},
+				Lore:        "Raw X12 payment accepted.",
+				Transaction: &domain.Transaction{Type: domain.Tx835, Status: domain.TxStatusPaid},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx835, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw835Fixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, []string{"/claims/claim-raw-835/payment", "/transactions"}, downstreamPaths)
+	assert.Equal(t, int64(100000), paymentRequest.PaymentAmountCents)
+	assert.Equal(t, "Raw X12 payment accepted.", decodeEnvelope(t, response).Lore)
 }
 
 func TestAcceptRawX12RoutesAttachmentToPayerCore(t *testing.T) {
@@ -580,6 +695,10 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 			name: "835 payment", wantMethod: http.MethodPost, wantPath: "/claims/claim-1/payment",
 			body: `<AshnX12Transaction type="835"><Payment><ClaimId>claim-1</ClaimId><PaymentAmountCents>100000</PaymentAmountCents></Payment></AshnX12Transaction>`,
 		},
+		{
+			name: "820 premium", wantMethod: http.MethodPost, wantPath: "/premium-payments",
+			body: `<AshnX12Transaction type="820"><PremiumPayment><AdventurerId>adv-1</AdventurerId><AmountCents>5000</AmountCents></PremiumPayment></AshnX12Transaction>`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -621,6 +740,26 @@ func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
 }
 
 func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
+	enrollment, err := parseInboundRawX12([]byte(raw834Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "834", enrollment.Type)
+	assert.Equal(t, "partner-greenstone", enrollment.Sender.ID)
+	assert.Equal(t, "Adventure Society", enrollment.Receiver.ID)
+	require.NotNil(t, enrollment.Enrollment)
+	assert.Equal(t, "Raw Enrollee", enrollment.Enrollment.Name)
+	assert.Equal(t, "Iron", enrollment.Enrollment.Rank)
+	assert.Equal(t, "Grim Foundations", enrollment.Enrollment.Guild)
+	assert.Equal(t, "Greenstone", enrollment.Enrollment.Region)
+
+	premium, err := parseInboundRawX12([]byte(raw820Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "820", premium.Type)
+	assert.Equal(t, "partner-greenstone", premium.Sender.ID)
+	assert.Equal(t, "Adventure Society", premium.Receiver.ID)
+	require.NotNil(t, premium.PremiumPayment)
+	assert.Equal(t, "adv-raw-820", premium.PremiumPayment.AdventurerID)
+	assert.Equal(t, "5000", premium.PremiumPayment.AmountCents)
+
 	eligibility, err := parseInboundRawX12([]byte(raw270Fixture()))
 	require.NoError(t, err)
 	assert.Equal(t, "270", eligibility.Type)
@@ -672,6 +811,15 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	require.NotNil(t, attachment.Attachment)
 	assert.Equal(t, "claim-raw-1", attachment.Attachment.ClaimID)
 	assert.Equal(t, "ATTACH-RAW-1", attachment.Attachment.AttachmentControlNumber)
+
+	payment, err := parseInboundRawX12([]byte(raw835Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "835", payment.Type)
+	assert.Equal(t, "Adventure Society", payment.Sender.ID)
+	assert.Equal(t, "provider-vitesse-temple", payment.Receiver.ID)
+	require.NotNil(t, payment.Payment)
+	assert.Equal(t, "claim-raw-835", payment.Payment.ClaimID)
+	assert.Equal(t, "100000", payment.Payment.PaymentAmountCents)
 }
 
 func TestInboundRawX12RejectsUnsupportedAndInvalidPayloads(t *testing.T) {
@@ -840,24 +988,6 @@ func TestAcceptXMLRejectsInvalidTransactionSpecificFields(t *testing.T) {
 			assert.Equal(t, tt.want, decodeEnvelope(t, response).Error)
 		})
 	}
-}
-
-func TestAcceptXMLRejectsUnimplemented820(t *testing.T) {
-	handler := newIntakeTestMux(intakeApp{})
-
-	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
-<AshnX12Transaction type="820">
-  <PremiumPayment>
-    <AdventurerId>adv-1</AdventurerId>
-    <AmountCents>5000</AmountCents>
-  </PremiumPayment>
-</AshnX12Transaction>`))
-	request.Header.Set("Content-Type", "application/xml")
-	handler.ServeHTTP(response, request)
-
-	assert.Equal(t, http.StatusNotImplemented, response.Code)
-	assert.Equal(t, "transaction type 820 not implemented", decodeEnvelope(t, response).Error)
 }
 
 func TestAcceptXMLRejectsUnknownTradingPartner(t *testing.T) {
@@ -1375,14 +1505,14 @@ func TestLoadTradingPartnersFallsBackOnDatabaseErrorAndOpenDBNoEnv(t *testing.T)
 	defer cleanup()
 	mock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
 		WillReturnError(assert.AnError)
-	assert.Len(t, loadTradingPartners(db), 3)
+	assert.Len(t, loadTradingPartners(db), 4)
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	emptyDB, emptyMock, emptyCleanup := newIntakeMockDB(t)
 	defer emptyCleanup()
 	emptyMock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "validation_profile", "route_target", "status"}))
-	assert.Len(t, loadTradingPartners(emptyDB), 3)
+	assert.Len(t, loadTradingPartners(emptyDB), 4)
 	require.NoError(t, emptyMock.ExpectationsWereMet())
 
 	t.Setenv("DATABASE_URL", "")
@@ -1577,6 +1707,40 @@ func raw837Fixture() string {
 	}, "\n")
 }
 
+func raw834Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*partner-greenstone*ZZ*Adventure Society*260708*1200*^*00501*000000834*0*T*:~",
+		"GS*BE*partner-greenstone*Adventure Society*20260708*1200*000000834*X*005010X220A1~",
+		"ST*834*000000834~",
+		"BGN*00*000000834*20260708~",
+		"INS*Y*18*030*XN*A***FT~",
+		"NM1*IL*1*Raw Enrollee****MI*adv-raw-834~",
+		"K3*Rank: Iron~",
+		"K3*Guild: Grim Foundations~",
+		"K3*Region: Greenstone~",
+		"HD*030**HLT~",
+		"SE*8*000000834~",
+		"GE*1*000000834~",
+		"IEA*1*000000834~",
+	}, "\n")
+}
+
+func raw820Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*partner-greenstone*ZZ*Adventure Society*260708*1200*^*00501*000000820*0*T*:~",
+		"GS*RA*partner-greenstone*Adventure Society*20260708*1200*000000820*X*005010X218~",
+		"ST*820*000000820~",
+		"BPR*C*50.00*C*ACH************20260708~",
+		"TRN*1*000000820*partner-greenstone~",
+		"N1*PR*Adventure Society~",
+		"NM1*IL*1*adv-raw-820****MI*adv-raw-820~",
+		"RMR*IK*adv-raw-820**50.00~",
+		"SE*6*000000820~",
+		"GE*1*000000820~",
+		"IEA*1*000000820~",
+	}, "\n")
+}
+
 func raw270Fixture() string {
 	return strings.Join([]string{
 		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000003*0*T*:~",
@@ -1654,5 +1818,20 @@ func raw275Fixture() string {
 		"SE*18*000000002~",
 		"GE*1*000000002~",
 		"IEA*1*000000002~",
+	}, "\n")
+}
+
+func raw835Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*Adventure Society*ZZ*provider-vitesse-temple*260708*1200*^*00501*000000835*0*T*:~",
+		"GS*HP*Adventure Society*provider-vitesse-temple*20260708*1200*000000835*X*005010X221A1~",
+		"ST*835*000000835~",
+		"BPR*I*1000.00*C*CHK************20260708~",
+		"TRN*1*000000835*Adventure Society~",
+		"CLP*claim-raw-835*1*1250.00*1000.00*50.00*MC*000000835~",
+		"CAS*CO*45*250.00~",
+		"SE*5*000000835~",
+		"GE*1*000000835~",
+		"IEA*1*000000835~",
 	}, "\n")
 }

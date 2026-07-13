@@ -178,6 +178,30 @@ test.describe("ASHN dashboard smoke", () => {
     await page.getByRole("button", { name: /XML Intake/i }).click();
     await expect(page.getByRole("heading", { name: /Raw X12 Intake/i })).toBeVisible();
     await expect(page.getByLabel("Raw X12")).toContainText("ST*837");
+    await page.getByRole("button", { name: "Load Sample 834" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*834");
+    const raw834Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw834Response;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest834Event = page.locator(".event").first();
+    await expect(latest834Event.locator("p").filter({ hasText: "Raw X12 enrollment accepted." })).toBeVisible();
+    await latest834Event.getByText("Raw payload").click();
+    await expect(latest834Event.getByText("tx-e2e-raw-834")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "Load Sample 820" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*820");
+    const raw820Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw820Response;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest820Event = page.locator(".event").first();
+    await expect(latest820Event.locator("p").filter({ hasText: "Raw X12 premium accepted." })).toBeVisible();
+    await latest820Event.getByText("Raw payload").click();
+    await expect(latest820Event.getByText("tx-e2e-raw-820")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
     await page.getByRole("button", { name: "Load Sample 270" }).click();
     await expect(page.getByLabel("Raw X12")).toContainText("ST*270");
 
@@ -213,6 +237,18 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latest278Event.locator("p").filter({ hasText: "Raw X12 prior authorization queued." })).toBeVisible();
     await latest278Event.getByText("Raw payload").click();
     await expect(latest278Event.getByText("tx-e2e-raw-278")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "Load Sample 835" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*835");
+    const raw835Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw835Response;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest835Event = page.locator(".event").first();
+    await expect(latest835Event.locator("p").filter({ hasText: "Raw X12 payment accepted." })).toBeVisible();
+    await latest835Event.getByText("Raw payload").click();
+    await expect(latest835Event.getByText("tx-e2e-raw-835")).toBeVisible();
   });
 
   test("shows operational audit dashboard for partner rejections", async ({ page }) => {
@@ -961,6 +997,36 @@ async function mockDashboardApi(page: Page) {
     if (path === "/v1/x12/raw") {
       expect(route.request().headers()["content-type"]).toContain("application/edi-x12");
       const rawPayload = route.request().postData() ?? "";
+      if (rawPayload.includes("ST*834")) {
+        await route.fulfill({
+          status: 201,
+          json: {
+            data: { id: "adv-e2e-raw-834", name: "Raw Enrollee", coverageStatus: "Active" },
+            lore: "Raw X12 enrollment accepted.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "834"),
+              id: "tx-e2e-raw-834",
+              payload: { x12: "834 raw dashboard intake fixture", name: "Raw Enrollee" }
+            }
+          }
+        });
+        return;
+      }
+      if (rawPayload.includes("ST*820")) {
+        await route.fulfill({
+          status: 201,
+          json: {
+            data: { adventurerId: "adv-e2e-dashboard", amountCents: 5000, status: "Accepted" },
+            lore: "Raw X12 premium accepted.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "820"),
+              id: "tx-e2e-raw-820",
+              payload: { x12: "820 raw dashboard intake fixture", amountCents: 5000 }
+            }
+          }
+        });
+        return;
+      }
       if (rawPayload.includes("ST*270")) {
         await route.fulfill({
           status: 200,
@@ -1001,6 +1067,21 @@ async function mockDashboardApi(page: Page) {
               ...demoTransactions.find((transaction) => transaction.type === "278"),
               id: "tx-e2e-raw-278",
               payload: { x12: "278 raw dashboard intake fixture", serviceType: "resurrection" }
+            }
+          }
+        });
+        return;
+      }
+      if (rawPayload.includes("ST*835")) {
+        await route.fulfill({
+          status: 200,
+          json: {
+            data: { id: "claim-e2e-dashboard", status: "Paid" },
+            lore: "Raw X12 payment accepted.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "835"),
+              id: "tx-e2e-raw-835",
+              payload: { x12: "835 raw dashboard intake fixture", claimId: "claim-e2e-dashboard" }
             }
           }
         });

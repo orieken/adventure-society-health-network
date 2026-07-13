@@ -206,6 +206,14 @@ func transactionSegments(tx domain.Transaction) []string {
 			"HD*030**HLT~",
 			"DTP*348*D8*" + tx.CreatedAt.Format("20060102") + "~",
 		}
+	case domain.Tx820:
+		return []string{
+			"BPR*C*" + cents(int64Value(payloadMap(tx), "amountCents")) + "*C*ACH************" + tx.CreatedAt.Format("20060102") + "~",
+			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
+			"N1*PR*" + element(tx.ReceiverID) + "~",
+			"N1*PE*" + element(tx.SenderID) + "~",
+			"RMR*IK*" + element(tx.SenderID) + "**" + cents(int64Value(payloadMap(tx), "amountCents")) + "~",
+		}
 	case domain.Tx270:
 		return []string{
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
@@ -363,6 +371,8 @@ func implementationGuide(txType domain.TransactionType) string {
 	switch txType {
 	case domain.Tx834:
 		return "220A1"
+	case domain.Tx820:
+		return "218"
 	case domain.Tx270, domain.Tx271:
 		return "270A1"
 	case domain.Tx275:
@@ -603,11 +613,15 @@ func serviceLinesValue(payload map[string]any, key string) []domain.ClaimService
 }
 
 func payloadString(tx domain.Transaction, key string, fallback string) string {
+	return stringValue(payloadMap(tx), key, fallback)
+}
+
+func payloadMap(tx domain.Transaction) map[string]any {
 	var payload map[string]any
 	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
-		return fallback
+		return map[string]any{}
 	}
-	return stringValue(payload, key, fallback)
+	return payload
 }
 
 func stringValue(payload map[string]any, key string, fallback string) string {

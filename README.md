@@ -60,7 +60,7 @@ The stack also starts `tx-worker`, which asynchronously reviews queued `278` aut
 
 Service logs are written under `.dev/logs/` while `make dev-stack` is running.
 
-The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSON intake is available through the gateway at `POST /v1/x12/transactions`, `POST /v1/x12/xml` is kept as the XML compatibility route, `POST /v1/x12/raw` accepts first-pass raw X12 `270`/`276`/`278`/`837`/`275` text, and `POST /v1/x12/batch` accepts multipart XML/JSON/X12 demo files.
+The stack also starts `edi-intake` on `http://localhost:8083`; canonical XML/JSON intake is available through the gateway at `POST /v1/x12/transactions`, `POST /v1/x12/xml` is kept as the XML compatibility route, `POST /v1/x12/raw` accepts first-pass raw X12 `834`/`820`/`270`/`276`/`278`/`837`/`835`/`275` text, and `POST /v1/x12/batch` accepts multipart XML/JSON/X12 demo files.
 Trading partner profiles and routing rules are available at `GET /v1/x12/trading-partners`; those profiles now enforce partner-specific `275` attachment rules plus `837` diagnosis/procedure rules before accepted intake is forwarded to `payer-core`.
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 Intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
