@@ -1039,6 +1039,38 @@ pre {
   color: #d8c8b8;
 }
 
+.recent-scenario-runs {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.scenario-run-list {
+  display: grid;
+  gap: 10px;
+}
+
+.scenario-run-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(14, 9, 20, 0.62);
+  padding: 14px;
+}
+
+.scenario-run-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.scenario-run-card span {
+  color: #d8c8b8;
+  font-size: 12px;
+}
+
 .intake-rejection-panel {
   display: grid;
   gap: 14px;

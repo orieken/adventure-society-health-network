@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -273,6 +273,20 @@ type ScenarioStepEvidence = {
   error?: string;
 };
 
+type ScenarioRunRecord = {
+  id: string;
+  scenarioId: string;
+  scenarioTitle: string;
+  completedAt: string;
+  completedSteps: number;
+  totalSteps: number;
+  status: string;
+  transactionIds: string[];
+  claimIds: string[];
+  adventurerIds: string[];
+  bundle: unknown;
+};
+
 type IntakeRejectionSummary = {
   messages: InboundMessage[];
   byPartner: Array<{ label: string; count: number }>;
@@ -427,6 +441,7 @@ const sampleRaw835 = [
   "IEA*1*000000835~"
 ].join("\n");
 const savedFiltersStorageKey = "ashn.savedFilters.v1";
+const scenarioRunsStorageKey = "ashn.scenarioRuns.v1";
 const initialPartnerForm: PartnerFormState = {
   id: "",
   name: "",
@@ -537,6 +552,20 @@ function loadSavedFilters(): SavedFilter[] {
   }
 }
 
+function loadScenarioRuns(): ScenarioRunRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(scenarioRunsStorageKey);
+    return raw ? JSON.parse(raw) as ScenarioRunRecord[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeScenarioRuns(runs: ScenarioRunRecord[]) {
+  window.localStorage.setItem(scenarioRunsStorageKey, JSON.stringify(runs));
+}
+
 function storeSavedFilters(filters: SavedFilter[]) {
   window.localStorage.setItem(savedFiltersStorageKey, JSON.stringify(filters));
 }
@@ -583,6 +612,8 @@ function App() {
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("json");
   const [rawX12Draft, setRawX12Draft] = useState(sampleRawX12);
   const [scenarioRuns, setScenarioRuns] = useState<Record<string, ScenarioRunState>>({});
+  const [recentScenarioRuns, setRecentScenarioRuns] = useState<ScenarioRunRecord[]>(loadScenarioRuns);
+  const scenarioRunEvidenceRef = useRef<Record<string, ScenarioStepEvidence[]>>({});
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -643,6 +674,10 @@ function App() {
   useEffect(() => {
     storeSavedFilters(savedFilters);
   }, [savedFilters]);
+
+  useEffect(() => {
+    storeScenarioRuns(recentScenarioRuns);
+  }, [recentScenarioRuns]);
 
   async function refresh(pushProviderEvent = false) {
     const adventurerQuery = buildQuery({ limit: adventurerPageSize, offset: adventurerOffset, q: searchTerm });
@@ -855,6 +890,33 @@ function App() {
     downloadText(`ashn-demo-evidence-${scenario.id}.json`, JSON.stringify(demoScenarioEvidenceBundle(scenario, runState), null, 2));
   }
 
+  function exportScenarioRunRecord(run: ScenarioRunRecord) {
+    downloadText(`ashn-demo-evidence-${run.scenarioId}-${run.id}.json`, JSON.stringify(run.bundle, null, 2));
+  }
+
+  function copyScenarioRunTransactions(run: ScenarioRunRecord) {
+    copyText(run.transactionIds.join("\n"));
+  }
+
+  function rememberScenarioRun(scenario: DemoScenario, runState: ScenarioRunState) {
+    const bundle = demoScenarioEvidenceBundle(scenario, runState);
+    const evidence = bundle.evidence;
+    const runRecord: ScenarioRunRecord = {
+      id: runState.runId ?? `scenario-${scenario.id}-${Date.now()}`,
+      scenarioId: scenario.id,
+      scenarioTitle: scenario.title,
+      completedAt: runState.completedAt ?? new Date().toISOString(),
+      completedSteps: runState.completedSteps,
+      totalSteps: scenario.steps.length,
+      status: bundle.run.status,
+      transactionIds: evidence.transactionIds,
+      claimIds: evidence.claimIds,
+      adventurerIds: evidence.adventurerIds,
+      bundle
+    };
+    setRecentScenarioRuns((current) => [runRecord, ...current.filter((item) => item.id !== runRecord.id)].slice(0, 10));
+  }
+
   function copyDemoScenario(scenario: DemoScenario) {
     copyText(scenario.steps.map((step, index) => `${index + 1}. ${step.action} → ${step.expected}`).join("\n"));
   }
@@ -876,6 +938,11 @@ function App() {
     updateScenarioRun(scenario, { running: true, currentStep: step.label, error: undefined });
     const result = await action();
     pushEvent(result);
+    const evidence = scenarioStepEvidence(step, result);
+    scenarioRunEvidenceRef.current[scenario.id] = [
+      ...(scenarioRunEvidenceRef.current[scenario.id] ?? []),
+      evidence
+    ];
     setScenarioRuns((current) => ({
       ...current,
       [scenario.id]: {
@@ -883,10 +950,7 @@ function App() {
         running: current[scenario.id]?.running ?? true,
         completedSteps: stepIndex + 1,
         currentStep: step.label,
-        evidence: [
-          ...(current[scenario.id]?.evidence ?? []),
-          scenarioStepEvidence(step, result)
-        ]
+        evidence: scenarioRunEvidenceRef.current[scenario.id]
       }
     }));
     return result;
@@ -894,16 +958,19 @@ function App() {
 
   async function runDemoScenario(scenario: DemoScenario) {
     setBusy(true);
+    const runId = `scenario-${scenario.id}-${Date.now()}`;
+    const startedAt = new Date().toISOString();
     updateScenarioRun(scenario, {
       running: true,
       completedSteps: 0,
-      runId: `scenario-${scenario.id}-${Date.now()}`,
-      startedAt: new Date().toISOString(),
+      runId,
+      startedAt,
       completedAt: undefined,
       currentStep: "Starting",
       error: undefined,
       evidence: []
     });
+    scenarioRunEvidenceRef.current[scenario.id] = [];
     try {
       if (scenario.id === "premium-current-claim") {
         await runPremiumCurrentScenario(scenario);
@@ -912,7 +979,18 @@ function App() {
       } else if (scenario.id === "partner-rejection-ops") {
         await runPartnerRejectionScenario(scenario);
       }
-      updateScenarioRun(scenario, { running: false, completedSteps: scenario.steps.length, currentStep: "Complete", completedAt: new Date().toISOString() });
+      const completedAt = new Date().toISOString();
+      updateScenarioRun(scenario, { running: false, completedSteps: scenario.steps.length, currentStep: "Complete", completedAt });
+      const finalRunState = {
+        runId,
+        startedAt,
+        running: false,
+        completedSteps: scenario.steps.length,
+        currentStep: "Complete",
+        completedAt,
+        evidence: scenarioRunEvidenceRef.current[scenario.id]
+      } as ScenarioRunState;
+      rememberScenarioRun(scenario, finalRunState);
       await refresh(true);
     } catch (error) {
       updateScenarioRun(scenario, { running: false, error: error instanceof Error ? error.message : "Scenario failed" });
@@ -1746,6 +1824,16 @@ function App() {
             />
           ))}
         </div>
+        <RecentScenarioRuns
+          runs={recentScenarioRuns}
+          onExport={exportScenarioRunRecord}
+          onCopyTransactions={copyScenarioRunTransactions}
+          onRerun={(scenarioId) => {
+            const scenario = demoScenarios.find((item) => item.id === scenarioId);
+            if (scenario) void runDemoScenario(scenario);
+          }}
+          busy={busy}
+        />
       </section>
       </>
       )}
@@ -2203,6 +2291,60 @@ function DemoScenarioCard({
         <button type="button" className="secondary" onClick={() => onCopy(scenario)}>Copy Operator Steps</button>
       </div>
     </article>
+  );
+}
+
+function RecentScenarioRuns({
+  runs,
+  busy,
+  onExport,
+  onCopyTransactions,
+  onRerun
+}: {
+  runs: ScenarioRunRecord[];
+  busy: boolean;
+  onExport: (run: ScenarioRunRecord) => void;
+  onCopyTransactions: (run: ScenarioRunRecord) => void;
+  onRerun: (scenarioId: string) => void;
+}) {
+  return (
+    <section className="recent-scenario-runs" aria-label="Recent scenario runs">
+      <div className="relationship-heading">
+        <div>
+          <h3>Recent Scenario Runs</h3>
+          <p className="muted">Completed runs stay in this browser for quick evidence export or reruns.</p>
+        </div>
+        <span>{runs.length} saved</span>
+      </div>
+      {runs.length === 0 ? (
+        <p className="muted">No scenario runs yet. Run a scenario to capture evidence here.</p>
+      ) : (
+        <div className="scenario-run-list">
+          {runs.map((run) => (
+            <article key={run.id} className="scenario-run-card">
+              <div>
+                <strong>{run.scenarioTitle}</strong>
+                <span>{new Date(run.completedAt).toLocaleString()} · {run.completedSteps}/{run.totalSteps} steps · {run.status}</span>
+                <code>{run.id}</code>
+              </div>
+              <div className="chips">
+                <span>{run.transactionIds.length} tx</span>
+                <span>{run.claimIds.length} claims</span>
+                <span>{run.adventurerIds.length} adventurers</span>
+              </div>
+              {run.transactionIds.length > 0 && (
+                <p className="muted">Transactions: {run.transactionIds.slice(0, 4).join(", ")}{run.transactionIds.length > 4 ? "…" : ""}</p>
+              )}
+              <div className="actions compact-actions">
+                <button type="button" className="secondary" onClick={() => onExport(run)}>Export Evidence</button>
+                <button type="button" className="secondary" disabled={run.transactionIds.length === 0} onClick={() => onCopyTransactions(run)}>Copy Transaction IDs</button>
+                <button type="button" disabled={busy} onClick={() => onRerun(run.scenarioId)}>Re-run</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -3106,8 +3248,8 @@ function demoScenarioExport(scenario: DemoScenario) {
 
 function demoScenarioEvidenceBundle(scenario: DemoScenario, runState: ScenarioRunState) {
   const transactionIds = Array.from(new Set((runState.evidence ?? []).flatMap((step) => step.transactionIds)));
-  const claimIds = Array.from(new Set((runState.evidence ?? []).map((step) => step.claimId).filter(Boolean)));
-  const adventurerIds = Array.from(new Set((runState.evidence ?? []).map((step) => step.adventurerId).filter(Boolean)));
+  const claimIds = Array.from(new Set((runState.evidence ?? []).map((step) => step.claimId).filter(isNonEmptyString)));
+  const adventurerIds = Array.from(new Set((runState.evidence ?? []).map((step) => step.adventurerId).filter(isNonEmptyString)));
   return {
     schema: "ashn.demo-evidence.v1",
     exportedAt: new Date().toISOString(),

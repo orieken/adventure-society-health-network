@@ -381,6 +381,12 @@ test.describe("ASHN dashboard smoke", () => {
 
   test("runs a premium-current demo scenario", async ({ page }) => {
     await mockDashboardApi(page);
+    await page.addInitScript(() => {
+      if (!window.sessionStorage.getItem("ashn.e2e.clearedScenarioRuns")) {
+        window.localStorage.removeItem("ashn.scenarioRuns.v1");
+        window.sessionStorage.setItem("ashn.e2e.clearedScenarioRuns", "true");
+      }
+    });
     await page.goto(dashboardUrl);
 
     const scenario = page.locator(".scenario-card").filter({ hasText: "Premium-Current Claim Adjudication" });
@@ -390,10 +396,25 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(scenario.getByText("4/4 steps")).toBeVisible();
     await expect(page.locator(".event p").filter({ hasText: "Scenario claim submitted." })).toBeVisible();
 
+    const recentRuns = page.getByLabel("Recent scenario runs");
+    await expect(recentRuns.getByText("Premium-Current Claim Adjudication")).toBeVisible();
+    await expect(recentRuns.getByText(/4\/4 steps · completed/i)).toBeVisible();
+    await expect(recentRuns.getByText("4 tx")).toBeVisible();
+
+    const recentBundleDownload = page.waitForEvent("download");
+    await recentRuns.getByRole("button", { name: "Export Evidence" }).first().click();
+    const recentDownload = await recentBundleDownload;
+    expect(recentDownload.suggestedFilename()).toMatch(/^ashn-demo-evidence-premium-current-claim-scenario-premium-current-claim-\d+\.json$/);
+
     const bundleDownload = page.waitForEvent("download");
     await scenario.getByRole("button", { name: "Export Evidence Bundle" }).click();
     const download = await bundleDownload;
     expect(download.suggestedFilename()).toBe("ashn-demo-evidence-premium-current-claim.json");
+
+    await page.reload();
+    const reloadedRuns = page.getByLabel("Recent scenario runs");
+    await expect(reloadedRuns.getByText("Premium-Current Claim Adjudication")).toBeVisible();
+    await expect(reloadedRuns.getByText("4 tx")).toBeVisible();
   });
 
   test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {
