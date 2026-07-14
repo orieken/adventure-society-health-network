@@ -389,6 +389,11 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(scenario.getByText("Complete")).toBeVisible();
     await expect(scenario.getByText("4/4 steps")).toBeVisible();
     await expect(page.locator(".event p").filter({ hasText: "Scenario claim submitted." })).toBeVisible();
+
+    const bundleDownload = page.waitForEvent("download");
+    await scenario.getByRole("button", { name: "Export Evidence Bundle" }).click();
+    const download = await bundleDownload;
+    expect(download.suggestedFilename()).toBe("ashn-demo-evidence-premium-current-claim.json");
   });
 
   test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {

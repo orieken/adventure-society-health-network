@@ -170,6 +170,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add operational intake rejection summaries grouped by partner, type, validation reason, and day-level trend with drilldown filters.
 - [x] Add exportable demo scenario runbooks for repeatable stakeholder walkthroughs.
 - [x] Add dashboard scenario runners that execute repeatable workflows and stream step results into live events.
+- [x] Add JSON evidence bundles for completed scenario runs.
 
 ### P3 — Security and Operational Readiness
 

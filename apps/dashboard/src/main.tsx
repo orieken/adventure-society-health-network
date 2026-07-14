@@ -251,7 +251,25 @@ type DemoScenario = {
 type ScenarioRunState = {
   running: boolean;
   completedSteps: number;
+  runId?: string;
+  startedAt?: string;
+  completedAt?: string;
   currentStep?: string;
+  error?: string;
+  evidence?: ScenarioStepEvidence[];
+};
+
+type ScenarioStepEvidence = {
+  label: string;
+  action: string;
+  expected: string;
+  completedAt: string;
+  transactionIds: string[];
+  transactionTypes: string[];
+  relatedIds: string[];
+  claimId?: string;
+  adventurerId?: string;
+  lore?: string;
   error?: string;
 };
 
@@ -829,6 +847,14 @@ function App() {
     downloadText(`ashn-demo-scenario-${scenario.id}.json`, JSON.stringify(demoScenarioExport(scenario), null, 2));
   }
 
+  function exportScenarioEvidence(scenario: DemoScenario) {
+    const runState = scenarioRuns[scenario.id];
+    if (!runState || runState.completedSteps < scenario.steps.length) {
+      return;
+    }
+    downloadText(`ashn-demo-evidence-${scenario.id}.json`, JSON.stringify(demoScenarioEvidenceBundle(scenario, runState), null, 2));
+  }
+
   function copyDemoScenario(scenario: DemoScenario) {
     copyText(scenario.steps.map((step, index) => `${index + 1}. ${step.action} → ${step.expected}`).join("\n"));
   }
@@ -850,13 +876,34 @@ function App() {
     updateScenarioRun(scenario, { running: true, currentStep: step.label, error: undefined });
     const result = await action();
     pushEvent(result);
-    updateScenarioRun(scenario, { completedSteps: stepIndex + 1, currentStep: step.label });
+    setScenarioRuns((current) => ({
+      ...current,
+      [scenario.id]: {
+        ...current[scenario.id],
+        running: current[scenario.id]?.running ?? true,
+        completedSteps: stepIndex + 1,
+        currentStep: step.label,
+        evidence: [
+          ...(current[scenario.id]?.evidence ?? []),
+          scenarioStepEvidence(step, result)
+        ]
+      }
+    }));
     return result;
   }
 
   async function runDemoScenario(scenario: DemoScenario) {
     setBusy(true);
-    updateScenarioRun(scenario, { running: true, completedSteps: 0, currentStep: "Starting", error: undefined });
+    updateScenarioRun(scenario, {
+      running: true,
+      completedSteps: 0,
+      runId: `scenario-${scenario.id}-${Date.now()}`,
+      startedAt: new Date().toISOString(),
+      completedAt: undefined,
+      currentStep: "Starting",
+      error: undefined,
+      evidence: []
+    });
     try {
       if (scenario.id === "premium-current-claim") {
         await runPremiumCurrentScenario(scenario);
@@ -865,7 +912,7 @@ function App() {
       } else if (scenario.id === "partner-rejection-ops") {
         await runPartnerRejectionScenario(scenario);
       }
-      updateScenarioRun(scenario, { running: false, completedSteps: scenario.steps.length, currentStep: "Complete" });
+      updateScenarioRun(scenario, { running: false, completedSteps: scenario.steps.length, currentStep: "Complete", completedAt: new Date().toISOString() });
       await refresh(true);
     } catch (error) {
       updateScenarioRun(scenario, { running: false, error: error instanceof Error ? error.message : "Scenario failed" });
@@ -1693,6 +1740,7 @@ function App() {
               runState={scenarioRuns[scenario.id]}
               busy={busy}
               onExport={exportDemoScenario}
+              onExportEvidence={exportScenarioEvidence}
               onCopy={copyDemoScenario}
               onRun={runDemoScenario}
             />
@@ -2097,6 +2145,7 @@ function DemoScenarioCard({
   runState,
   busy,
   onExport,
+  onExportEvidence,
   onCopy,
   onRun
 }: {
@@ -2104,13 +2153,15 @@ function DemoScenarioCard({
   runState?: ScenarioRunState;
   busy: boolean;
   onExport: (scenario: DemoScenario) => void;
+  onExportEvidence: (scenario: DemoScenario) => void;
   onCopy: (scenario: DemoScenario) => void;
   onRun: (scenario: DemoScenario) => void;
 }) {
   const completedSteps = runState?.completedSteps ?? 0;
+  const isComplete = completedSteps === scenario.steps.length && !runState?.running;
   const progressLabel = runState?.running
     ? `Running: ${runState.currentStep ?? "Starting"}`
-    : completedSteps === scenario.steps.length
+    : isComplete
       ? "Complete"
       : "Ready";
 
@@ -2148,6 +2199,7 @@ function DemoScenarioCard({
       <div className="actions compact-actions">
         <button type="button" disabled={busy || runState?.running} onClick={() => onRun(scenario)}>Run Scenario</button>
         <button type="button" onClick={() => onExport(scenario)}>Export Scenario JSON</button>
+        <button type="button" className="secondary" disabled={!isComplete} onClick={() => onExportEvidence(scenario)}>Export Evidence Bundle</button>
         <button type="button" className="secondary" onClick={() => onCopy(scenario)}>Copy Operator Steps</button>
       </div>
     </article>
@@ -3020,6 +3072,10 @@ function valueBool(value: unknown) {
   return typeof value === "boolean" ? value : undefined;
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
 function requireScenarioData<T>(value: T | undefined, message: string): T {
   if (value === undefined || value === null) {
     throw new Error(message);
@@ -3045,6 +3101,59 @@ function demoScenarioExport(scenario: DemoScenario) {
         "Which payload would an external partner need to debug or replay?"
       ]
     }
+  };
+}
+
+function demoScenarioEvidenceBundle(scenario: DemoScenario, runState: ScenarioRunState) {
+  const transactionIds = Array.from(new Set((runState.evidence ?? []).flatMap((step) => step.transactionIds)));
+  const claimIds = Array.from(new Set((runState.evidence ?? []).map((step) => step.claimId).filter(Boolean)));
+  const adventurerIds = Array.from(new Set((runState.evidence ?? []).map((step) => step.adventurerId).filter(Boolean)));
+  return {
+    schema: "ashn.demo-evidence.v1",
+    exportedAt: new Date().toISOString(),
+    run: {
+      id: runState.runId,
+      scenarioId: scenario.id,
+      startedAt: runState.startedAt,
+      completedAt: runState.completedAt,
+      completedSteps: runState.completedSteps,
+      totalSteps: scenario.steps.length,
+      status: runState.error ? "failed" : "completed",
+      error: runState.error
+    },
+    scenario: demoScenarioExport(scenario),
+    evidence: {
+      steps: runState.evidence ?? [],
+      transactionIds,
+      claimIds,
+      adventurerIds,
+      suggestedExports: scenario.exports,
+      artifactHints: transactionIds.map((id) => ({
+        transactionId: id,
+        json: `/v1/transactions/${id}/export?format=json`,
+        xml: `/v1/transactions/${id}/export?format=xml`,
+        x12: `/v1/transactions/${id}/export?format=x12`
+      }))
+    }
+  };
+}
+
+function scenarioStepEvidence(step: DemoScenario["steps"][number], result: Envelope): ScenarioStepEvidence {
+  const transactions = result.transactions ?? (result.transaction ? [result.transaction] : []);
+  const dataRecord = payloadRecord(result.data);
+  const transactionTypes = transactions.map((transaction) => transaction.type).filter(Boolean);
+  return {
+    label: step.label,
+    action: step.action,
+    expected: step.expected,
+    completedAt: new Date().toISOString(),
+    transactionIds: transactions.map((transaction) => transaction.id).filter(isNonEmptyString),
+    transactionTypes,
+    relatedIds: transactions.map((transaction) => transaction.relatedId).filter(isNonEmptyString),
+    claimId: valueString(dataRecord?.claimId) ?? (transactionTypes.includes("837") ? valueString(dataRecord?.id) : undefined) ?? transactions.map(transactionClaimId).find(Boolean),
+    adventurerId: valueString(dataRecord?.adventurerId) ?? (transactionTypes.includes("834") ? valueString(dataRecord?.id) : undefined) ?? transactions.map(transactionAdventurerId).find(Boolean),
+    lore: result.lore,
+    error: result.error
   };
 }
 
