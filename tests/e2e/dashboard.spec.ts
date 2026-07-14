@@ -417,6 +417,36 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(reloadedRuns.getByText("4 tx")).toBeVisible();
   });
 
+  test("plays a demo scenario one step at a time", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.addInitScript(() => {
+      if (!window.sessionStorage.getItem("ashn.e2e.clearedScenarioRuns")) {
+        window.localStorage.removeItem("ashn.scenarioRuns.v1");
+        window.sessionStorage.setItem("ashn.e2e.clearedScenarioRuns", "true");
+      }
+    });
+    await page.goto(dashboardUrl);
+
+    const scenario = page.locator(".scenario-card").filter({ hasText: "Premium-Current Claim Adjudication" });
+    await scenario.getByRole("button", { name: "Start Playback" }).click();
+    await expect(scenario.getByText("Playback ready: Enroll")).toBeVisible();
+    await expect(scenario.getByText("0/4 steps")).toBeVisible();
+
+    await scenario.getByRole("button", { name: "Run Next Step" }).click();
+    await expect(scenario.getByText("Playback ready: Premium")).toBeVisible();
+    await expect(scenario.getByText("1/4 steps")).toBeVisible();
+
+    await scenario.getByRole("button", { name: "Run Next Step" }).click();
+    await expect(scenario.getByText("Playback ready: Claim")).toBeVisible();
+    await expect(scenario.getByText("2/4 steps")).toBeVisible();
+    await expect(page.locator(".event p").filter({ hasText: "Guild dues payment recorded." })).toBeVisible();
+
+    await scenario.getByRole("button", { name: "Finish Playback" }).click();
+    await expect(scenario.getByText("Complete")).toBeVisible();
+    await expect(scenario.getByText("4/4 steps")).toBeVisible();
+    await expect(page.getByLabel("Recent scenario runs").getByText("Premium-Current Claim Adjudication")).toBeVisible();
+  });
+
   test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);

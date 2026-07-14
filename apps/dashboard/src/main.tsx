@@ -251,12 +251,19 @@ type DemoScenario = {
 type ScenarioRunState = {
   running: boolean;
   completedSteps: number;
+  mode?: "auto" | "playback";
   runId?: string;
   startedAt?: string;
   completedAt?: string;
   currentStep?: string;
   error?: string;
   evidence?: ScenarioStepEvidence[];
+};
+
+type ScenarioPlaybackContext = {
+  adventurer?: Adventurer;
+  claim?: Claim;
+  packet?: Envelope<Record<string, string>>;
 };
 
 type ScenarioStepEvidence = {
@@ -614,6 +621,7 @@ function App() {
   const [scenarioRuns, setScenarioRuns] = useState<Record<string, ScenarioRunState>>({});
   const [recentScenarioRuns, setRecentScenarioRuns] = useState<ScenarioRunRecord[]>(loadScenarioRuns);
   const scenarioRunEvidenceRef = useRef<Record<string, ScenarioStepEvidence[]>>({});
+  const scenarioPlaybackContextRef = useRef<Record<string, ScenarioPlaybackContext>>({});
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -956,41 +964,48 @@ function App() {
     return result;
   }
 
-  async function runDemoScenario(scenario: DemoScenario) {
-    setBusy(true);
+  function initializeScenarioRun(scenario: DemoScenario, mode: ScenarioRunState["mode"]) {
     const runId = `scenario-${scenario.id}-${Date.now()}`;
     const startedAt = new Date().toISOString();
     updateScenarioRun(scenario, {
-      running: true,
+      running: false,
       completedSteps: 0,
+      mode,
       runId,
       startedAt,
       completedAt: undefined,
-      currentStep: "Starting",
+      currentStep: mode === "playback" ? `Ready: ${scenario.steps[0]?.label ?? "Complete"}` : "Starting",
       error: undefined,
       evidence: []
     });
     scenarioRunEvidenceRef.current[scenario.id] = [];
+    scenarioPlaybackContextRef.current[scenario.id] = {};
+    return { runId, startedAt };
+  }
+
+  function completeScenarioRun(scenario: DemoScenario, runId: string, startedAt: string) {
+    const completedAt = new Date().toISOString();
+    updateScenarioRun(scenario, { running: false, completedSteps: scenario.steps.length, currentStep: "Complete", completedAt });
+    const finalRunState = {
+      runId,
+      startedAt,
+      running: false,
+      completedSteps: scenario.steps.length,
+      currentStep: "Complete",
+      completedAt,
+      evidence: scenarioRunEvidenceRef.current[scenario.id]
+    } as ScenarioRunState;
+    rememberScenarioRun(scenario, finalRunState);
+  }
+
+  async function runDemoScenario(scenario: DemoScenario) {
+    setBusy(true);
+    const { runId, startedAt } = initializeScenarioRun(scenario, "auto");
     try {
-      if (scenario.id === "premium-current-claim") {
-        await runPremiumCurrentScenario(scenario);
-      } else if (scenario.id === "275-deficiency-resubmission") {
-        await runDeficiencyScenario(scenario);
-      } else if (scenario.id === "partner-rejection-ops") {
-        await runPartnerRejectionScenario(scenario);
+      for (let stepIndex = 0; stepIndex < scenario.steps.length; stepIndex += 1) {
+        await runDemoScenarioStep(scenario, stepIndex);
       }
-      const completedAt = new Date().toISOString();
-      updateScenarioRun(scenario, { running: false, completedSteps: scenario.steps.length, currentStep: "Complete", completedAt });
-      const finalRunState = {
-        runId,
-        startedAt,
-        running: false,
-        completedSteps: scenario.steps.length,
-        currentStep: "Complete",
-        completedAt,
-        evidence: scenarioRunEvidenceRef.current[scenario.id]
-      } as ScenarioRunState;
-      rememberScenarioRun(scenario, finalRunState);
+      completeScenarioRun(scenario, runId, startedAt);
       await refresh(true);
     } catch (error) {
       updateScenarioRun(scenario, { running: false, error: error instanceof Error ? error.message : "Scenario failed" });
@@ -999,116 +1014,191 @@ function App() {
     }
   }
 
-  async function runPremiumCurrentScenario(scenario: DemoScenario) {
-    const enrolled = await scenarioStep(scenario, 0, () => request<Adventurer>("/v1/adventurers", {
-      method: "POST",
-      body: JSON.stringify({
-        name: `Scenario Premium ${new Date().toISOString().slice(11, 19)}`,
-        rank: "Iron",
-        guild: "Scenario Runner Guild",
-        region: "Greenstone"
-      })
-    }));
-    const adventurerRecord = requireScenarioData(enrolled.data, "Enrollment did not return an adventurer.");
-    setAdventurer(adventurerRecord);
-
-    await scenarioStep(scenario, 1, () => request<Record<string, string | number>>("/v1/premium-payments", {
-      method: "POST",
-      body: JSON.stringify({ adventurerId: adventurerRecord.id, amountCents: 5000 })
-    }));
-
-    const claimResult = await scenarioStep(scenario, 2, () => request<Claim>("/v1/claims", {
-      method: "POST",
-      body: JSON.stringify({
-        adventurerId: adventurerRecord.id,
-        providerId: "provider-greenstone-roadside",
-        incidentSeverity: "Awakened",
-        amountCents: 100000,
-        serviceLines: [
-          { lineNumber: 1, procedureCode: "ASHN1", description: "Scenario stabilization", units: 1, amountCents: 100000 }
-        ]
-      })
-    }));
-    const claimRecord = requireScenarioData(claimResult.data, "Claim submission did not return a claim.");
-    setClaim(claimRecord);
-
-    await scenarioStep(scenario, 3, () => request<Claim>(`/v1/claims/${claimRecord.id}`));
+  async function startScenarioPlayback(scenario: DemoScenario) {
+    initializeScenarioRun(scenario, "playback");
   }
 
-  async function runDeficiencyScenario(scenario: DemoScenario) {
-    const enrolled = await scenarioStep(scenario, 0, () => request<Adventurer>("/v1/adventurers", {
-      method: "POST",
-      body: JSON.stringify({
-        name: `Scenario Docs ${new Date().toISOString().slice(11, 19)}`,
-        rank: "Gold",
-        guild: "Documentation Runner Guild",
-        region: "Vitesse"
-      })
-    }));
-    const adventurerRecord = requireScenarioData(enrolled.data, "Enrollment did not return an adventurer.");
-    setAdventurer(adventurerRecord);
-
-    const claimResult = await request<Claim>("/v1/claims", {
-      method: "POST",
-      body: JSON.stringify({
-        adventurerId: adventurerRecord.id,
-        providerId: selectedProviderId,
-        incidentSeverity: "Awakened",
-        amountCents: 125000
-      })
-    });
-    pushEvent(claimResult);
-    const claimRecord = requireScenarioData(claimResult.data, "Claim submission did not return a claim.");
-    setClaim(claimRecord);
-    setSelectedClaim(claimRecord);
-
-    await scenarioStep(scenario, 1, () => request<Record<string, string>>(`/v1/claims/${claimRecord.id}/documentation-request`, {
-      method: "POST",
-      body: JSON.stringify({
-        reason: "Scenario runner documentation request.",
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        requiredDocuments: documentationChecklist
-      })
-    }));
-
-    const packetId = `scenario-packet-${claimRecord.id.slice(0, 8)}`;
-    const packet = await scenarioStep(scenario, 2, () => request<Record<string, string>>(`/v1/claims/${claimRecord.id}/attachments`, {
-      method: "POST",
-      body: JSON.stringify({
-        packetId,
-        attachments: documentationChecklist.map((item, index) => buildAttachmentDraft(claimRecord, item, packetId, index + 1, documentationChecklist.length))
-      })
-    }));
-    const rejectedTransaction = packet.transactions?.[1] ?? packet.transaction;
-    if (rejectedTransaction) {
-      await scenarioStep(scenario, 3, () => request<Record<string, string>>(`/v1/transactions/${rejectedTransaction.id}/attachment-review`, {
-        method: "POST",
-        body: JSON.stringify({
-          status: "Rejected",
-          reason: "Scenario deficiency: encounter notes need corrected documentation."
-        })
-      }));
-      const checklistItem = documentationChecklist[1];
-      const resubmissionPacketId = `${packetId}-resub`;
-      await request<Record<string, string>>(`/v1/claims/${claimRecord.id}/documentation-request`, {
-        method: "POST",
-        body: JSON.stringify({
-          reason: `Deficiency follow-up: ${checklistItem.label} needs corrected documentation.`,
-          dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          requiredDocuments: [checklistItem]
-        })
-      }).then(pushEvent);
-      await request<Record<string, string>>(`/v1/claims/${claimRecord.id}/attachments`, {
-        method: "POST",
-        body: JSON.stringify({
-          packetId: resubmissionPacketId,
-          attachments: [buildAttachmentDraft(claimRecord, checklistItem, resubmissionPacketId, 1, 1, "resubmission")]
-        })
-      }).then(pushEvent);
+  async function runNextScenarioPlaybackStep(scenario: DemoScenario) {
+    const runState = scenarioRuns[scenario.id];
+    if (!runState || runState.completedSteps >= scenario.steps.length) return;
+    setBusy(true);
+    try {
+      await runDemoScenarioStep(scenario, runState.completedSteps);
+      const nextCompletedSteps = runState.completedSteps + 1;
+      if (nextCompletedSteps >= scenario.steps.length) {
+        completeScenarioRun(scenario, runState.runId ?? `scenario-${scenario.id}-${Date.now()}`, runState.startedAt ?? new Date().toISOString());
+        await refresh(true);
+      } else {
+        updateScenarioRun(scenario, {
+          running: false,
+          mode: "playback",
+          completedSteps: nextCompletedSteps,
+          currentStep: `Ready: ${scenario.steps[nextCompletedSteps]?.label ?? "Complete"}`
+        });
+      }
+    } catch (error) {
+      updateScenarioRun(scenario, { running: false, error: error instanceof Error ? error.message : "Scenario playback failed" });
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function runPartnerRejectionScenario(scenario: DemoScenario) {
+  async function finishScenarioPlayback(scenario: DemoScenario) {
+    const runState = scenarioRuns[scenario.id];
+    if (!runState) return;
+    setBusy(true);
+    try {
+      for (let stepIndex = runState.completedSteps; stepIndex < scenario.steps.length; stepIndex += 1) {
+        await runDemoScenarioStep(scenario, stepIndex);
+      }
+      completeScenarioRun(scenario, runState.runId ?? `scenario-${scenario.id}-${Date.now()}`, runState.startedAt ?? new Date().toISOString());
+      await refresh(true);
+    } catch (error) {
+      updateScenarioRun(scenario, { running: false, error: error instanceof Error ? error.message : "Scenario playback failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runDemoScenarioStep(scenario: DemoScenario, stepIndex: number) {
+    if (scenario.id === "premium-current-claim") {
+      await runPremiumCurrentScenarioStep(scenario, stepIndex);
+    } else if (scenario.id === "275-deficiency-resubmission") {
+      await runDeficiencyScenarioStep(scenario, stepIndex);
+    } else if (scenario.id === "partner-rejection-ops") {
+      await runPartnerRejectionScenarioStep(scenario, stepIndex);
+    }
+  }
+
+  async function runPremiumCurrentScenarioStep(scenario: DemoScenario, stepIndex: number) {
+    const context = scenarioPlaybackContextRef.current[scenario.id] ?? {};
+    scenarioPlaybackContextRef.current[scenario.id] = context;
+    if (stepIndex === 0) {
+      const enrolled = await scenarioStep(scenario, 0, () => request<Adventurer>("/v1/adventurers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `Scenario Premium ${new Date().toISOString().slice(11, 19)}`,
+          rank: "Iron",
+          guild: "Scenario Runner Guild",
+          region: "Greenstone"
+        })
+      }));
+      context.adventurer = requireScenarioData(enrolled.data, "Enrollment did not return an adventurer.");
+      setAdventurer(context.adventurer);
+      return;
+    }
+    const adventurerRecord = context.adventurer ?? adventurer;
+    if (!adventurerRecord) throw new Error("Run enrollment before this scenario step.");
+    if (stepIndex === 1) {
+      await scenarioStep(scenario, 1, () => request<Record<string, string | number>>("/v1/premium-payments", {
+        method: "POST",
+        body: JSON.stringify({ adventurerId: adventurerRecord.id, amountCents: 5000 })
+      }));
+    } else if (stepIndex === 2) {
+      const claimResult = await scenarioStep(scenario, 2, () => request<Claim>("/v1/claims", {
+        method: "POST",
+        body: JSON.stringify({
+          adventurerId: adventurerRecord.id,
+          providerId: "provider-greenstone-roadside",
+          incidentSeverity: "Awakened",
+          amountCents: 100000,
+          serviceLines: [
+            { lineNumber: 1, procedureCode: "ASHN1", description: "Scenario stabilization", units: 1, amountCents: 100000 }
+          ]
+        })
+      }));
+      context.claim = requireScenarioData(claimResult.data, "Claim submission did not return a claim.");
+      setClaim(context.claim);
+    } else if (stepIndex === 3) {
+      const claimRecord = context.claim ?? claim;
+      if (!claimRecord) throw new Error("Run claim submission before this scenario step.");
+      await scenarioStep(scenario, 3, () => request<Claim>(`/v1/claims/${claimRecord.id}`));
+    }
+  }
+
+  async function runDeficiencyScenarioStep(scenario: DemoScenario, stepIndex: number) {
+    const context = scenarioPlaybackContextRef.current[scenario.id] ?? {};
+    scenarioPlaybackContextRef.current[scenario.id] = context;
+    if (stepIndex === 0) {
+      const enrolled = await scenarioStep(scenario, 0, () => request<Adventurer>("/v1/adventurers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `Scenario Docs ${new Date().toISOString().slice(11, 19)}`,
+          rank: "Gold",
+          guild: "Documentation Runner Guild",
+          region: "Vitesse"
+        })
+      }));
+      context.adventurer = requireScenarioData(enrolled.data, "Enrollment did not return an adventurer.");
+      setAdventurer(context.adventurer);
+
+      const claimResult = await request<Claim>("/v1/claims", {
+        method: "POST",
+        body: JSON.stringify({
+          adventurerId: context.adventurer.id,
+          providerId: selectedProviderId,
+          incidentSeverity: "Awakened",
+          amountCents: 125000
+        })
+      });
+      pushEvent(claimResult);
+      context.claim = requireScenarioData(claimResult.data, "Claim submission did not return a claim.");
+      setClaim(context.claim);
+      setSelectedClaim(context.claim);
+      return;
+    }
+    const claimRecord = context.claim ?? claim;
+    if (!claimRecord) throw new Error("Run claim creation before this scenario step.");
+    if (stepIndex === 1) {
+      await scenarioStep(scenario, 1, () => request<Record<string, string>>(`/v1/claims/${claimRecord.id}/documentation-request`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "Scenario runner documentation request.",
+          dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          requiredDocuments: documentationChecklist
+        })
+      }));
+    } else if (stepIndex === 2) {
+      const packetId = `scenario-packet-${claimRecord.id.slice(0, 8)}`;
+      context.packet = await scenarioStep(scenario, 2, () => request<Record<string, string>>(`/v1/claims/${claimRecord.id}/attachments`, {
+        method: "POST",
+        body: JSON.stringify({
+          packetId,
+          attachments: documentationChecklist.map((item, index) => buildAttachmentDraft(claimRecord, item, packetId, index + 1, documentationChecklist.length))
+        })
+      }));
+    } else if (stepIndex === 3) {
+      const rejectedTransaction = context.packet?.transactions?.[1] ?? context.packet?.transaction;
+      if (rejectedTransaction) {
+        await scenarioStep(scenario, 3, () => request<Record<string, string>>(`/v1/transactions/${rejectedTransaction.id}/attachment-review`, {
+          method: "POST",
+          body: JSON.stringify({
+            status: "Rejected",
+            reason: "Scenario deficiency: encounter notes need corrected documentation."
+          })
+        }));
+        const checklistItem = documentationChecklist[1];
+        const resubmissionPacketId = `scenario-packet-${claimRecord.id.slice(0, 8)}-resub`;
+        await request<Record<string, string>>(`/v1/claims/${claimRecord.id}/documentation-request`, {
+          method: "POST",
+          body: JSON.stringify({
+            reason: `Deficiency follow-up: ${checklistItem.label} needs corrected documentation.`,
+            dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            requiredDocuments: [checklistItem]
+          })
+        }).then(pushEvent);
+        await request<Record<string, string>>(`/v1/claims/${claimRecord.id}/attachments`, {
+          method: "POST",
+          body: JSON.stringify({
+            packetId: resubmissionPacketId,
+            attachments: [buildAttachmentDraft(claimRecord, checklistItem, resubmissionPacketId, 1, 1, "resubmission")]
+          })
+        }).then(pushEvent);
+      }
+    }
+  }
+
+  async function runPartnerRejectionScenarioStep(scenario: DemoScenario, stepIndex: number) {
     const invalidClaimXML = `<?xml version="1.0" encoding="UTF-8"?>
 <AshnX12Transaction type="837">
   <Sender id="provider-vitesse-temple"/>
@@ -1122,17 +1212,22 @@ function App() {
     <ServiceLine lineNumber="1"><ProcedureCode>ASHN1</ProcedureCode><AmountCents>10000</AmountCents></ServiceLine>
   </Claim>
 </AshnX12Transaction>`;
-    await scenarioStep(scenario, 0, () => request("/v1/x12/xml", {
-      method: "POST",
-      headers: { "Content-Type": "application/xml" },
-      body: invalidClaimXML
-    }));
-    await scenarioStep(scenario, 1, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
-    await scenarioStep(scenario, 2, () => request<IntakeRejectionMetrics>("/v1/x12/messages/rejections?type=837&q=diagnosis"));
-    await scenarioStep(scenario, 3, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
-    setActiveTab("xml");
-    setAuditStatusFilter("rejected");
-    setAuditTypeFilter("837");
+    if (stepIndex === 0) {
+      await scenarioStep(scenario, 0, () => request("/v1/x12/xml", {
+        method: "POST",
+        headers: { "Content-Type": "application/xml" },
+        body: invalidClaimXML
+      }));
+    } else if (stepIndex === 1) {
+      await scenarioStep(scenario, 1, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
+    } else if (stepIndex === 2) {
+      await scenarioStep(scenario, 2, () => request<IntakeRejectionMetrics>("/v1/x12/messages/rejections?type=837&q=diagnosis"));
+    } else if (stepIndex === 3) {
+      await scenarioStep(scenario, 3, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
+      setActiveTab("xml");
+      setAuditStatusFilter("rejected");
+      setAuditTypeFilter("837");
+    }
   }
 
   async function downloadFromPath(path: string) {
@@ -1821,6 +1916,9 @@ function App() {
               onExportEvidence={exportScenarioEvidence}
               onCopy={copyDemoScenario}
               onRun={runDemoScenario}
+              onStartPlayback={startScenarioPlayback}
+              onRunNextStep={runNextScenarioPlaybackStep}
+              onFinishPlayback={finishScenarioPlayback}
             />
           ))}
         </div>
@@ -2235,7 +2333,10 @@ function DemoScenarioCard({
   onExport,
   onExportEvidence,
   onCopy,
-  onRun
+  onRun,
+  onStartPlayback,
+  onRunNextStep,
+  onFinishPlayback
 }: {
   scenario: DemoScenario;
   runState?: ScenarioRunState;
@@ -2244,11 +2345,18 @@ function DemoScenarioCard({
   onExportEvidence: (scenario: DemoScenario) => void;
   onCopy: (scenario: DemoScenario) => void;
   onRun: (scenario: DemoScenario) => void;
+  onStartPlayback: (scenario: DemoScenario) => void;
+  onRunNextStep: (scenario: DemoScenario) => void;
+  onFinishPlayback: (scenario: DemoScenario) => void;
 }) {
   const completedSteps = runState?.completedSteps ?? 0;
   const isComplete = completedSteps === scenario.steps.length && !runState?.running;
+  const isPlayback = runState?.mode === "playback" && !isComplete;
+  const nextStep = scenario.steps[completedSteps];
   const progressLabel = runState?.running
     ? `Running: ${runState.currentStep ?? "Starting"}`
+    : isPlayback
+      ? `Playback ready: ${nextStep?.label ?? "Complete"}`
     : isComplete
       ? "Complete"
       : "Ready";
@@ -2286,6 +2394,9 @@ function DemoScenarioCard({
       </div>
       <div className="actions compact-actions">
         <button type="button" disabled={busy || runState?.running} onClick={() => onRun(scenario)}>Run Scenario</button>
+        <button type="button" className="secondary" disabled={busy || runState?.running} onClick={() => onStartPlayback(scenario)}>Start Playback</button>
+        <button type="button" disabled={!isPlayback || busy || runState?.running} onClick={() => onRunNextStep(scenario)}>Run Next Step</button>
+        <button type="button" className="secondary" disabled={!isPlayback || busy || runState?.running} onClick={() => onFinishPlayback(scenario)}>Finish Playback</button>
         <button type="button" onClick={() => onExport(scenario)}>Export Scenario JSON</button>
         <button type="button" className="secondary" disabled={!isComplete} onClick={() => onExportEvidence(scenario)}>Export Evidence Bundle</button>
         <button type="button" className="secondary" onClick={() => onCopy(scenario)}>Copy Operator Steps</button>

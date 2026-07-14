@@ -172,6 +172,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add dashboard scenario runners that execute repeatable workflows and stream step results into live events.
 - [x] Add JSON evidence bundles for completed scenario runs.
 - [x] Add browser-persisted Recent Scenario Runs with re-export, transaction copy, and re-run controls.
+- [x] Add guided scenario playback mode with next-step and finish controls for live demos.
 
 ### P3 — Security and Operational Readiness
 
