@@ -379,6 +379,18 @@ test.describe("ASHN dashboard smoke", () => {
     expect(download.suggestedFilename()).toBe("ashn-demo-scenario-premium-current-claim.json");
   });
 
+  test("runs a premium-current demo scenario", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    const scenario = page.locator(".scenario-card").filter({ hasText: "Premium-Current Claim Adjudication" });
+    await scenario.getByRole("button", { name: "Run Scenario" }).click();
+
+    await expect(scenario.getByText("Complete")).toBeVisible();
+    await expect(scenario.getByText("4/4 steps")).toBeVisible();
+    await expect(page.locator(".event p").filter({ hasText: "Scenario claim submitted." })).toBeVisible();
+  });
+
   test("labels 275 claim attachments inside the transaction timeline", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -800,6 +812,35 @@ async function mockDashboardApi(page: Page) {
               reportTypeCode: "B4"
             }
           }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/claims" && route.request().method() === "POST") {
+      await route.fulfill({
+        status: 201,
+        json: {
+          data: {
+            id: "claim-e2e-dashboard",
+            adventurerId: "adv-e2e-dashboard",
+            providerId: "provider-greenstone-roadside",
+            incidentSeverity: "Awakened",
+            transactionId: "tx-e2e-837",
+            amountCents: 100000,
+            allowedAmountCents: 80000,
+            paidAmountCents: 70400,
+            patientResponsibilityCents: 9600,
+            adjustmentAmountCents: 20000,
+            adjustmentReason: "ASHN contractual allowance with current premium",
+            status: claimStatus
+          },
+          lore: "Scenario claim submitted.",
+          transaction: demoTransactions.find((transaction) => transaction.type === "837"),
+          transactions: [
+            demoTransactions.find((transaction) => transaction.type === "837"),
+            demoTransactions.find((transaction) => transaction.type === "277CA")
+          ].filter(Boolean)
         }
       });
       return;

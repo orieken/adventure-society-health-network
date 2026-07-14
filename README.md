@@ -65,7 +65,7 @@ Trading partner profiles and routing rules are available at `GET /v1/x12/trading
 Transaction details can be exported from `GET /v1/transactions/{id}/export?format=json|xml|x12` and replayed with `POST /v1/transactions/{id}/replay`.
 Intake audit records can be exported from `GET /v1/x12/messages/{id}/export?format=xml|json` and replayed with `POST /v1/x12/messages/{id}/replay`.
 The dashboard XML Intake tab includes an operational rejection console that trends failed partner submissions, groups them by partner, transaction type, and validation reason, and offers one-click drilldown, inspect, and replay controls for demos and debugging.
-The dashboard Workflow tab also includes exportable demo scenarios. Each scenario downloads a versioned JSON runbook with operator steps, expected outcomes, and evidence artifacts to export during stakeholder walkthroughs.
+The dashboard Workflow tab also includes executable and exportable demo scenarios. Each scenario can run a repeatable workflow, stream step results into Live Session Events, and download a versioned JSON runbook with operator steps, expected outcomes, and evidence artifacts to export during stakeholder walkthroughs.
 
 API authentication is opt-in. Set `ASHN_API_KEYS` on `api-gateway` to a comma-separated list of accepted keys; protected `/v1` routes then accept either `Authorization: Bearer <key>` or `X-ASHN-API-Key: <key>`. `GET /v1/health` stays public for health checks. If the dashboard talks to an authenticated gateway, set `VITE_ASHN_API_KEY` to the same demo key at build/runtime.
 

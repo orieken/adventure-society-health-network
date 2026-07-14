@@ -248,6 +248,13 @@ type DemoScenario = {
   exports: string[];
 };
 
+type ScenarioRunState = {
+  running: boolean;
+  completedSteps: number;
+  currentStep?: string;
+  error?: string;
+};
+
 type IntakeRejectionSummary = {
   messages: InboundMessage[];
   byPartner: Array<{ label: string; count: number }>;
@@ -445,7 +452,7 @@ const demoScenarios: DemoScenario[] = [
     story: "A high-value encounter needs supporting scrolls; one document is deficient and only that document is resubmitted.",
     highlights: ["277 documentation request", "275 packet", "per-document review", "deficiency follow-up", "targeted resubmission"],
     steps: [
-      { label: "Open claim", action: "Select a claim from Recent Claims", expected: "Claim detail shows the 275 Documentation Workbench." },
+      { label: "Create claim", action: "Enroll a scenario member and submit an 837 claim", expected: "Claim detail is ready for documentation work." },
       { label: "Request docs", action: "Click Request 275 Docs", expected: "Claim moves to Pending Documentation and emits a 277 request." },
       { label: "Submit packet", action: "Click Submit 275 Packet", expected: "Multiple 275 transactions share a packet ID." },
       { label: "Reject one", action: "Reject Encounter notes, then Request + Resubmit", expected: "A follow-up request and single replacement 275 are added." }
@@ -557,6 +564,7 @@ function App() {
   const [selectedSavedFilterId, setSelectedSavedFilterId] = useState("");
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("json");
   const [rawX12Draft, setRawX12Draft] = useState(sampleRawX12);
+  const [scenarioRuns, setScenarioRuns] = useState<Record<string, ScenarioRunState>>({});
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -823,6 +831,183 @@ function App() {
 
   function copyDemoScenario(scenario: DemoScenario) {
     copyText(scenario.steps.map((step, index) => `${index + 1}. ${step.action} → ${step.expected}`).join("\n"));
+  }
+
+  function updateScenarioRun(scenario: DemoScenario, patch: Partial<ScenarioRunState>) {
+    setScenarioRuns((current) => ({
+      ...current,
+      [scenario.id]: {
+        ...current[scenario.id],
+        running: current[scenario.id]?.running ?? false,
+        completedSteps: current[scenario.id]?.completedSteps ?? 0,
+        ...patch
+      }
+    }));
+  }
+
+  async function scenarioStep<T>(scenario: DemoScenario, stepIndex: number, action: () => Promise<Envelope<T>>) {
+    const step = scenario.steps[stepIndex];
+    updateScenarioRun(scenario, { running: true, currentStep: step.label, error: undefined });
+    const result = await action();
+    pushEvent(result);
+    updateScenarioRun(scenario, { completedSteps: stepIndex + 1, currentStep: step.label });
+    return result;
+  }
+
+  async function runDemoScenario(scenario: DemoScenario) {
+    setBusy(true);
+    updateScenarioRun(scenario, { running: true, completedSteps: 0, currentStep: "Starting", error: undefined });
+    try {
+      if (scenario.id === "premium-current-claim") {
+        await runPremiumCurrentScenario(scenario);
+      } else if (scenario.id === "275-deficiency-resubmission") {
+        await runDeficiencyScenario(scenario);
+      } else if (scenario.id === "partner-rejection-ops") {
+        await runPartnerRejectionScenario(scenario);
+      }
+      updateScenarioRun(scenario, { running: false, completedSteps: scenario.steps.length, currentStep: "Complete" });
+      await refresh(true);
+    } catch (error) {
+      updateScenarioRun(scenario, { running: false, error: error instanceof Error ? error.message : "Scenario failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runPremiumCurrentScenario(scenario: DemoScenario) {
+    const enrolled = await scenarioStep(scenario, 0, () => request<Adventurer>("/v1/adventurers", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Scenario Premium ${new Date().toISOString().slice(11, 19)}`,
+        rank: "Iron",
+        guild: "Scenario Runner Guild",
+        region: "Greenstone"
+      })
+    }));
+    const adventurerRecord = requireScenarioData(enrolled.data, "Enrollment did not return an adventurer.");
+    setAdventurer(adventurerRecord);
+
+    await scenarioStep(scenario, 1, () => request<Record<string, string | number>>("/v1/premium-payments", {
+      method: "POST",
+      body: JSON.stringify({ adventurerId: adventurerRecord.id, amountCents: 5000 })
+    }));
+
+    const claimResult = await scenarioStep(scenario, 2, () => request<Claim>("/v1/claims", {
+      method: "POST",
+      body: JSON.stringify({
+        adventurerId: adventurerRecord.id,
+        providerId: "provider-greenstone-roadside",
+        incidentSeverity: "Awakened",
+        amountCents: 100000,
+        serviceLines: [
+          { lineNumber: 1, procedureCode: "ASHN1", description: "Scenario stabilization", units: 1, amountCents: 100000 }
+        ]
+      })
+    }));
+    const claimRecord = requireScenarioData(claimResult.data, "Claim submission did not return a claim.");
+    setClaim(claimRecord);
+
+    await scenarioStep(scenario, 3, () => request<Claim>(`/v1/claims/${claimRecord.id}`));
+  }
+
+  async function runDeficiencyScenario(scenario: DemoScenario) {
+    const enrolled = await scenarioStep(scenario, 0, () => request<Adventurer>("/v1/adventurers", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Scenario Docs ${new Date().toISOString().slice(11, 19)}`,
+        rank: "Gold",
+        guild: "Documentation Runner Guild",
+        region: "Vitesse"
+      })
+    }));
+    const adventurerRecord = requireScenarioData(enrolled.data, "Enrollment did not return an adventurer.");
+    setAdventurer(adventurerRecord);
+
+    const claimResult = await request<Claim>("/v1/claims", {
+      method: "POST",
+      body: JSON.stringify({
+        adventurerId: adventurerRecord.id,
+        providerId: selectedProviderId,
+        incidentSeverity: "Awakened",
+        amountCents: 125000
+      })
+    });
+    pushEvent(claimResult);
+    const claimRecord = requireScenarioData(claimResult.data, "Claim submission did not return a claim.");
+    setClaim(claimRecord);
+    setSelectedClaim(claimRecord);
+
+    await scenarioStep(scenario, 1, () => request<Record<string, string>>(`/v1/claims/${claimRecord.id}/documentation-request`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Scenario runner documentation request.",
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        requiredDocuments: documentationChecklist
+      })
+    }));
+
+    const packetId = `scenario-packet-${claimRecord.id.slice(0, 8)}`;
+    const packet = await scenarioStep(scenario, 2, () => request<Record<string, string>>(`/v1/claims/${claimRecord.id}/attachments`, {
+      method: "POST",
+      body: JSON.stringify({
+        packetId,
+        attachments: documentationChecklist.map((item, index) => buildAttachmentDraft(claimRecord, item, packetId, index + 1, documentationChecklist.length))
+      })
+    }));
+    const rejectedTransaction = packet.transactions?.[1] ?? packet.transaction;
+    if (rejectedTransaction) {
+      await scenarioStep(scenario, 3, () => request<Record<string, string>>(`/v1/transactions/${rejectedTransaction.id}/attachment-review`, {
+        method: "POST",
+        body: JSON.stringify({
+          status: "Rejected",
+          reason: "Scenario deficiency: encounter notes need corrected documentation."
+        })
+      }));
+      const checklistItem = documentationChecklist[1];
+      const resubmissionPacketId = `${packetId}-resub`;
+      await request<Record<string, string>>(`/v1/claims/${claimRecord.id}/documentation-request`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: `Deficiency follow-up: ${checklistItem.label} needs corrected documentation.`,
+          dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          requiredDocuments: [checklistItem]
+        })
+      }).then(pushEvent);
+      await request<Record<string, string>>(`/v1/claims/${claimRecord.id}/attachments`, {
+        method: "POST",
+        body: JSON.stringify({
+          packetId: resubmissionPacketId,
+          attachments: [buildAttachmentDraft(claimRecord, checklistItem, resubmissionPacketId, 1, 1, "resubmission")]
+        })
+      }).then(pushEvent);
+    }
+  }
+
+  async function runPartnerRejectionScenario(scenario: DemoScenario) {
+    const invalidClaimXML = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="837">
+  <Sender id="provider-vitesse-temple"/>
+  <Receiver id="Adventure Society"/>
+  <Claim>
+    <AdventurerId>scenario-reject-member</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <IncidentSeverity>Awakened</IncidentSeverity>
+    <AmountCents>10000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true"><Code>M542</Code></Diagnosis>
+    <ServiceLine lineNumber="1"><ProcedureCode>ASHN1</ProcedureCode><AmountCents>10000</AmountCents></ServiceLine>
+  </Claim>
+</AshnX12Transaction>`;
+    await scenarioStep(scenario, 0, () => request("/v1/x12/xml", {
+      method: "POST",
+      headers: { "Content-Type": "application/xml" },
+      body: invalidClaimXML
+    }));
+    await scenarioStep(scenario, 1, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
+    await scenarioStep(scenario, 2, () => request<IntakeRejectionMetrics>("/v1/x12/messages/rejections?type=837&q=diagnosis"));
+    await scenarioStep(scenario, 3, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
+    setActiveTab("xml");
+    setAuditStatusFilter("rejected");
+    setAuditTypeFilter("837");
   }
 
   async function downloadFromPath(path: string) {
@@ -1505,8 +1690,11 @@ function App() {
             <DemoScenarioCard
               key={scenario.id}
               scenario={scenario}
+              runState={scenarioRuns[scenario.id]}
+              busy={busy}
               onExport={exportDemoScenario}
               onCopy={copyDemoScenario}
+              onRun={runDemoScenario}
             />
           ))}
         </div>
@@ -1906,13 +2094,26 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
 
 function DemoScenarioCard({
   scenario,
+  runState,
+  busy,
   onExport,
-  onCopy
+  onCopy,
+  onRun
 }: {
   scenario: DemoScenario;
+  runState?: ScenarioRunState;
+  busy: boolean;
   onExport: (scenario: DemoScenario) => void;
   onCopy: (scenario: DemoScenario) => void;
+  onRun: (scenario: DemoScenario) => void;
 }) {
+  const completedSteps = runState?.completedSteps ?? 0;
+  const progressLabel = runState?.running
+    ? `Running: ${runState.currentStep ?? "Starting"}`
+    : completedSteps === scenario.steps.length
+      ? "Complete"
+      : "Ready";
+
   return (
     <article className="scenario-card">
       <div className="scenario-card-header">
@@ -1920,8 +2121,13 @@ function DemoScenarioCard({
           <span className="eyebrow">{scenario.duration} · {scenario.audience}</span>
           <h3>{scenario.title}</h3>
         </div>
-        <span>{scenario.steps.length} steps</span>
+        <span>{completedSteps}/{scenario.steps.length} steps</span>
       </div>
+      <div className="scenario-progress" aria-label={`${scenario.title} runner status`}>
+        <span>{progressLabel}</span>
+        <progress max={scenario.steps.length} value={completedSteps} />
+      </div>
+      {runState?.error && <p className="scenario-error">{runState.error}</p>}
       <p>{scenario.outcome}</p>
       <p className="muted">{scenario.story}</p>
       <div className="chips">
@@ -1940,6 +2146,7 @@ function DemoScenarioCard({
         <span>Exports: {scenario.exports.join(", ")}</span>
       </div>
       <div className="actions compact-actions">
+        <button type="button" disabled={busy || runState?.running} onClick={() => onRun(scenario)}>Run Scenario</button>
         <button type="button" onClick={() => onExport(scenario)}>Export Scenario JSON</button>
         <button type="button" className="secondary" onClick={() => onCopy(scenario)}>Copy Operator Steps</button>
       </div>
@@ -2811,6 +3018,13 @@ function valueNumber(value: unknown) {
 
 function valueBool(value: unknown) {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function requireScenarioData<T>(value: T | undefined, message: string): T {
+  if (value === undefined || value === null) {
+    throw new Error(message);
+  }
+  return value;
 }
 
 function demoScenarioExport(scenario: DemoScenario) {

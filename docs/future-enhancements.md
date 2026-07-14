@@ -87,6 +87,9 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Track acknowledgment relationships between source transactions and responses.
 - [x] Add dashboard filters for acknowledgment transaction types.
 - [x] Add tests for accepted and rejected acknowledgment flows.
+- [ ] Add `824` application reporting for `275` attachment validation failures.
+- [ ] Add `TA1` interchange acknowledgment/rejection for ISA/IEA pre-screen failures.
+- [ ] Distinguish syntax acknowledgments, attachment validation responses, and business review outcomes in transaction relationships.
 
 ### P1 — Asynchronous Processing
 
@@ -127,6 +130,19 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
 - [x] Add more tests for denied and partially paid claim variants.
 
+### P2 — 275 Companion Guide Fidelity
+
+- [ ] Model explicit `275` purpose: unsolicited `BGN01=02` versus solicited `BGN01=11`.
+- [ ] Add solicited `275` trace correlation where response `TRN02` matches the payer's `277` request trace.
+- [ ] Preserve the app's current claim/auth attachment path while adding a closer `006020X314` envelope shape.
+- [ ] Generate and parse core `275` structures from the companion guides: `BGN`, `1000A/B/C/D`, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.
+- [ ] Support `BDS01` encoding modes and MIME packaging rules for `ASC` and `B64` attachment payloads.
+- [ ] Validate file extension, MIME type, content-type match, and single-part MIME requirements.
+- [ ] Add configurable attachment size limits, packet/LX limits, and duplicate attachment-control-number detection.
+- [ ] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.
+- [ ] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.
+- [ ] Review what it would take to build or integrate a full clearinghouse-grade X12 parser instead of extending the current demo parser indefinitely.
+
 ### P2 — Trading Partners and Routing
 
 - [x] Add trading partner records.
@@ -153,6 +169,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add a claim adjudication explanation panel with benefit-plan signals from related `277` responses.
 - [x] Add operational intake rejection summaries grouped by partner, type, validation reason, and day-level trend with drilldown filters.
 - [x] Add exportable demo scenario runbooks for repeatable stakeholder walkthroughs.
+- [x] Add dashboard scenario runners that execute repeatable workflows and stream step results into live events.
 
 ### P3 — Security and Operational Readiness
 
