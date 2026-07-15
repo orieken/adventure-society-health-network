@@ -332,7 +332,7 @@ That distinction is important: ASHN is a teaching and architecture simulator. It
 
 ### Explicitly Out of Scope
 
-ASHN does not currently model every valid X12 transaction set. Non-healthcare sets such as `201` Residential Loan Application, `210` Motor Carrier Freight Details and Invoice, and `215` Motor Carrier Pickup Manifest are outside the current payer/provider simulator. They are useful examples of X12's cross-industry reach, but they would require separate finance or transportation workflows rather than being folded into the ASHN healthcare ledger.
+ASHN does not currently model every valid X12 transaction set. Non-healthcare sets such as `101` Name and Address Lists, `110` Air Freight Details and Invoice, `201` Residential Loan Application, `210` Motor Carrier Freight Details and Invoice, and `215` Motor Carrier Pickup Manifest are outside the current payer/provider simulator. They are useful examples of X12's cross-industry reach, but they would require separate supply-chain, finance, or transportation workflows rather than being folded into the ASHN healthcare ledger.
 
 ## Demo Talk Track
 
@@ -351,3 +351,4 @@ Good next expansions include:
 - add richer `820` premium payment history and reconciliation views
 - expand raw X12 parsing beyond the current demo transaction subset
 - add richer service-line and diagnosis mappings for claims
+- add dental-specific eligibility, `278` predetermination, `837D` claim, `275` attachment, and `835` remittance workflows

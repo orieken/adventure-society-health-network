@@ -47,11 +47,25 @@ ASHN intentionally focuses on healthcare payer/provider workflows, primarily the
 
 | Transaction set | Common domain | Meaning | ASHN status |
 | --- | --- | --- | --- |
+| `101` | General business / supply chain | Name and Address Lists | Not supported; cross-industry exploration candidate. |
+| `110` | Transportation | Air Freight Details and Invoice | Not supported; cross-industry exploration candidate. |
 | `201` | Finance / mortgage | Residential Loan Application | Not supported; outside the healthcare simulator scope. |
 | `210` | Transportation | Motor Carrier Freight Details and Invoice | Not supported; outside the healthcare simulator scope. |
 | `215` | Transportation | Motor Carrier Pickup Manifest | Not supported; outside the healthcare simulator scope. |
 
 If ASHN ever grows into a cross-industry EDI lab, these would belong in a separate module with their own partner profiles, raw segment examples, validation rules, and demo workflows rather than inside the healthcare claim lifecycle.
+
+## Planned Healthcare Workflow Expansions
+
+These stay inside ASHN's payer/provider learning mission and are good candidates for future workflow cards, raw X12 samples, partner validation profiles, and E2E tests.
+
+| Expansion | X12 transactions | Why it belongs |
+| --- | --- | --- |
+| Dental eligibility detail | `270 → 271` | Extends eligibility with dental benefit/service-type detail instead of only active/inactive coverage. |
+| Dental prior authorization / predetermination | `278` | Adds dental-specific service review, predetermination, and approval/denial workflows. |
+| Dental claim submission | `837D → 277CA` | Teaches how dental claims differ from professional/institutional claims while preserving acknowledgment flow. |
+| Dental attachments | `275` | Models x-rays, perio charts, narratives, orthodontic records, tooth/quadrant support, and solicited attachment traceability. |
+| Dental remittance | `835` | Shows CDT/service-line payment, patient responsibility, adjustments, and denial reasons for dental procedures. |
 
 ## 1. Enrollment Lifecycle
 

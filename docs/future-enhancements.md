@@ -106,6 +106,8 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add severity and service-type rules for auto-approval.
 - [x] Link authorization decisions to downstream claims.
 - [x] Show authorization history in claim detail views.
+- [ ] Add dental `278` prior authorization / predetermination workflows with CDT procedure codes, tooth numbers, surfaces, quadrants, and orthodontic indicators.
+- [ ] Add dental-specific `278` approval rules and manual-review prompts for x-rays, perio charts, narratives, and treatment plans.
 
 ### P2 — Claim Adjudication
 
@@ -129,6 +131,11 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Move payer-specific `275` validation rules into trading partner profile data.
 - [x] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
 - [x] Add more tests for denied and partially paid claim variants.
+- [ ] Add dental eligibility detail to `270 → 271`, including dental benefit/service-type coverage, frequency limits, waiting periods, and annual maximum examples.
+- [ ] Add `837D` dental claim support with CDT procedure codes, tooth/surface/quadrant fields, oral-cavity indicators, and dental-specific diagnosis/procedure validation.
+- [ ] Add dental `275` attachment packets for x-rays, perio charts, narratives, orthodontic records, and treatment-plan documents.
+- [ ] Add dental `835` remittance examples with CDT line-level allowed, paid, patient responsibility, adjustments, and denial reasons.
+- [ ] Add dashboard workflow cards and E2E tests for dental eligibility, predetermination, claim, attachment, and remittance scenarios.
 
 ### P2 — 275 Companion Guide Fidelity
 
@@ -154,6 +161,13 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add partner-specific companion-guide validation rules.
 - [x] Validate partner-specific `837` diagnosis and procedure profiles before forwarding intake.
 - [x] Show partner companion-guide matrices for `275`, `278`, and `837` rules in the dashboard.
+- [ ] Add dental trading partner profiles with allowed CDT ranges, attachment requirements, tooth/surface validation, and payer-specific predetermination rules.
+
+### P2 — Cross-Industry EDI Exploration
+
+- [ ] Keep `101` Name and Address Lists out of the healthcare workflow, but document what a separate supply-chain/general-business module would require.
+- [ ] Keep `110` Air Freight Details and Invoice out of the healthcare workflow, but document what a separate transportation module would require.
+- [ ] If ASHN becomes a broader EDI lab, isolate non-healthcare sets behind separate modules, partner profiles, raw samples, validation rules, and dashboard views.
 
 ### P2 — Dashboard Enhancements
 

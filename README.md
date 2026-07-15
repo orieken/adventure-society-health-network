@@ -88,6 +88,7 @@ Service logs are emitted as structured JSON events with stable fields such as `t
 - How `837` diagnoses, service lines, partner companion-guide profiles, and `835` remittance details connect from intake through adjudication.
 - How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.
 - How documentation requests, per-document review, deficiency follow-up, and resubmission work in a 275 attachment flow.
+- Where dental workflows could extend the same `270/271`, `278`, `837D`, `275`, and `835` lifecycle without pulling in unrelated X12 sets.
 - How external 275 document references are resolved as safe vault receipts without server-side fetching arbitrary URLs.
 - How opt-in gateway API keys protect partner-facing routes without blocking public health checks.
 - How gateway rate limiting protects public/demo endpoints while leaving health and CORS checks available.
