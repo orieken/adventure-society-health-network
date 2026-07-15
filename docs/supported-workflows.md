@@ -41,6 +41,18 @@ ASHN supports both **business-state APIs** and an **EDI-style transaction ledger
 | Trading partner management | Routing profiles | `GET/POST/PUT/DELETE /v1/x12/trading-partners` | Partners tab create/update/delete form | Manages sender/receiver IDs, allowed X12 types, status, and route target. |
 | Export/replay | JSON/XML/X12 exports | `/export`, `/replay` endpoints | Detail drawer buttons | Supports demo reset, replay, and artifact inspection. |
 
+## Out-of-Scope X12 Sets
+
+ASHN intentionally focuses on healthcare payer/provider workflows, primarily the X12N-style transactions shown in the coverage matrix. Some valid X12 transaction sets are outside that scope and are not currently parsed, generated, routed, or shown in the dashboard.
+
+| Transaction set | Common domain | Meaning | ASHN status |
+| --- | --- | --- | --- |
+| `201` | Finance / mortgage | Residential Loan Application | Not supported; outside the healthcare simulator scope. |
+| `210` | Transportation | Motor Carrier Freight Details and Invoice | Not supported; outside the healthcare simulator scope. |
+| `215` | Transportation | Motor Carrier Pickup Manifest | Not supported; outside the healthcare simulator scope. |
+
+If ASHN ever grows into a cross-industry EDI lab, these would belong in a separate module with their own partner profiles, raw segment examples, validation rules, and demo workflows rather than inside the healthcare claim lifecycle.
+
 ## 1. Enrollment Lifecycle
 
 ```mermaid

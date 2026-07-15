@@ -83,6 +83,7 @@ Service logs are emitted as structured JSON events with stable fields such as `t
 
 - How payer, provider, gateway, intake, worker, and ledger service boundaries fit together.
 - How common healthcare EDI transaction types relate: `834`, `270/271`, `278`, `275`, `837`, `276/277`, `835`, `999`, and `277CA`.
+- Why non-healthcare X12 sets such as `201`, `210`, and `215` are currently out of scope for ASHN.
 - How XML/JSON intake, trading partner validation, acknowledgments, raw X12, and durable audit trails can coexist in one workflow.
 - How `837` diagnoses, service lines, partner companion-guide profiles, and `835` remittance details connect from intake through adjudication.
 - How asynchronous review and adjudication change transaction state over time instead of completing every workflow immediately.

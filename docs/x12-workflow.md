@@ -330,6 +330,10 @@ What it simplifies:
 
 That distinction is important: ASHN is a teaching and architecture simulator. It gives the team a clear foundation before deciding whether to add true X12 parsing, validation, acknowledgments, or clearinghouse-style routing later.
 
+### Explicitly Out of Scope
+
+ASHN does not currently model every valid X12 transaction set. Non-healthcare sets such as `201` Residential Loan Application, `210` Motor Carrier Freight Details and Invoice, and `215` Motor Carrier Pickup Manifest are outside the current payer/provider simulator. They are useful examples of X12's cross-industry reach, but they would require separate finance or transportation workflows rather than being folded into the ASHN healthcare ledger.
+
 ## Demo Talk Track
 
 “ASHN shows how healthcare X12 transactions fit together by turning them into a fantasy healthcare workflow.
