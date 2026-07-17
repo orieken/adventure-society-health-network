@@ -309,7 +309,7 @@ func TestSubmitClaimPersistsServiceLinesAndEmitsMultiLine837(t *testing.T) {
 			{Qualifier: "ABF", Code: "S610", Description: "Minor wound encounter"},
 		},
 		ServiceLines: []domain.ClaimServiceLine{
-			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000, CDTCode: "D7240", ToothNumber: "14", Surface: "MO", Quadrant: "UR", Orthodontic: true},
+			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000},
 			{LineNumber: 2, ProcedureCode: "ASHN2", Description: "Dragonfire trauma supplies", Units: 1, AmountCents: 30000},
 		},
 	})
@@ -323,15 +323,50 @@ func TestSubmitClaimPersistsServiceLinesAndEmitsMultiLine837(t *testing.T) {
 	assert.Equal(t, "T509", claim.Diagnoses[0].Code)
 	require.Len(t, claim.ServiceLines, 2)
 	assert.Equal(t, int64(95000), claim.ServiceLines[0].AmountCents)
+	require.Len(t, envelope.Transactions, 2)
+	assert.Equal(t, domain.Tx837, envelope.Transactions[0].Type)
+	assert.Contains(t, envelope.Transactions[0].RawX12, "HI*ABK:T509*ABF:S610")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "SV1*HC:ASHN1*950.00*UN*1***1")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "SV1*HC:ASHN2*300.00*UN*1***2")
+}
+
+func TestSubmitDentalClaimPersistsDentalLinesAndEmits837D(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims", domain.ClaimRequest{
+		AdventurerID:     "adv-1",
+		ProviderID:       "provider-vitesse-temple",
+		IncidentSeverity: domain.SeverityNormal,
+		AmountCents:      85000,
+		Diagnoses: []domain.ClaimDiagnosis{
+			{Qualifier: "ABK", Code: "K021", Description: "Dental caries", Primary: true},
+		},
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "D7240", Description: "Removal of impacted tooth", Units: 1, AmountCents: 85000, ToothNumber: "14", Surface: "MO", Quadrant: "UR", Orthodontic: true},
+		},
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	var claim domain.Claim
+	require.NoError(t, json.Unmarshal(envelope.Data, &claim))
+	require.Len(t, claim.ServiceLines, 1)
 	assert.Equal(t, "D7240", claim.ServiceLines[0].CDTCode)
 	assert.Equal(t, "14", claim.ServiceLines[0].ToothNumber)
 	assert.Equal(t, "MO", claim.ServiceLines[0].Surface)
 	assert.Equal(t, "UR", claim.ServiceLines[0].Quadrant)
 	assert.True(t, claim.ServiceLines[0].Orthodontic)
 	require.Len(t, envelope.Transactions, 2)
-	assert.Contains(t, envelope.Transactions[0].RawX12, "HI*ABK:T509*ABF:S610")
-	assert.Contains(t, envelope.Transactions[0].RawX12, "SV1*HC:ASHN1*950.00*UN*1***1")
-	assert.Contains(t, envelope.Transactions[0].RawX12, "SV1*HC:ASHN2*300.00*UN*1***2")
+	assert.Equal(t, domain.Tx837D, envelope.Transactions[0].Type)
+	assert.Contains(t, envelope.Lore, "Dental claim submitted")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "ST*837D")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "SV3*AD:D7240*850.00*UN*1***1")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "TOO*JP*14")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "REF*D9*SURFACE-MO")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "REF*D9*QUADRANT-UR")
+	assert.Contains(t, envelope.Transactions[0].RawX12, "CRC*ZZ*Y*ORTHO")
 }
 
 func TestSubmitClaimLinksApprovedAuthorization(t *testing.T) {

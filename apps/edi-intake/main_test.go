@@ -702,6 +702,10 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 			body: `<AshnX12Transaction type="278"><PriorAuthorization><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><ServiceType>resurrection</ServiceType><IncidentSeverity>Diamond</IncidentSeverity></PriorAuthorization></AshnX12Transaction>`,
 		},
 		{
+			name: "837D dental claim", wantMethod: http.MethodPost, wantPath: "/claims",
+			body: `<AshnX12Transaction type="837D"><Claim><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><IncidentSeverity>Normal</IncidentSeverity><AmountCents>85000</AmountCents><Diagnosis><Qualifier>ABK</Qualifier><Code>K021</Code><Primary>true</Primary></Diagnosis><ServiceLine><LineNumber>1</LineNumber><ProcedureCode>D7240</ProcedureCode><CDTCode>D7240</CDTCode><Description>Removal of impacted tooth</Description><Units>1</Units><AmountCents>85000</AmountCents><ToothNumber>14</ToothNumber><Surface>MO</Surface><Quadrant>UR</Quadrant><Orthodontic>true</Orthodontic></ServiceLine></Claim></AshnX12Transaction>`,
+		},
+		{
 			name: "835 payment", wantMethod: http.MethodPost, wantPath: "/claims/claim-1/payment",
 			body: `<AshnX12Transaction type="835"><Payment><ClaimId>claim-1</ClaimId><PaymentAmountCents>100000</PaymentAmountCents></Payment></AshnX12Transaction>`,
 		},
@@ -755,6 +759,51 @@ func TestInboundXMLMapsDentalPriorAuthorizationDetail(t *testing.T) {
 	assert.Equal(t, "MO", request.DentalService.Surface)
 	assert.Equal(t, "UR", request.DentalService.Quadrant)
 	assert.True(t, request.DentalService.Orthodontic)
+}
+
+func TestInboundXMLMapsDentalClaimDetail(t *testing.T) {
+	inbound, err := parseInboundXML([]byte(`
+<AshnX12Transaction type="837D">
+  <Claim>
+    <AdventurerId>adv-1</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <IncidentSeverity>Normal</IncidentSeverity>
+    <AmountCents>85000</AmountCents>
+    <Diagnosis>
+      <Qualifier>ABK</Qualifier>
+      <Code>K021</Code>
+      <Primary>true</Primary>
+    </Diagnosis>
+    <ServiceLine>
+      <LineNumber>1</LineNumber>
+      <ProcedureCode>D7240</ProcedureCode>
+      <CDTCode>D7240</CDTCode>
+      <Description>Removal of impacted tooth</Description>
+      <Units>1</Units>
+      <AmountCents>85000</AmountCents>
+      <ToothNumber>14</ToothNumber>
+      <Surface>MO</Surface>
+      <Quadrant>UR</Quadrant>
+      <Orthodontic>true</Orthodontic>
+    </ServiceLine>
+  </Claim>
+</AshnX12Transaction>`))
+	require.NoError(t, err)
+
+	method, path, payload, err := inbound.toPayerRequest()
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, method)
+	assert.Equal(t, "/claims", path)
+	request, ok := payload.(domain.ClaimRequest)
+	require.True(t, ok)
+	require.Len(t, request.Diagnoses, 1)
+	assert.Equal(t, "K021", request.Diagnoses[0].Code)
+	require.Len(t, request.ServiceLines, 1)
+	assert.Equal(t, "D7240", request.ServiceLines[0].CDTCode)
+	assert.Equal(t, "14", request.ServiceLines[0].ToothNumber)
+	assert.Equal(t, "MO", request.ServiceLines[0].Surface)
+	assert.Equal(t, "UR", request.ServiceLines[0].Quadrant)
+	assert.True(t, request.ServiceLines[0].Orthodontic)
 }
 
 func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
@@ -1129,7 +1178,7 @@ func TestValidateTradingPartnerProfileAppliesClaimRules(t *testing.T) {
 
 	err := validateTradingPartnerProfile(partners["tp-vitesse-temple"], inbound)
 	require.Error(t, err)
-	assert.Equal(t, "diagnosis code M542 is not allowed for trading partner tp-vitesse-temple; allowed: S610, T509, S062X9A", err.Error())
+	assert.Equal(t, "diagnosis code M542 is not allowed for trading partner tp-vitesse-temple; allowed: S610, T509, S062X9A, K021", err.Error())
 
 	require.NoError(t, validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound))
 }
@@ -1150,7 +1199,7 @@ func TestValidateTradingPartnerProfileRejectsClaimProcedureOutsideProfile(t *tes
 
 	err := validateTradingPartnerProfile(partner, inbound)
 	require.Error(t, err)
-	assert.Equal(t, "procedure code RIM100 is not allowed for trading partner tp-vitesse-temple; allowed: ASHN", err.Error())
+	assert.Equal(t, "procedure code RIM100 is not allowed for trading partner tp-vitesse-temple; allowed: ASHN, D", err.Error())
 }
 
 func TestAcceptXMLRejectsPartnerProfileViolationBeforeForwarding(t *testing.T) {
@@ -1216,7 +1265,7 @@ func TestAcceptXMLRejectsClaimProfileViolationBeforeForwarding(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
-	assert.Equal(t, "diagnosis code M542 is not allowed for trading partner tp-vitesse-temple; allowed: S610, T509, S062X9A", decodeEnvelope(t, response).Error)
+	assert.Equal(t, "diagnosis code M542 is not allowed for trading partner tp-vitesse-temple; allowed: S610, T509, S062X9A, K021", decodeEnvelope(t, response).Error)
 	assert.False(t, forwarded)
 }
 
@@ -1237,8 +1286,8 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	}
 	assert.Contains(t, senderIDs, "partner-greenstone")
 	assert.Equal(t, []string{"OZ"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AttachmentTypes)
-	assert.Equal(t, []string{"S610", "T509", "S062X9A"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DiagnosisCodes)
-	assert.Equal(t, []string{"ASHN", "RIM"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
+	assert.Equal(t, []string{"S610", "T509", "S062X9A", "K021"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DiagnosisCodes)
+	assert.Equal(t, []string{"ASHN", "RIM", "D"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }
 
 func TestSaveAndDeleteTradingPartnerInMemory(t *testing.T) {

@@ -335,7 +335,7 @@ const claimPageSize = 10;
 const transactionPageSize = 25;
 const auditPageSize = 10;
 const dashboardRefreshMs = 3000;
-const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837", "835", "276", "277", "269", "999", "277CA"];
+const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837", "837D", "835", "276", "277", "269", "999", "277CA"];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
@@ -459,7 +459,7 @@ const initialPartnerForm: PartnerFormState = {
   name: "",
   senderId: "",
   receiverId: "Adventure Society",
-  allowedTransactionTypes: "270,275,276,278,837",
+  allowedTransactionTypes: "270,275,276,278,837,837D",
   routeTarget: "payer-core",
   status: "active"
 };
@@ -1517,6 +1517,71 @@ function App() {
   }
 
   async function submitClaim() {
+    await submitClaimRequest({
+      incidentSeverity: "Awakened",
+      amountCents: 125000,
+      diagnoses: [
+        {
+          qualifier: "ABK",
+          code: "T509",
+          description: "Awakened injury stabilization",
+          primary: true
+        },
+        {
+          qualifier: "ABF",
+          code: "S610",
+          description: "Minor wound encounter"
+        }
+      ],
+      serviceLines: [
+        {
+          lineNumber: 1,
+          procedureCode: "ASHN1",
+          description: "Resurrection stabilization",
+          units: 1,
+          amountCents: 95000
+        },
+        {
+          lineNumber: 2,
+          procedureCode: "ASHN2",
+          description: "Dragonfire trauma supplies",
+          units: 1,
+          amountCents: 30000
+        }
+      ]
+    });
+  }
+
+  async function submitDentalClaim() {
+    await submitClaimRequest({
+      incidentSeverity: "Normal",
+      amountCents: 85000,
+      diagnoses: [
+        {
+          qualifier: "ABK",
+          code: "K021",
+          description: "Dental caries requiring surgical extraction",
+          primary: true
+        }
+      ],
+      serviceLines: [
+        {
+          lineNumber: 1,
+          procedureCode: "D7240",
+          cdtCode: "D7240",
+          description: "Removal of impacted tooth",
+          units: 1,
+          amountCents: 85000,
+          toothNumber: "14",
+          surface: "MO",
+          quadrant: "UR",
+          orthodontic: false
+        }
+      ]
+    });
+  }
+
+  async function submitClaimRequest(body: Record<string, unknown>) {
     if (!adventurer) return;
     setBusy(true);
     const result = await request<Claim>("/v1/claims", {
@@ -1524,38 +1589,8 @@ function App() {
       body: JSON.stringify({
         adventurerId: adventurer.id,
         providerId: selectedProviderId,
-        incidentSeverity: "Awakened",
-        amountCents: 125000,
         authorizationTransactionId: authorizationTransaction?.id,
-        diagnoses: [
-          {
-            qualifier: "ABK",
-            code: "T509",
-            description: "Awakened injury stabilization",
-            primary: true
-          },
-          {
-            qualifier: "ABF",
-            code: "S610",
-            description: "Minor wound encounter"
-          }
-        ],
-        serviceLines: [
-          {
-            lineNumber: 1,
-            procedureCode: "ASHN1",
-            description: "Resurrection stabilization",
-            units: 1,
-            amountCents: 95000
-          },
-          {
-            lineNumber: 2,
-            procedureCode: "ASHN2",
-            description: "Dragonfire trauma supplies",
-            units: 1,
-            amountCents: 30000
-          }
-        ]
+        ...body
       })
     });
     setClaim(result.data ?? null);
@@ -1861,6 +1896,7 @@ function App() {
             <button disabled={!adventurer || busy} onClick={requestAuth}>278 Resurrection Auth</button>
             <button disabled={!adventurer || busy} onClick={requestDentalPredetermination}>278 Dental Predetermination</button>
             <button disabled={!adventurer || busy} onClick={submitClaim}>837 Submit Claim</button>
+            <button disabled={!adventurer || busy} onClick={submitDentalClaim}>837D Submit Dental Claim</button>
             <button disabled={!claim || busy} onClick={payClaim}>835 Pay Claim</button>
           </div>
           {authorizationTransaction && (

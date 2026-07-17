@@ -63,7 +63,7 @@ These stay inside ASHN's payer/provider learning mission and are good candidates
 | --- | --- | --- |
 | Dental eligibility detail | `270 → 271` | Extends eligibility with dental benefit/service-type detail instead of only active/inactive coverage. |
 | Dental prior authorization / predetermination | `278` | Supports a first dental predetermination slice with CDT/tooth/surface/quadrant fields; richer dental review rules remain future work. |
-| Dental claim submission | `837D → 277CA` | Teaches how dental claims differ from professional/institutional claims while preserving acknowledgment flow. |
+| Dental claim submission | `837D → 277CA` | Submits CDT-coded dental claims with tooth, surface, quadrant, and orthodontic indicators while preserving acknowledgment flow. |
 | Dental attachments | `275` | Models x-rays, perio charts, narratives, orthodontic records, tooth/quadrant support, and solicited attachment traceability. |
 | Dental remittance | `835` | Shows CDT/service-line payment, patient responsibility, adjustments, and denial reasons for dental procedures. |
 

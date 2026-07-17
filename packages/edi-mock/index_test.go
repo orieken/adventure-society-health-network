@@ -37,6 +37,36 @@ func TestGenerate837IncludesCompanionGuideInspiredSegments(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "SV1*HC:ASHN2*300.00*UN*1***2")
 }
 
+func TestGenerate837DIncludesDentalServiceSegments(t *testing.T) {
+	claim := domain.Claim{
+		ID:               "claim-dental-1",
+		AdventurerID:     "adv-1",
+		ProviderID:       "provider-vitesse-temple",
+		IncidentSeverity: domain.SeverityNormal,
+		AmountCents:      85000,
+		Status:           domain.ClaimSubmitted,
+		Diagnoses: []domain.ClaimDiagnosis{
+			{Qualifier: "ABK", Code: "K021", Primary: true},
+		},
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "D7240", CDTCode: "D7240", Description: "Removal of impacted tooth", Units: 1, AmountCents: 85000, ToothNumber: "14", Surface: "MO", Quadrant: "UR", Orthodontic: true},
+		},
+	}
+
+	tx := Generate837(claim)
+
+	assert.Equal(t, domain.Tx837D, tx.Type)
+	assert.Contains(t, tx.RawX12, "ST*837D")
+	assert.Contains(t, tx.RawX12, "CLM*claim-dental-1*850.00")
+	assert.Contains(t, tx.RawX12, "HI*ABK:K021")
+	assert.Contains(t, tx.RawX12, "SV3*AD:D7240*850.00*UN*1***1")
+	assert.Contains(t, tx.RawX12, "TOO*JP*14")
+	assert.Contains(t, tx.RawX12, "REF*D9*SURFACE-MO")
+	assert.Contains(t, tx.RawX12, "REF*D9*QUADRANT-UR")
+	assert.Contains(t, tx.RawX12, "CRC*ZZ*Y*ORTHO")
+	assert.Contains(t, string(tx.Payload), `"x12":"837D Dental Claim"`)
+}
+
 func TestGenerate835IncludesPaymentAndAdjustmentSegments(t *testing.T) {
 	claim := domain.Claim{
 		ID:                         "claim-1",

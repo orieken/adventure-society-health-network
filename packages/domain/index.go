@@ -53,6 +53,7 @@ const (
 	Tx275   TransactionType = "275"
 	Tx278   TransactionType = "278"
 	Tx837   TransactionType = "837"
+	Tx837D  TransactionType = "837D"
 	Tx835   TransactionType = "835"
 	Tx276   TransactionType = "276"
 	Tx277   TransactionType = "277"

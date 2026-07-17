@@ -323,7 +323,7 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	s.saveTransaction(ack)
 	s.saveClaim(claim)
 	s.enqueueJob(asyncjobs.JobClaimAdjudication, claim.ID, 2*time.Second)
-	respond(w, http.StatusCreated, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(domain.Tx837, adventurer.Name, provider.Name), Transaction: &tx, Transactions: []domain.Transaction{tx, ack}})
+	respond(w, http.StatusCreated, domain.Envelope{Data: claim, Lore: lore.ThemeTransaction(tx.Type, adventurer.Name, provider.Name), Transaction: &tx, Transactions: []domain.Transaction{tx, ack}})
 }
 
 func (s *store) listClaims(w http.ResponseWriter, r *http.Request) {
@@ -1444,10 +1444,20 @@ func normalizeClaimServiceLines(req domain.ClaimRequest) ([]domain.ClaimServiceL
 		if line.LineNumber <= 0 {
 			line.LineNumber = index + 1
 		}
+		isDentalLine := claimServiceLineIsDental(line)
+		if line.ProcedureCode == "" && isDentalLine && line.CDTCode != "" {
+			line.ProcedureCode = line.CDTCode
+		}
+		if line.CDTCode == "" && isDentalLine && validCDTCode(line.ProcedureCode) {
+			line.CDTCode = line.ProcedureCode
+		}
 		if line.ProcedureCode == "" {
 			line.ProcedureCode = fmt.Sprintf("ASHN%d", line.LineNumber)
 		}
-		if !validProcedureCode(line.ProcedureCode) {
+		if isDentalLine && !validCDTCode(line.CDTCode) {
+			return nil, 0, fmt.Errorf("service line %d cdtCode must start with D", line.LineNumber)
+		}
+		if !isDentalLine && !validProcedureCode(line.ProcedureCode) {
 			return nil, 0, fmt.Errorf("service line %d procedureCode must start with ASHN", line.LineNumber)
 		}
 		if line.Description == "" {
@@ -1468,6 +1478,15 @@ func normalizeClaimServiceLines(req domain.ClaimRequest) ([]domain.ClaimServiceL
 func validProcedureCode(code string) bool {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	return strings.HasPrefix(code, "ASHN") && len(code) >= 5
+}
+
+func validCDTCode(code string) bool {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	return strings.HasPrefix(code, "D") && len(code) >= 5
+}
+
+func claimServiceLineIsDental(line domain.ClaimServiceLine) bool {
+	return strings.TrimSpace(line.CDTCode) != "" || strings.TrimSpace(line.ToothNumber) != "" || strings.TrimSpace(line.Surface) != "" || strings.TrimSpace(line.Quadrant) != "" || line.Orthodontic
 }
 
 func normalizeClaimDiagnoses(req domain.ClaimRequest) []domain.ClaimDiagnosis {

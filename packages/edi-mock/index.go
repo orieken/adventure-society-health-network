@@ -112,9 +112,15 @@ func WithStatus(tx domain.Transaction, status domain.TransactionStatus) domain.T
 }
 
 func Generate837(claim domain.Claim) domain.Transaction {
-	return transaction(domain.Tx837, domain.TxStatusAccepted, claim.ProviderID, "Adventure Society", map[string]any{
-		"x12": "837 Health Care Claim", "claim": claim, "severityDescription": lore.SeverityDescription(claim.IncidentSeverity),
-		"lore": lore.ThemeTransaction(domain.Tx837, claim.AdventurerID, claim.ProviderID),
+	transactionType := domain.Tx837
+	label := "837 Health Care Claim"
+	if claimHasDentalServiceLines(claim) {
+		transactionType = domain.Tx837D
+		label = "837D Dental Claim"
+	}
+	return transaction(transactionType, domain.TxStatusAccepted, claim.ProviderID, "Adventure Society", map[string]any{
+		"x12": label, "claim": claim, "severityDescription": lore.SeverityDescription(claim.IncidentSeverity),
+		"lore": lore.ThemeTransaction(transactionType, claim.AdventurerID, claim.ProviderID),
 	})
 }
 
@@ -276,7 +282,7 @@ func transactionSegments(tx domain.Transaction) []string {
 			"HCR*" + authCode(tx.Status) + "~",
 		}
 		return append(segments, dental278Segments(tx)...)
-	case domain.Tx837:
+	case domain.Tx837, domain.Tx837D:
 		claim := claimInfo(tx)
 		segments := []string{
 			"HL*1**20*1~",
@@ -399,6 +405,8 @@ func implementationGuide(txType domain.TransactionType) string {
 		return "999A1"
 	case domain.Tx277CA:
 		return "277A1"
+	case domain.Tx837D:
+		return "837D"
 	default:
 		return "837P"
 	}
@@ -583,9 +591,42 @@ func serviceLineSegments(claim x12ClaimInfo) []string {
 		if units <= 0 {
 			units = 1
 		}
+		if claimLineIsDental(line) {
+			cdtCode := strings.TrimSpace(line.CDTCode)
+			if cdtCode == "" {
+				cdtCode = procedureCode
+			}
+			segments = append(segments, "SV3*AD:"+element(cdtCode)+"*"+cents(line.AmountCents)+"*UN*"+strconv.Itoa(units)+"***"+strconv.Itoa(lineNumber)+"~")
+			if line.ToothNumber != "" {
+				segments = append(segments, "TOO*JP*"+element(line.ToothNumber)+"~")
+			}
+			if line.Surface != "" {
+				segments = append(segments, "REF*D9*SURFACE-"+element(line.Surface)+"~")
+			}
+			if line.Quadrant != "" {
+				segments = append(segments, "REF*D9*QUADRANT-"+element(line.Quadrant)+"~")
+			}
+			if line.Orthodontic {
+				segments = append(segments, "CRC*ZZ*Y*ORTHO~")
+			}
+			continue
+		}
 		segments = append(segments, "SV1*HC:"+element(procedureCode)+"*"+cents(line.AmountCents)+"*UN*"+strconv.Itoa(units)+"***"+strconv.Itoa(lineNumber)+"~")
 	}
 	return segments
+}
+
+func claimHasDentalServiceLines(claim domain.Claim) bool {
+	for _, line := range claim.ServiceLines {
+		if claimLineIsDental(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func claimLineIsDental(line domain.ClaimServiceLine) bool {
+	return strings.TrimSpace(line.CDTCode) != "" || strings.TrimSpace(line.ToothNumber) != "" || strings.TrimSpace(line.Surface) != "" || strings.TrimSpace(line.Quadrant) != "" || line.Orthodontic
 }
 
 func remittanceServiceLineSegments(remit remittance) []string {

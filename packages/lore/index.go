@@ -59,6 +59,8 @@ func ThemeTransaction(txType domain.TransactionType, parties ...string) string {
 		return fmt.Sprintf("Prior authorization requested for %s through %s", sender, receiver)
 	case domain.Tx837:
 		return fmt.Sprintf("Incident claim submitted by %s for %s", receiver, sender)
+	case domain.Tx837D:
+		return fmt.Sprintf("Dental claim submitted by %s for %s", receiver, sender)
 	case domain.Tx835:
 		return fmt.Sprintf("Adventure Society remittance issued to %s for %s", receiver, sender)
 	case domain.Tx276:

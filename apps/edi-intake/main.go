@@ -978,7 +978,7 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 			request.DentalService = dentalService
 		}
 		return http.MethodPost, "/auth-requests", request, nil
-	case domain.Tx837:
+	case domain.Tx837, domain.Tx837D:
 		if t.Claim == nil {
 			return "", "", nil, fmt.Errorf("missing claim")
 		}
@@ -1356,7 +1356,7 @@ func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboun
 		if err := validateProfileCode(partner.ID, "incident severity", inbound.PriorAuthorization.IncidentSeverity, profile.IncidentSeverities); err != nil {
 			return err
 		}
-	case domain.Tx837:
+	case domain.Tx837, domain.Tx837D:
 		if inbound.Claim == nil {
 			return nil
 		}
@@ -2025,8 +2025,8 @@ func seedTradingPartners() map[string]domain.TradingPartner {
 	partners := map[string]domain.TradingPartner{}
 	for _, partner := range []domain.TradingPartner{
 		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
-		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
-		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
+		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
+		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
 		{ID: "tp-adventure-society-remittance", Name: "Adventure Society Remittance", SenderID: "Adventure Society", ReceiverID: "provider-vitesse-temple", AllowedTransactionTypes: []string{"835"}, RouteTarget: "payer-core", Status: "active"},
 	} {
 		partners[partner.ID] = partner
@@ -2045,8 +2045,8 @@ func vitesseValidationProfile() domain.PartnerValidationProfile {
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care", "dental-predetermination"},
 		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
 		DiagnosisQualifiers:     []string{"ABK", "ABF"},
-		DiagnosisCodes:          []string{"S610", "T509", "S062X9A"},
-		ProcedureCodePrefixes:   []string{"ASHN"},
+		DiagnosisCodes:          []string{"S610", "T509", "S062X9A", "K021"},
+		ProcedureCodePrefixes:   []string{"ASHN", "D"},
 	}
 }
 
@@ -2061,8 +2061,8 @@ func rimarosValidationProfile() domain.PartnerValidationProfile {
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care", "dental-predetermination"},
 		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
 		DiagnosisQualifiers:     []string{"ABK", "ABF"},
-		DiagnosisCodes:          []string{"S610", "T509", "S062X9A", "M542"},
-		ProcedureCodePrefixes:   []string{"ASHN", "RIM"},
+		DiagnosisCodes:          []string{"S610", "T509", "S062X9A", "M542", "K021"},
+		ProcedureCodePrefixes:   []string{"ASHN", "RIM", "D"},
 	}
 }
 

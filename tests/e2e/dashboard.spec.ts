@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 import { dashboardUrl } from "./config.js";
 
-const transactionTypes = ["834", "820", "270", "271", "275", "278", "837", "835", "276", "277", "269", "999", "277CA"] as const;
+const transactionTypes = ["834", "820", "270", "271", "275", "278", "837", "837D", "835", "276", "277", "269", "999", "277CA"] as const;
 
 type DemoTransactionType = (typeof transactionTypes)[number];
 
@@ -546,6 +546,26 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latestEvent.getByText("D7240")).toBeVisible();
   });
 
+  test("submits an 837D dental claim with CDT tooth details", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Send 834 Enrollment/i }).click();
+    await page.getByRole("button", { name: /837D Submit Dental Claim/i }).click();
+
+    const latestEvent = page.locator(".event").first();
+    await expect(latestEvent.getByText("837D · Dispatched")).toBeVisible();
+    await expect(latestEvent.locator("p").filter({ hasText: "Dental claim submitted." })).toBeVisible();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("837D dashboard display fixture")).toBeVisible();
+    await expect(latestEvent.getByText("D7240")).toBeVisible();
+    await expect(latestEvent.getByText("toothNumber")).toBeVisible();
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    await page.getByLabel("Transaction type").selectOption("837D");
+    await expect(page.getByText("tx-e2e-837d")).toBeVisible();
+  });
+
   test("shows async worker queue status transitions", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -693,8 +713,8 @@ async function mockDashboardApi(page: Page) {
         maxEmbeddedContentBytes: 2048,
         serviceTypes: ["resurrection", "restoration", "curse-removal", "dental-predetermination"],
         incidentSeverities: ["Normal", "Awakened"],
-        diagnosisCodes: ["S610", "T509"],
-        procedureCodePrefixes: ["ASHN"]
+        diagnosisCodes: ["S610", "T509", "K021"],
+        procedureCodePrefixes: ["ASHN", "D"]
       }
     }
   ];
@@ -917,27 +937,46 @@ async function mockDashboardApi(page: Page) {
     }
 
     if (path === "/v1/claims" && route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as {
+        adventurerId: string;
+        providerId: string;
+        incidentSeverity: string;
+        amountCents: number;
+        serviceLines?: Array<{
+          procedureCode?: string;
+          cdtCode?: string;
+          description?: string;
+          amountCents?: number;
+          toothNumber?: string;
+          surface?: string;
+          quadrant?: string;
+          orthodontic?: boolean;
+        }>;
+      };
+      const isDentalClaim = body.serviceLines?.some((line) => line.cdtCode || line.toothNumber || line.surface || line.quadrant || line.orthodontic) ?? false;
+      const claimTransaction = demoTransactions.find((transaction) => transaction.type === (isDentalClaim ? "837D" : "837"));
       await route.fulfill({
         status: 201,
         json: {
           data: {
             id: "claim-e2e-dashboard",
-            adventurerId: "adv-e2e-dashboard",
-            providerId: "provider-greenstone-roadside",
-            incidentSeverity: "Awakened",
-            transactionId: "tx-e2e-837",
-            amountCents: 100000,
+            adventurerId: body.adventurerId,
+            providerId: body.providerId,
+            incidentSeverity: body.incidentSeverity,
+            transactionId: claimTransaction?.id ?? "tx-e2e-837",
+            amountCents: body.amountCents,
             allowedAmountCents: 80000,
             paidAmountCents: 70400,
             patientResponsibilityCents: 9600,
             adjustmentAmountCents: 20000,
             adjustmentReason: "ASHN contractual allowance with current premium",
+            serviceLines: body.serviceLines,
             status: claimStatus
           },
-          lore: "Scenario claim submitted.",
-          transaction: demoTransactions.find((transaction) => transaction.type === "837"),
+          lore: isDentalClaim ? "Dental claim submitted." : "Scenario claim submitted.",
+          transaction: claimTransaction,
           transactions: [
-            demoTransactions.find((transaction) => transaction.type === "837"),
+            claimTransaction,
             demoTransactions.find((transaction) => transaction.type === "277CA")
           ].filter(Boolean)
         }
