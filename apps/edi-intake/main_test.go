@@ -1110,7 +1110,7 @@ func TestValidateTradingPartnerProfileRejectsPriorAuthOutsideProfile(t *testing.
 
 	err := validateTradingPartnerProfile(partner, inbound)
 	require.Error(t, err)
-	assert.Equal(t, "service type dragon-riding is not allowed for trading partner tp-vitesse-temple; allowed: resurrection, restoration, curse-removal, trauma-care", err.Error())
+	assert.Equal(t, "service type dragon-riding is not allowed for trading partner tp-vitesse-temple; allowed: resurrection, restoration, curse-removal, trauma-care, dental-predetermination", err.Error())
 }
 
 func TestValidateTradingPartnerProfileAppliesClaimRules(t *testing.T) {

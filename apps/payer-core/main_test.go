@@ -142,6 +142,11 @@ func TestAuthRequestQueuesPending278(t *testing.T) {
 	require.NotNil(t, envelope.Transaction)
 	assert.Equal(t, domain.Tx278, envelope.Transaction.Type)
 	assert.Equal(t, domain.TxStatusPending, envelope.Transaction.Status)
+	assert.Contains(t, envelope.Transaction.RawX12, "SV1*AD:D7240*0.00*UN*1")
+	assert.Contains(t, envelope.Transaction.RawX12, "TOO*JP*14")
+	assert.Contains(t, envelope.Transaction.RawX12, "REF*D9*SURFACE-MO")
+	assert.Contains(t, envelope.Transaction.RawX12, "REF*D9*QUADRANT-UR")
+	assert.Contains(t, envelope.Transaction.RawX12, "CRC*ZZ*Y*ORTHO")
 	assert.Contains(t, app.transactions, envelope.Transaction.ID)
 	var data map[string]any
 	require.NoError(t, json.Unmarshal(envelope.Data, &data))

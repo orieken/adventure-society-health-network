@@ -118,6 +118,7 @@ The `278 Prior Authorization Request` payload includes:
 - adventurer ID
 - provider ID
 - requested service type
+- optional dental predetermination detail such as CDT code, tooth number, surface, quadrant, and orthodontic indicator
 - lore summary
 
 The request is initially `Pending`. A dashboard reviewer can manually approve or deny it through the `POST /auth-requests/{transactionId}/decision` endpoint, which updates the stored authorization row and visible `278` transaction. If nobody reviews it manually, `payer-core` enqueues an `auth_review` job and `tx-worker` later updates the authorization and visible `278` transaction status to `Approved` or `Denied`.

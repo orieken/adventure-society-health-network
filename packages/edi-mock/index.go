@@ -88,10 +88,21 @@ func Generate275ForAuthorization(auth domain.Transaction, attachment domain.Atta
 }
 
 func Generate278Request(adventurer domain.Adventurer, provider domain.Provider, serviceType string) domain.Transaction {
-	return transaction(domain.Tx278, domain.TxStatusPending, provider.ID, "Adventure Society", map[string]any{
-		"x12": "278 Prior Authorization Request", "adventurerId": adventurer.ID, "providerId": provider.ID,
-		"serviceType": serviceType, "lore": lore.ThemeTransaction(domain.Tx278, adventurer.Name, provider.Name),
-	})
+	return Generate278RequestWithDental(adventurer, provider, serviceType, nil)
+}
+
+func Generate278RequestWithDental(adventurer domain.Adventurer, provider domain.Provider, serviceType string, dentalService *domain.DentalServiceDetail) domain.Transaction {
+	payload := map[string]any{
+		"x12":          "278 Prior Authorization Request",
+		"adventurerId": adventurer.ID,
+		"providerId":   provider.ID,
+		"serviceType":  serviceType,
+		"lore":         lore.ThemeTransaction(domain.Tx278, adventurer.Name, provider.Name),
+	}
+	if dentalService != nil {
+		payload["dentalService"] = dentalService
+	}
+	return transaction(domain.Tx278, domain.TxStatusPending, provider.ID, "Adventure Society", payload)
 }
 
 func WithStatus(tx domain.Transaction, status domain.TransactionStatus) domain.Transaction {
@@ -254,7 +265,7 @@ func transactionSegments(tx domain.Transaction) []string {
 		}
 		return append(segments, attachmentContentSegments(attachment)...)
 	case domain.Tx278:
-		return []string{
+		segments := []string{
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*1P*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
@@ -264,6 +275,7 @@ func transactionSegments(tx domain.Transaction) []string {
 			"DTP*472*D8*" + tx.CreatedAt.Format("20060102") + "~",
 			"HCR*" + authCode(tx.Status) + "~",
 		}
+		return append(segments, dental278Segments(tx)...)
 	case domain.Tx837:
 		claim := claimInfo(tx)
 		segments := []string{
@@ -614,6 +626,39 @@ func serviceLinesValue(payload map[string]any, key string) []domain.ClaimService
 
 func payloadString(tx domain.Transaction, key string, fallback string) string {
 	return stringValue(payloadMap(tx), key, fallback)
+}
+
+func dental278Segments(tx domain.Transaction) []string {
+	payload := payloadMap(tx)
+	value, ok := payload["dentalService"]
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var detail domain.DentalServiceDetail
+	if err := json.Unmarshal(data, &detail); err != nil {
+		return nil
+	}
+	segments := []string{}
+	if detail.CDTCode != "" {
+		segments = append(segments, "SV1*AD:"+element(detail.CDTCode)+"*0.00*UN*1~")
+	}
+	if detail.ToothNumber != "" {
+		segments = append(segments, "TOO*JP*"+element(detail.ToothNumber)+"~")
+	}
+	if detail.Surface != "" {
+		segments = append(segments, "REF*D9*SURFACE-"+element(detail.Surface)+"~")
+	}
+	if detail.Quadrant != "" {
+		segments = append(segments, "REF*D9*QUADRANT-"+element(detail.Quadrant)+"~")
+	}
+	if detail.Orthodontic {
+		segments = append(segments, "CRC*ZZ*Y*ORTHO~")
+	}
+	return segments
 }
 
 func payloadMap(tx domain.Transaction) map[string]any {

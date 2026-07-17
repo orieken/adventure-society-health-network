@@ -192,7 +192,7 @@ func (s *store) authRequest(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	tx := edimock.Generate278Request(adventurer, provider, req.ServiceType)
+	tx := edimock.Generate278RequestWithDental(adventurer, provider, req.ServiceType, req.DentalService)
 	s.saveTransaction(tx)
 	s.saveAuthRequest(adventurer.ID, provider.ID, tx.ID, req.ServiceType, req.IncidentSeverity, string(domain.TxStatusPending))
 	s.enqueueJob(asyncjobs.JobAuthReview, tx.ID, 2*time.Second)

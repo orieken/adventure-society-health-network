@@ -106,7 +106,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add severity and service-type rules for auto-approval.
 - [x] Link authorization decisions to downstream claims.
 - [x] Show authorization history in claim detail views.
-- [ ] Add dental `278` prior authorization / predetermination workflows with CDT procedure codes, tooth numbers, surfaces, quadrants, and orthodontic indicators.
+- [x] Add dental `278` prior authorization / predetermination workflows with CDT procedure codes, tooth numbers, surfaces, quadrants, and orthodontic indicators.
 - [ ] Add dental-specific `278` approval rules and manual-review prompts for x-rays, perio charts, narratives, and treatment plans.
 
 ### P2 — Claim Adjudication

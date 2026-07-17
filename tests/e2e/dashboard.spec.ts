@@ -526,6 +526,26 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(authReview.getByText("278 · Approved")).toBeVisible();
   });
 
+  test("queues a dental 278 predetermination with tooth details", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Send 834 Enrollment/i }).click();
+    await page.getByRole("button", { name: /278 Dental Predetermination/i }).click();
+
+    const authReview = page.locator(".auth-review-card");
+    await expect(authReview.getByText("278 · Pending")).toBeVisible();
+    await expect(authReview.getByText("dental predetermination")).toBeVisible();
+    await expect(authReview.getByText("CDT D7240", { exact: true })).toBeVisible();
+    await expect(authReview.getByText("Tooth 14", { exact: true })).toBeVisible();
+    await expect(authReview.getByText("Surface MO", { exact: true })).toBeVisible();
+
+    const latestEvent = page.locator(".event").first();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("dental-predetermination")).toBeVisible();
+    await expect(latestEvent.getByText("D7240")).toBeVisible();
+  });
+
   test("shows async worker queue status transitions", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -671,7 +691,7 @@ async function mockDashboardApi(page: Page) {
         reportTypeCodes: ["B4"],
         contentTypes: ["text/plain"],
         maxEmbeddedContentBytes: 2048,
-        serviceTypes: ["resurrection", "restoration", "curse-removal"],
+        serviceTypes: ["resurrection", "restoration", "curse-removal", "dental-predetermination"],
         incidentSeverities: ["Normal", "Awakened"],
         diagnosisCodes: ["S610", "T509"],
         procedureCodePrefixes: ["ASHN"]
@@ -775,14 +795,37 @@ async function mockDashboardApi(page: Page) {
     }
 
     if (path === "/v1/auth-requests") {
+      const body = route.request().postDataJSON() as {
+        adventurerId: string;
+        providerId: string;
+        serviceType: string;
+        incidentSeverity: string;
+        dentalService?: {
+          cdtCode?: string;
+          toothNumber?: string;
+          surface?: string;
+          quadrant?: string;
+          orthodontic?: boolean;
+        };
+      };
       await route.fulfill({
         status: 202,
         json: {
-          data: { authorizationStatus: "Pending", serviceType: "resurrection", incidentSeverity: "Diamond", review: "queued" },
+          data: { authorizationStatus: "Pending", serviceType: body.serviceType, incidentSeverity: body.incidentSeverity, dentalService: body.dentalService, review: "queued" },
           transaction: {
             ...demoTransactions.find((transaction) => transaction.type === "278"),
             id: "tx-e2e-auth-review",
-            status: "Pending"
+            status: "Pending",
+            payload: {
+              x12: body.serviceType === "dental-predetermination" ? "278 dental predetermination fixture" : "278 resurrection auth fixture",
+              adventurerId: body.adventurerId,
+              providerId: body.providerId,
+              serviceType: body.serviceType,
+              dentalService: body.dentalService
+            },
+            rawX12: body.serviceType === "dental-predetermination"
+              ? "ST*278*dental~UM*AR*I*2***dental-predetermination~SV1*AD:D7240*0.00*UN*1~TOO*JP*14~SE*5*dental~"
+              : demoTransactions.find((transaction) => transaction.type === "278")!.rawX12
           }
         }
       });

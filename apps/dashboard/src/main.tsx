@@ -1425,6 +1425,27 @@ function App() {
   }
 
   async function requestAuth() {
+    await requestAuthorization({
+      serviceType: "resurrection",
+      incidentSeverity: "Diamond"
+    });
+  }
+
+  async function requestDentalPredetermination() {
+    await requestAuthorization({
+      serviceType: "dental-predetermination",
+      incidentSeverity: "Normal",
+      dentalService: {
+        cdtCode: "D7240",
+        toothNumber: "14",
+        surface: "MO",
+        quadrant: "UR",
+        orthodontic: false
+      }
+    });
+  }
+
+  async function requestAuthorization(body: Record<string, unknown>) {
     if (!adventurer) return;
     setBusy(true);
     const result = await request<Record<string, string>>("/v1/auth-requests", {
@@ -1432,8 +1453,7 @@ function App() {
       body: JSON.stringify({
         adventurerId: adventurer.id,
         providerId: selectedProviderId,
-        serviceType: "resurrection",
-        incidentSeverity: "Diamond"
+        ...body
       })
     });
     setAuthorizationTransaction(result.transaction ?? null);
@@ -1839,6 +1859,7 @@ function App() {
           <div className="actions">
             <button disabled={!adventurer || busy} onClick={checkEligibility}>270 → 271 Eligibility</button>
             <button disabled={!adventurer || busy} onClick={requestAuth}>278 Resurrection Auth</button>
+            <button disabled={!adventurer || busy} onClick={requestDentalPredetermination}>278 Dental Predetermination</button>
             <button disabled={!adventurer || busy} onClick={submitClaim}>837 Submit Claim</button>
             <button disabled={!claim || busy} onClick={payClaim}>835 Pay Claim</button>
           </div>
@@ -1849,7 +1870,15 @@ function App() {
                 <strong>278 · {authorizationTransaction.status}</strong>
                 <code>{authorizationTransaction.id}</code>
               </div>
-              <p>Manual council review can approve or deny the pending resurrection authorization before the worker decides.</p>
+              <p>{authorizationReviewSummary(authorizationTransaction)}</p>
+              {payloadNestedString(authorizationTransaction, "dentalService", "cdtCode") && (
+                <div className="chips">
+                  <span>CDT {payloadNestedString(authorizationTransaction, "dentalService", "cdtCode")}</span>
+                  {payloadNestedString(authorizationTransaction, "dentalService", "toothNumber") && <span>Tooth {payloadNestedString(authorizationTransaction, "dentalService", "toothNumber")}</span>}
+                  {payloadNestedString(authorizationTransaction, "dentalService", "surface") && <span>Surface {payloadNestedString(authorizationTransaction, "dentalService", "surface")}</span>}
+                  {payloadNestedString(authorizationTransaction, "dentalService", "quadrant") && <span>{payloadNestedString(authorizationTransaction, "dentalService", "quadrant")}</span>}
+                </div>
+              )}
               <div className="actions compact-actions">
                 <button disabled={busy} onClick={attachAuthorizationDocumentation}>Send 275 Auth Docs</button>
                 <button disabled={busy} onClick={submitAuthorizationDocumentationPacket}>Submit Auth 275 Packet</button>
@@ -3299,6 +3328,17 @@ function transactionClaimId(transaction: Transaction) {
 
 function transactionAdventurerId(transaction: Transaction) {
   return payloadString(transaction, "adventurerId") ?? payloadNestedString(transaction, "claim", "adventurerId") ?? payloadNestedString(transaction, "adventurer", "id");
+}
+
+function authorizationReviewSummary(transaction: Transaction) {
+  const serviceType = payloadString(transaction, "serviceType");
+  if (serviceType === "dental-predetermination") {
+    const cdtCode = payloadNestedString(transaction, "dentalService", "cdtCode");
+    const toothNumber = payloadNestedString(transaction, "dentalService", "toothNumber");
+    const parts = [cdtCode && `CDT ${cdtCode}`, toothNumber && `tooth ${toothNumber}`].filter(Boolean).join(" · ");
+    return `Manual council review can approve or deny this dental predetermination${parts ? ` for ${parts}` : ""} before the worker decides.`;
+  }
+  return "Manual council review can approve or deny the pending resurrection authorization before the worker decides.";
 }
 
 function payloadString(transaction: Transaction, key: string) {

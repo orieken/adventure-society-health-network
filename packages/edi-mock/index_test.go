@@ -201,6 +201,17 @@ func TestGenerateEnrollmentEligibilityAuthAndStatusTransactions(t *testing.T) {
 	assert.Equal(t, domain.Tx278, authRequest.Type)
 	assert.Contains(t, authRequest.RawX12, "UM*AR*I*2")
 
+	dentalAuth := Generate278RequestWithDental(adventurer, provider, "dental-predetermination", &domain.DentalServiceDetail{
+		CDTCode:     "D7240",
+		ToothNumber: "14",
+		Surface:     "MO",
+		Quadrant:    "UR",
+		Orthodontic: true,
+	})
+	assert.Contains(t, dentalAuth.RawX12, "UM*AR*I*2***dental-predetermination")
+	assert.Contains(t, dentalAuth.RawX12, "SV1*AD:D7240")
+	assert.Contains(t, dentalAuth.RawX12, "TOO*JP*14")
+
 	claimStatusRequest := Generate276("claim-1")
 	assert.Equal(t, domain.Tx276, claimStatusRequest.Type)
 	assert.Contains(t, claimStatusRequest.RawX12, "REF*1K*claim-1")
