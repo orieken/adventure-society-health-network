@@ -140,6 +140,8 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 ### P2 — 275 Companion Guide Fidelity
 
+Extracted companion-guide notes live in [275 Companion Guide Notes](275-companion-guide-notes.md). The local PDFs were intentionally not retained in git; the durable implementation ideas are summarized there.
+
 - [ ] Model explicit `275` purpose: unsolicited `BGN01=02` versus solicited `BGN01=11`.
 - [ ] Add solicited `275` trace correlation where response `TRN02` matches the payer's `277` request trace.
 - [ ] Preserve the app's current claim/auth attachment path while adding a closer `006020X314` envelope shape.
@@ -149,6 +151,9 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [ ] Add configurable attachment size limits, packet/LX limits, and duplicate attachment-control-number detection.
 - [ ] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.
 - [ ] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.
+- [ ] Add `824` application reporting for attachment validation failures while keeping `999` for syntax acknowledgment.
+- [ ] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
+- [ ] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.
 - [ ] Review what it would take to build or integrate a full clearinghouse-grade X12 parser instead of extending the current demo parser indefinitely.
 
 ### P2 — Trading Partners and Routing
