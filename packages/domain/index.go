@@ -243,6 +243,11 @@ type ClaimServiceLine struct {
 	Description                string `json:"description"`
 	Units                      int    `json:"units"`
 	AmountCents                int64  `json:"amountCents"`
+	CDTCode                    string `json:"cdtCode,omitempty"`
+	ToothNumber                string `json:"toothNumber,omitempty"`
+	Surface                    string `json:"surface,omitempty"`
+	Quadrant                   string `json:"quadrant,omitempty"`
+	Orthodontic                bool   `json:"orthodontic,omitempty"`
 	AllowedAmountCents         int64  `json:"allowedAmountCents,omitempty"`
 	PaidAmountCents            int64  `json:"paidAmountCents,omitempty"`
 	PatientResponsibilityCents int64  `json:"patientResponsibilityCents,omitempty"`
@@ -270,11 +275,20 @@ type EligibilityRequest struct {
 	ProviderID   string `json:"providerId"`
 }
 
+type DentalServiceDetail struct {
+	CDTCode     string `json:"cdtCode,omitempty"`
+	ToothNumber string `json:"toothNumber,omitempty"`
+	Surface     string `json:"surface,omitempty"`
+	Quadrant    string `json:"quadrant,omitempty"`
+	Orthodontic bool   `json:"orthodontic,omitempty"`
+}
+
 type PriorAuthRequest struct {
-	AdventurerID     string           `json:"adventurerId"`
-	ProviderID       string           `json:"providerId"`
-	ServiceType      string           `json:"serviceType"`
-	IncidentSeverity IncidentSeverity `json:"incidentSeverity"`
+	AdventurerID     string               `json:"adventurerId"`
+	ProviderID       string               `json:"providerId"`
+	ServiceType      string               `json:"serviceType"`
+	IncidentSeverity IncidentSeverity     `json:"incidentSeverity"`
+	DentalService    *DentalServiceDetail `json:"dentalService,omitempty"`
 }
 
 type AuthorizationDecisionRequest struct {

@@ -128,6 +128,13 @@ func TestAuthRequestQueuesPending278(t *testing.T) {
 		ProviderID:       "provider-vitesse-temple",
 		ServiceType:      "resurrection",
 		IncidentSeverity: domain.SeverityDiamond,
+		DentalService: &domain.DentalServiceDetail{
+			CDTCode:     "D7240",
+			ToothNumber: "14",
+			Surface:     "MO",
+			Quadrant:    "UR",
+			Orthodontic: true,
+		},
 	})
 
 	assert.Equal(t, http.StatusAccepted, response.Code)
@@ -136,6 +143,15 @@ func TestAuthRequestQueuesPending278(t *testing.T) {
 	assert.Equal(t, domain.Tx278, envelope.Transaction.Type)
 	assert.Equal(t, domain.TxStatusPending, envelope.Transaction.Status)
 	assert.Contains(t, app.transactions, envelope.Transaction.ID)
+	var data map[string]any
+	require.NoError(t, json.Unmarshal(envelope.Data, &data))
+	dentalService, ok := data["dentalService"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "D7240", dentalService["cdtCode"])
+	assert.Equal(t, "14", dentalService["toothNumber"])
+	assert.Equal(t, "MO", dentalService["surface"])
+	assert.Equal(t, "UR", dentalService["quadrant"])
+	assert.Equal(t, true, dentalService["orthodontic"])
 }
 
 func TestDecideAuthorizationUpdates278Status(t *testing.T) {
@@ -288,7 +304,7 @@ func TestSubmitClaimPersistsServiceLinesAndEmitsMultiLine837(t *testing.T) {
 			{Qualifier: "ABF", Code: "S610", Description: "Minor wound encounter"},
 		},
 		ServiceLines: []domain.ClaimServiceLine{
-			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000},
+			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000, CDTCode: "D7240", ToothNumber: "14", Surface: "MO", Quadrant: "UR", Orthodontic: true},
 			{LineNumber: 2, ProcedureCode: "ASHN2", Description: "Dragonfire trauma supplies", Units: 1, AmountCents: 30000},
 		},
 	})
@@ -302,6 +318,11 @@ func TestSubmitClaimPersistsServiceLinesAndEmitsMultiLine837(t *testing.T) {
 	assert.Equal(t, "T509", claim.Diagnoses[0].Code)
 	require.Len(t, claim.ServiceLines, 2)
 	assert.Equal(t, int64(95000), claim.ServiceLines[0].AmountCents)
+	assert.Equal(t, "D7240", claim.ServiceLines[0].CDTCode)
+	assert.Equal(t, "14", claim.ServiceLines[0].ToothNumber)
+	assert.Equal(t, "MO", claim.ServiceLines[0].Surface)
+	assert.Equal(t, "UR", claim.ServiceLines[0].Quadrant)
+	assert.True(t, claim.ServiceLines[0].Orthodontic)
 	require.Len(t, envelope.Transactions, 2)
 	assert.Contains(t, envelope.Transactions[0].RawX12, "HI*ABK:T509*ABF:S610")
 	assert.Contains(t, envelope.Transactions[0].RawX12, "SV1*HC:ASHN1*950.00*UN*1***1")

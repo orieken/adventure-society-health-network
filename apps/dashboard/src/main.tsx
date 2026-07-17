@@ -98,6 +98,11 @@ type ClaimServiceLine = {
   description: string;
   units: number;
   amountCents: number;
+  cdtCode?: string;
+  toothNumber?: string;
+  surface?: string;
+  quadrant?: string;
+  orthodontic?: boolean;
   allowedAmountCents?: number;
   paidAmountCents?: number;
   patientResponsibilityCents?: number;
@@ -2634,6 +2639,15 @@ function ServiceLineBreakdown({ serviceLines }: { serviceLines: ClaimServiceLine
               <strong>{line.procedureCode || "ASHN"}</strong>
               <small>{line.description || "ASHN service line"} · {line.units || 1} unit(s)</small>
             </div>
+            {(line.cdtCode || line.toothNumber || line.surface || line.quadrant || line.orthodontic) && (
+              <div className="chips">
+                {line.cdtCode && <span>CDT {line.cdtCode}</span>}
+                {line.toothNumber && <span>Tooth {line.toothNumber}</span>}
+                {line.surface && <span>Surface {line.surface}</span>}
+                {line.quadrant && <span>{line.quadrant}</span>}
+                {line.orthodontic && <span>Orthodontic</span>}
+              </div>
+            )}
             <dl>
               <div><dt>Billed</dt><dd>{money(line.amountCents)}</dd></div>
               <div><dt>Allowed</dt><dd>{money(line.allowedAmountCents)}</dd></div>

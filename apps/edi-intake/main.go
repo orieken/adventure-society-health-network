@@ -65,10 +65,11 @@ type xmlEligibility struct {
 }
 
 type xmlPriorAuth struct {
-	AdventurerID     string `xml:"AdventurerId" json:"adventurerId"`
-	ProviderID       string `xml:"ProviderId" json:"providerId"`
-	ServiceType      string `xml:"ServiceType" json:"serviceType"`
-	IncidentSeverity string `xml:"IncidentSeverity" json:"incidentSeverity"`
+	AdventurerID     string           `xml:"AdventurerId" json:"adventurerId"`
+	ProviderID       string           `xml:"ProviderId" json:"providerId"`
+	ServiceType      string           `xml:"ServiceType" json:"serviceType"`
+	IncidentSeverity string           `xml:"IncidentSeverity" json:"incidentSeverity"`
+	DentalService    xmlDentalService `xml:"DentalService" json:"dentalService,omitempty"`
 }
 
 type xmlClaim struct {
@@ -87,6 +88,19 @@ type xmlClaimServiceLine struct {
 	Description   string `xml:"Description" json:"description,omitempty"`
 	Units         int    `xml:"Units" json:"units,omitempty"`
 	AmountCents   string `xml:"AmountCents" json:"amountCents"`
+	CDTCode       string `xml:"CDTCode" json:"cdtCode,omitempty"`
+	ToothNumber   string `xml:"ToothNumber" json:"toothNumber,omitempty"`
+	Surface       string `xml:"Surface" json:"surface,omitempty"`
+	Quadrant      string `xml:"Quadrant" json:"quadrant,omitempty"`
+	Orthodontic   bool   `xml:"Orthodontic" json:"orthodontic,omitempty"`
+}
+
+type xmlDentalService struct {
+	CDTCode     string `xml:"CDTCode" json:"cdtCode,omitempty"`
+	ToothNumber string `xml:"ToothNumber" json:"toothNumber,omitempty"`
+	Surface     string `xml:"Surface" json:"surface,omitempty"`
+	Quadrant    string `xml:"Quadrant" json:"quadrant,omitempty"`
+	Orthodontic bool   `xml:"Orthodontic" json:"orthodontic,omitempty"`
 }
 
 type xmlClaimDiagnosis struct {
@@ -956,10 +970,14 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		if !validServiceType(t.PriorAuthorization.ServiceType) {
 			return "", "", nil, fmt.Errorf("invalid field ServiceType")
 		}
-		return http.MethodPost, "/auth-requests", domain.PriorAuthRequest{
+		request := domain.PriorAuthRequest{
 			AdventurerID: strings.TrimSpace(t.PriorAuthorization.AdventurerID), ProviderID: strings.TrimSpace(t.PriorAuthorization.ProviderID),
 			ServiceType: strings.TrimSpace(t.PriorAuthorization.ServiceType), IncidentSeverity: domain.IncidentSeverity(strings.TrimSpace(t.PriorAuthorization.IncidentSeverity)),
-		}, nil
+		}
+		if dentalService := t.PriorAuthorization.DentalService.toDomain(); dentalService != nil {
+			request.DentalService = dentalService
+		}
+		return http.MethodPost, "/auth-requests", request, nil
 	case domain.Tx837:
 		if t.Claim == nil {
 			return "", "", nil, fmt.Errorf("missing claim")
@@ -1064,9 +1082,28 @@ func (claim xmlClaim) toServiceLines() ([]domain.ClaimServiceLine, error) {
 			Description:   strings.TrimSpace(raw.Description),
 			Units:         units,
 			AmountCents:   amountCents,
+			CDTCode:       strings.TrimSpace(raw.CDTCode),
+			ToothNumber:   strings.TrimSpace(raw.ToothNumber),
+			Surface:       strings.TrimSpace(raw.Surface),
+			Quadrant:      strings.TrimSpace(raw.Quadrant),
+			Orthodontic:   raw.Orthodontic,
 		})
 	}
 	return serviceLines, nil
+}
+
+func (service xmlDentalService) toDomain() *domain.DentalServiceDetail {
+	detail := domain.DentalServiceDetail{
+		CDTCode:     strings.TrimSpace(service.CDTCode),
+		ToothNumber: strings.TrimSpace(service.ToothNumber),
+		Surface:     strings.TrimSpace(service.Surface),
+		Quadrant:    strings.TrimSpace(service.Quadrant),
+		Orthodontic: service.Orthodontic,
+	}
+	if detail.CDTCode == "" && detail.ToothNumber == "" && detail.Surface == "" && detail.Quadrant == "" && !detail.Orthodontic {
+		return nil
+	}
+	return &detail
 }
 
 func (claim xmlClaim) toDiagnoses() []domain.ClaimDiagnosis {
@@ -1958,7 +1995,7 @@ func validSeverity(value string) bool {
 
 func validServiceType(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "resurrection", "restoration", "curse-removal", "trauma-care":
+	case "resurrection", "restoration", "curse-removal", "trauma-care", "dental-predetermination":
 		return true
 	default:
 		return false

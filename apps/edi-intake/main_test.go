@@ -78,6 +78,11 @@ func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
       <Description>Resurrection stabilization</Description>
       <Units>1</Units>
       <AmountCents>95000</AmountCents>
+      <CDTCode>D7240</CDTCode>
+      <ToothNumber>14</ToothNumber>
+      <Surface>MO</Surface>
+      <Quadrant>UR</Quadrant>
+      <Orthodontic>true</Orthodontic>
     </ServiceLine>
     <ServiceLine lineNumber="2">
       <ProcedureCode>ASHN2</ProcedureCode>
@@ -102,6 +107,11 @@ func TestAcceptXMLRoutesClaimToPayerCore(t *testing.T) {
 	require.Len(t, claimRequest.ServiceLines, 2)
 	assert.Equal(t, "ASHN1", claimRequest.ServiceLines[0].ProcedureCode)
 	assert.Equal(t, int64(95000), claimRequest.ServiceLines[0].AmountCents)
+	assert.Equal(t, "D7240", claimRequest.ServiceLines[0].CDTCode)
+	assert.Equal(t, "14", claimRequest.ServiceLines[0].ToothNumber)
+	assert.Equal(t, "MO", claimRequest.ServiceLines[0].Surface)
+	assert.Equal(t, "UR", claimRequest.ServiceLines[0].Quadrant)
+	assert.True(t, claimRequest.ServiceLines[0].Orthodontic)
 	assert.Equal(t, "ASHN2", claimRequest.ServiceLines[1].ProcedureCode)
 	assert.Equal(t, int64(30000), claimRequest.ServiceLines[1].AmountCents)
 	envelope := decodeEnvelope(t, response)
@@ -712,6 +722,39 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 			assert.NotNil(t, payload)
 		})
 	}
+}
+
+func TestInboundXMLMapsDentalPriorAuthorizationDetail(t *testing.T) {
+	inbound, err := parseInboundXML([]byte(`
+<AshnX12Transaction type="278">
+  <PriorAuthorization>
+    <AdventurerId>adv-1</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <ServiceType>dental-predetermination</ServiceType>
+    <IncidentSeverity>Normal</IncidentSeverity>
+    <DentalService>
+      <CDTCode>D7240</CDTCode>
+      <ToothNumber>14</ToothNumber>
+      <Surface>MO</Surface>
+      <Quadrant>UR</Quadrant>
+      <Orthodontic>true</Orthodontic>
+    </DentalService>
+  </PriorAuthorization>
+</AshnX12Transaction>`))
+	require.NoError(t, err)
+
+	method, path, payload, err := inbound.toPayerRequest()
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, method)
+	assert.Equal(t, "/auth-requests", path)
+	request, ok := payload.(domain.PriorAuthRequest)
+	require.True(t, ok)
+	require.NotNil(t, request.DentalService)
+	assert.Equal(t, "D7240", request.DentalService.CDTCode)
+	assert.Equal(t, "14", request.DentalService.ToothNumber)
+	assert.Equal(t, "MO", request.DentalService.Surface)
+	assert.Equal(t, "UR", request.DentalService.Quadrant)
+	assert.True(t, request.DentalService.Orthodontic)
 }
 
 func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {

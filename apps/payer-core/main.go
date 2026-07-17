@@ -197,6 +197,9 @@ func (s *store) authRequest(w http.ResponseWriter, r *http.Request) {
 	s.saveAuthRequest(adventurer.ID, provider.ID, tx.ID, req.ServiceType, req.IncidentSeverity, string(domain.TxStatusPending))
 	s.enqueueJob(asyncjobs.JobAuthReview, tx.ID, 2*time.Second)
 	data := map[string]any{"authorizationStatus": domain.TxStatusPending, "serviceType": req.ServiceType, "incidentSeverity": req.IncidentSeverity, "review": "queued"}
+	if req.DentalService != nil {
+		data["dentalService"] = req.DentalService
+	}
 	respond(w, http.StatusAccepted, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx278, adventurer.Name, provider.Name), Transaction: &tx})
 }
 
@@ -1432,6 +1435,11 @@ func normalizeClaimServiceLines(req domain.ClaimRequest) ([]domain.ClaimServiceL
 			Description:   strings.TrimSpace(raw.Description),
 			Units:         raw.Units,
 			AmountCents:   raw.AmountCents,
+			CDTCode:       strings.ToUpper(strings.TrimSpace(raw.CDTCode)),
+			ToothNumber:   strings.TrimSpace(raw.ToothNumber),
+			Surface:       strings.ToUpper(strings.TrimSpace(raw.Surface)),
+			Quadrant:      strings.TrimSpace(raw.Quadrant),
+			Orthodontic:   raw.Orthodontic,
 		}
 		if line.LineNumber <= 0 {
 			line.LineNumber = index + 1
