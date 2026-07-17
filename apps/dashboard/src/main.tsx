@@ -1401,11 +1401,19 @@ function App() {
   }
 
   async function checkEligibility() {
+    await checkEligibilityRequest();
+  }
+
+  async function checkDentalEligibility() {
+    await checkEligibilityRequest("dental");
+  }
+
+  async function checkEligibilityRequest(serviceType?: string) {
     if (!adventurer) return;
     setBusy(true);
     const result = await request("/v1/eligibility", {
       method: "POST",
-      body: JSON.stringify({ adventurerId: adventurer.id, providerId: selectedProviderId })
+      body: JSON.stringify({ adventurerId: adventurer.id, providerId: selectedProviderId, serviceType })
     });
     pushEvent(result);
     await refresh();
@@ -1893,6 +1901,7 @@ function App() {
           )}
           <div className="actions">
             <button disabled={!adventurer || busy} onClick={checkEligibility}>270 → 271 Eligibility</button>
+            <button disabled={!adventurer || busy} onClick={checkDentalEligibility}>270 → 271 Dental Eligibility</button>
             <button disabled={!adventurer || busy} onClick={requestAuth}>278 Resurrection Auth</button>
             <button disabled={!adventurer || busy} onClick={requestDentalPredetermination}>278 Dental Predetermination</button>
             <button disabled={!adventurer || busy} onClick={submitClaim}>837 Submit Claim</button>

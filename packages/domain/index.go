@@ -274,6 +274,18 @@ type EnrollmentRequest struct {
 type EligibilityRequest struct {
 	AdventurerID string `json:"adventurerId"`
 	ProviderID   string `json:"providerId"`
+	ServiceType  string `json:"serviceType,omitempty"`
+}
+
+type DentalEligibilityDetail struct {
+	ServiceType               string `json:"serviceType"`
+	AnnualMaximumCents        int64  `json:"annualMaximumCents"`
+	RemainingMaximumCents     int64  `json:"remainingMaximumCents"`
+	PreventiveCoveragePercent int    `json:"preventiveCoveragePercent"`
+	BasicCoveragePercent      int    `json:"basicCoveragePercent"`
+	MajorCoveragePercent      int    `json:"majorCoveragePercent"`
+	WaitingPeriodMonths       int    `json:"waitingPeriodMonths"`
+	FrequencyLimit            string `json:"frequencyLimit"`
 }
 
 type DentalServiceDetail struct {

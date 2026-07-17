@@ -25,22 +25,52 @@ func Generate820(adventurer domain.Adventurer, amountCents int64) domain.Transac
 	})
 }
 
-func Generate270(adventurer domain.Adventurer, provider domain.Provider) domain.Transaction {
+func Generate270(adventurer domain.Adventurer, provider domain.Provider, serviceTypes ...string) domain.Transaction {
+	serviceType := eligibilityServiceType(serviceTypes...)
 	return transaction(domain.Tx270, domain.TxStatusDispatched, provider.ID, "Adventure Society", map[string]any{
-		"x12": "270 Eligibility Inquiry", "adventurerId": adventurer.ID, "providerId": provider.ID,
+		"x12": "270 Eligibility Inquiry", "adventurerId": adventurer.ID, "providerId": provider.ID, "serviceType": serviceType,
 		"lore": lore.ThemeTransaction(domain.Tx270, adventurer.Name, provider.Name),
 	})
 }
 
-func Generate271(adventurer domain.Adventurer, eligibility bool) domain.Transaction {
+func Generate271(adventurer domain.Adventurer, eligibility bool, serviceTypes ...string) domain.Transaction {
+	serviceType := eligibilityServiceType(serviceTypes...)
 	status := domain.TxStatusDenied
 	if eligibility {
 		status = domain.TxStatusAccepted
 	}
-	return transaction(domain.Tx271, status, "Adventure Society", adventurer.ID, map[string]any{
+	payload := map[string]any{
 		"x12": "271 Eligibility Response", "adventurerId": adventurer.ID, "eligible": eligibility,
-		"coverageStatus": adventurer.CoverageStatus, "lore": lore.ThemeTransaction(domain.Tx271, adventurer.Name, "Adventure Society"),
-	})
+		"coverageStatus": adventurer.CoverageStatus, "serviceType": serviceType, "lore": lore.ThemeTransaction(domain.Tx271, adventurer.Name, "Adventure Society"),
+	}
+	if isDentalEligibility(serviceType) {
+		payload["dentalEligibility"] = DentalEligibility(adventurer, eligibility)
+	}
+	return transaction(domain.Tx271, status, "Adventure Society", adventurer.ID, payload)
+}
+
+func DentalEligibility(adventurer domain.Adventurer, eligible bool) domain.DentalEligibilityDetail {
+	remainingMaximumCents := int64(0)
+	if eligible {
+		remainingMaximumCents = 125000
+		if adventurer.Rank == domain.RankGold || adventurer.Rank == domain.RankDiamond {
+			remainingMaximumCents = 150000
+		}
+	}
+	waitingPeriodMonths := 6
+	if adventurer.Rank == domain.RankGold || adventurer.Rank == domain.RankDiamond {
+		waitingPeriodMonths = 0
+	}
+	return domain.DentalEligibilityDetail{
+		ServiceType:               "dental",
+		AnnualMaximumCents:        150000,
+		RemainingMaximumCents:     remainingMaximumCents,
+		PreventiveCoveragePercent: 100,
+		BasicCoveragePercent:      80,
+		MajorCoveragePercent:      50,
+		WaitingPeriodMonths:       waitingPeriodMonths,
+		FrequencyLimit:            "2 cleanings per plan year; 1 panoramic image per 36 months",
+	}
 }
 
 func Generate275(claim domain.Claim, attachment domain.AttachmentRequest, relatedID string) domain.Transaction {
@@ -232,6 +262,11 @@ func transactionSegments(tx domain.Transaction) []string {
 			"RMR*IK*" + element(tx.SenderID) + "**" + cents(int64Value(payloadMap(tx), "amountCents")) + "~",
 		}
 	case domain.Tx270:
+		serviceType := payloadString(tx, "serviceType", "medical")
+		eqCode := "30"
+		if isDentalEligibility(serviceType) {
+			eqCode = "35"
+		}
 		return []string{
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
@@ -241,18 +276,27 @@ func transactionSegments(tx domain.Transaction) []string {
 			"HL*3*2*22*0~",
 			"NM1*IL*1*" + element(payloadString(tx, "adventurerId", "adventurer")) + "****MI*" + element(payloadString(tx, "adventurerId", tx.ID)) + "~",
 			"DTP*291*D8*" + tx.CreatedAt.Format("20060102") + "~",
-			"EQ*30~",
+			"EQ*" + eqCode + "~",
 		}
 	case domain.Tx271:
-		return []string{
+		serviceType := payloadString(tx, "serviceType", "medical")
+		ebCode := "30"
+		if isDentalEligibility(serviceType) {
+			ebCode = "35"
+		}
+		segments := []string{
 			"TRN*2*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*PR*2*" + element(tx.SenderID) + "*****PI*" + element(tx.SenderID) + "~",
 			"HL*2*1*22*0~",
 			"NM1*IL*1*" + element(tx.ReceiverID) + "****MI*" + element(tx.ReceiverID) + "~",
-			"EB*" + eligibilityCode(tx.Status) + "**30~",
+			"EB*" + eligibilityCode(tx.Status) + "**" + ebCode + "~",
 			"DTP*291*D8*" + tx.CreatedAt.Format("20060102") + "~",
 		}
+		if isDentalEligibility(serviceType) {
+			segments = append(segments, dentalEligibilitySegments(tx)...)
+		}
+		return segments
 	case domain.Tx275:
 		attachment := attachmentInfo(tx)
 		segments := []string{
@@ -667,6 +711,44 @@ func serviceLinesValue(payload map[string]any, key string) []domain.ClaimService
 
 func payloadString(tx domain.Transaction, key string, fallback string) string {
 	return stringValue(payloadMap(tx), key, fallback)
+}
+
+func eligibilityServiceType(serviceTypes ...string) string {
+	if len(serviceTypes) == 0 {
+		return "medical"
+	}
+	serviceType := strings.ToLower(strings.TrimSpace(serviceTypes[0]))
+	if serviceType == "" {
+		return "medical"
+	}
+	return serviceType
+}
+
+func isDentalEligibility(serviceType string) bool {
+	serviceType = strings.ToLower(strings.TrimSpace(serviceType))
+	return serviceType == "dental" || serviceType == "dental-eligibility"
+}
+
+func dentalEligibilitySegments(tx domain.Transaction) []string {
+	payload := payloadMap(tx)
+	value, ok := payload["dentalEligibility"]
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var detail domain.DentalEligibilityDetail
+	if err := json.Unmarshal(data, &detail); err != nil {
+		return nil
+	}
+	return []string{
+		"EB*B**35***23*" + cents(detail.AnnualMaximumCents) + "~",
+		"EB*C**35***29*" + cents(detail.RemainingMaximumCents) + "~",
+		"MSG*Preventive " + strconv.Itoa(detail.PreventiveCoveragePercent) + "% Basic " + strconv.Itoa(detail.BasicCoveragePercent) + "% Major " + strconv.Itoa(detail.MajorCoveragePercent) + "%~",
+		"MSG*Waiting period " + strconv.Itoa(detail.WaitingPeriodMonths) + " months; " + element(detail.FrequencyLimit) + "~",
+	}
 }
 
 func dental278Segments(tx domain.Transaction) []string {

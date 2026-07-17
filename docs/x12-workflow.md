@@ -109,6 +109,8 @@ Before treatment, a provider checks whether the adventurer is covered.
 
 In ASHN, active coverage returns an accepted `271`; inactive or unavailable coverage returns a denied-style response.
 
+ASHN also supports a dental eligibility flavor. A `270` request with `serviceType=dental` or raw `EQ*35` produces a `271` response with dental benefit details: annual maximum, remaining maximum, preventive/basic/major coverage percentages, waiting period, and frequency limits. In raw X12 display, the dental response uses service type `35` plus benefit/frequency `EB` and `MSG` segments so the demo can explain dental benefits before `278` predetermination or `837D` claim submission.
+
 ### 3. Prior Authorization: `278`
 
 Some services need approval before they happen or before they are reimbursed. ASHN models this with resurrection care because it is memorable and clearly high-stakes.

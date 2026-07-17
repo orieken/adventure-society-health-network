@@ -270,6 +270,19 @@ func TestAcceptRawX12RoutesEligibilityToPayerCore(t *testing.T) {
 	assert.Equal(t, "Raw X12 eligibility checked.", decodeEnvelope(t, response).Lore)
 }
 
+func TestParseRawX12MapsDentalEligibilityServiceType(t *testing.T) {
+	inbound, err := parseInboundRawX12([]byte(strings.Replace(raw270Fixture(), "EQ*30~", "EQ*35~", 1)))
+	require.NoError(t, err)
+	require.NotNil(t, inbound.EligibilityInquiry)
+	assert.Equal(t, "dental", inbound.EligibilityInquiry.ServiceType)
+
+	_, _, payload, err := inbound.toPayerRequest()
+	require.NoError(t, err)
+	request, ok := payload.(domain.EligibilityRequest)
+	require.True(t, ok)
+	assert.Equal(t, "dental", request.ServiceType)
+}
+
 func TestAcceptRawX12RoutesEnrollmentToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	var enrollmentRequest domain.EnrollmentRequest
@@ -686,6 +699,10 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 			body: `<AshnX12Transaction type="270"><EligibilityInquiry><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId></EligibilityInquiry></AshnX12Transaction>`,
 		},
 		{
+			name: "270 dental eligibility", wantMethod: http.MethodPost, wantPath: "/eligibility/query",
+			body: `<AshnX12Transaction type="270"><EligibilityInquiry><AdventurerId>adv-1</AdventurerId><ProviderId>provider-vitesse-temple</ProviderId><ServiceType>dental</ServiceType></EligibilityInquiry></AshnX12Transaction>`,
+		},
+		{
 			name: "275 attachment", wantMethod: http.MethodPost, wantPath: "/claims/claim-1/attachments",
 			body: `<AshnX12Transaction type="275"><Attachment><ClaimId>claim-1</ClaimId><ProviderId>provider-vitesse-temple</ProviderId><AttachmentType>OZ</AttachmentType><AttachmentControlNumber>ATTACH-1</AttachmentControlNumber><ReportTypeCode>B4</ReportTypeCode><TransmissionCode>EL</TransmissionCode><ContentType>text/plain</ContentType><Description>notes</Description><Content>content</Content></Attachment></AshnX12Transaction>`,
 		},
@@ -726,6 +743,26 @@ func TestInboundXMLMapsSupportedTransactionTypes(t *testing.T) {
 			assert.NotNil(t, payload)
 		})
 	}
+}
+
+func TestInboundXMLMapsDentalEligibilityDetail(t *testing.T) {
+	inbound, err := parseInboundXML([]byte(`
+<AshnX12Transaction type="270">
+  <EligibilityInquiry>
+    <AdventurerId>adv-1</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <ServiceType>dental</ServiceType>
+  </EligibilityInquiry>
+</AshnX12Transaction>`))
+	require.NoError(t, err)
+
+	method, path, payload, err := inbound.toPayerRequest()
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, method)
+	assert.Equal(t, "/eligibility/query", path)
+	request, ok := payload.(domain.EligibilityRequest)
+	require.True(t, ok)
+	assert.Equal(t, "dental", request.ServiceType)
 }
 
 func TestInboundXMLMapsDentalPriorAuthorizationDetail(t *testing.T) {

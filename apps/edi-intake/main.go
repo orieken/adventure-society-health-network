@@ -62,6 +62,7 @@ type xmlEnrollment struct {
 type xmlEligibility struct {
 	AdventurerID string `xml:"AdventurerId" json:"adventurerId"`
 	ProviderID   string `xml:"ProviderId" json:"providerId"`
+	ServiceType  string `xml:"ServiceType" json:"serviceType,omitempty"`
 }
 
 type xmlPriorAuth struct {
@@ -503,6 +504,9 @@ func raw270Eligibility(segmentMap map[string][][]string, senderID string) (xmlEl
 		AdventurerID: rawNM1ID(segmentMap, "IL"),
 		ProviderID:   firstNonEmpty(rawNM1ID(segmentMap, "1P"), rawNM1ID(segmentMap, "85"), senderID),
 	}
+	if rawServiceType(segmentMap) == "35" {
+		eligibility.ServiceType = "dental"
+	}
 	if eligibility.AdventurerID == "" {
 		return xmlEligibility{}, fmt.Errorf("missing subscriber NM1 segment")
 	}
@@ -525,6 +529,13 @@ func rawClaimReference(segmentMap map[string][][]string) string {
 		if len(ref) >= 3 && strings.EqualFold(strings.TrimSpace(ref[1]), "1K") {
 			return strings.TrimSpace(ref[2])
 		}
+	}
+	return ""
+}
+
+func rawServiceType(segmentMap map[string][][]string) string {
+	if eq := firstRawSegment(segmentMap, "EQ"); len(eq) > 1 {
+		return strings.TrimSpace(eq[1])
 	}
 	return ""
 }
@@ -932,6 +943,7 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 		return http.MethodPost, "/eligibility/query", domain.EligibilityRequest{
 			AdventurerID: strings.TrimSpace(t.EligibilityInquiry.AdventurerID),
 			ProviderID:   strings.TrimSpace(t.EligibilityInquiry.ProviderID),
+			ServiceType:  strings.TrimSpace(t.EligibilityInquiry.ServiceType),
 		}, nil
 	case domain.Tx275:
 		attachments, packetID, claimID, authorizationTransactionID, err := t.attachmentRequests()

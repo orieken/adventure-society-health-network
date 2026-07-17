@@ -132,7 +132,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
 - [x] Add more tests for denied and partially paid claim variants.
 - [x] Add dental data model fields for CDT code, tooth number, surface, quadrant, and orthodontic indicators on claim service lines plus optional prior-auth dental service detail.
-- [ ] Add dental eligibility detail to `270 → 271`, including dental benefit/service-type coverage, frequency limits, waiting periods, and annual maximum examples.
+- [x] Add dental eligibility detail to `270 → 271`, including dental benefit/service-type coverage, frequency limits, waiting periods, and annual maximum examples.
 - [x] Add `837D` dental claim support with CDT procedure codes, tooth/surface/quadrant fields, oral-cavity indicators, and dental-specific diagnosis/procedure validation.
 - [ ] Add dental `275` attachment packets for x-rays, perio charts, narratives, orthodontic records, and treatment-plan documents.
 - [ ] Add dental `835` remittance examples with CDT line-level allowed, paid, patient responsibility, adjustments, and denial reasons.

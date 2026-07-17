@@ -223,6 +223,16 @@ func TestGenerateEnrollmentEligibilityAuthAndStatusTransactions(t *testing.T) {
 	assert.Equal(t, domain.TxStatusAccepted, eligibleResponse.Status)
 	assert.Contains(t, eligibleResponse.RawX12, "EB*1")
 
+	dentalEligibilityRequest := Generate270(adventurer, provider, "dental")
+	assert.Contains(t, dentalEligibilityRequest.RawX12, "EQ*35")
+
+	dentalEligibilityResponse := Generate271(adventurer, true, "dental")
+	assert.Contains(t, dentalEligibilityResponse.RawX12, "EB*1**35")
+	assert.Contains(t, dentalEligibilityResponse.RawX12, "EB*B**35***23*1500.00")
+	assert.Contains(t, dentalEligibilityResponse.RawX12, "EB*C**35***29*1250.00")
+	assert.Contains(t, dentalEligibilityResponse.RawX12, "MSG*Preventive 100% Basic 80% Major 50%")
+	assert.Contains(t, string(dentalEligibilityResponse.Payload), `"dentalEligibility"`)
+
 	ineligibleResponse := Generate271(adventurer, false)
 	assert.Equal(t, domain.TxStatusDenied, ineligibleResponse.Status)
 	assert.Contains(t, ineligibleResponse.RawX12, "EB*6")

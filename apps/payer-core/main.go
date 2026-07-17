@@ -174,12 +174,19 @@ func (s *store) eligibility(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	inquiry := edimock.Generate270(adventurer, provider)
+	serviceType := strings.ToLower(strings.TrimSpace(req.ServiceType))
+	inquiry := edimock.Generate270(adventurer, provider, serviceType)
 	eligible := adventurer.CoverageStatus == domain.CoverageActive
-	response := edimock.Generate271(adventurer, eligible)
+	response := edimock.Generate271(adventurer, eligible, serviceType)
 	s.saveTransaction(inquiry)
 	s.saveTransaction(response)
 	data := map[string]any{"eligible": eligible, "coverageStatus": adventurer.CoverageStatus, "adventurerId": adventurer.ID, "providerId": provider.ID}
+	if serviceType != "" {
+		data["serviceType"] = serviceType
+	}
+	if serviceType == "dental" || serviceType == "dental-eligibility" {
+		data["dentalEligibility"] = edimock.DentalEligibility(adventurer, eligible)
+	}
 	respond(w, http.StatusOK, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx271, adventurer.Name, "Adventure Society"), Transactions: []domain.Transaction{inquiry, response}})
 }
 

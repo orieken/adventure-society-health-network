@@ -61,7 +61,7 @@ These stay inside ASHN's payer/provider learning mission and are good candidates
 
 | Expansion | X12 transactions | Why it belongs |
 | --- | --- | --- |
-| Dental eligibility detail | `270 → 271` | Extends eligibility with dental benefit/service-type detail instead of only active/inactive coverage. |
+| Dental eligibility detail | `270 → 271` | Returns dental service-type benefits with annual maximum, remaining maximum, coverage percentages, waiting period, and frequency limits. |
 | Dental prior authorization / predetermination | `278` | Supports a first dental predetermination slice with CDT/tooth/surface/quadrant fields; richer dental review rules remain future work. |
 | Dental claim submission | `837D → 277CA` | Submits CDT-coded dental claims with tooth, surface, quadrant, and orthodontic indicators while preserving acknowledgment flow. |
 | Dental attachments | `275` | Models x-rays, perio charts, narratives, orthodontic records, tooth/quadrant support, and solicited attachment traceability. |

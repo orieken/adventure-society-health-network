@@ -100,6 +100,34 @@ func TestEligibilityReturns270And271Pair(t *testing.T) {
 	assert.Len(t, app.transactions, 2)
 }
 
+func TestDentalEligibilityReturnsBenefitDetails(t *testing.T) {
+	app := newTestStore()
+	adventurer := domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankGold, CoverageStatus: domain.CoverageActive}
+	app.adventurers[adventurer.ID] = adventurer
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/eligibility/query", domain.EligibilityRequest{
+		AdventurerID: adventurer.ID,
+		ProviderID:   "provider-vitesse-temple",
+		ServiceType:  "dental",
+	})
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.Len(t, envelope.Transactions, 2)
+	assert.Contains(t, envelope.Transactions[0].RawX12, "EQ*35")
+	assert.Contains(t, envelope.Transactions[1].RawX12, "EB*1**35")
+	assert.Contains(t, envelope.Transactions[1].RawX12, "EB*B**35***23*1500.00")
+	var data map[string]any
+	require.NoError(t, json.Unmarshal(envelope.Data, &data))
+	assert.Equal(t, "dental", data["serviceType"])
+	dentalEligibility, ok := data["dentalEligibility"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(150000), dentalEligibility["annualMaximumCents"])
+	assert.Equal(t, float64(150000), dentalEligibility["remainingMaximumCents"])
+	assert.Equal(t, float64(0), dentalEligibility["waitingPeriodMonths"])
+}
+
 func TestGetAdventurerReturnsDetailAndNotFound(t *testing.T) {
 	app := newTestStore()
 	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankIron}

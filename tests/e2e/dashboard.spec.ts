@@ -546,6 +546,23 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latestEvent.getByText("D7240")).toBeVisible();
   });
 
+  test("checks dental eligibility with benefit limits", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Send 834 Enrollment/i }).click();
+    await page.getByRole("button", { name: /270 → 271 Dental Eligibility/i }).click();
+
+    const latestEvent = page.locator(".event").first();
+    await expect(latestEvent.getByText("270 · Dispatched")).toBeVisible();
+    await expect(latestEvent.getByText("271 · Accepted")).toBeVisible();
+    await expect(latestEvent.locator("p").filter({ hasText: "Dental eligibility checked." })).toBeVisible();
+    await latestEvent.getByText("Raw payload").click();
+    await expect(latestEvent.getByText("annualMaximumCents")).toBeVisible();
+    await expect(latestEvent.getByText("remainingMaximumCents")).toBeVisible();
+    await expect(latestEvent.getByText("2 cleanings per plan year")).toBeVisible();
+  });
+
   test("submits an 837D dental claim with CDT tooth details", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -797,6 +814,73 @@ async function mockDashboardApi(page: Page) {
             payload: { x12: "820 premium workflow fixture", adventurerId: "adv-e2e-dashboard", amountCents: "5000" },
             rawX12: "ST*820*workflow-premium~BPR*C*50.00~SE*3*workflow-premium~"
           }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/eligibility" && route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { adventurerId: string; providerId: string; serviceType?: string };
+      const isDental = body.serviceType === "dental";
+      await route.fulfill({
+        json: {
+          data: {
+            eligible: true,
+            coverageStatus: "Active",
+            adventurerId: body.adventurerId,
+            providerId: body.providerId,
+            serviceType: body.serviceType,
+            ...(isDental
+              ? {
+                  dentalEligibility: {
+                    serviceType: "dental",
+                    annualMaximumCents: 150000,
+                    remainingMaximumCents: 150000,
+                    preventiveCoveragePercent: 100,
+                    basicCoveragePercent: 80,
+                    majorCoveragePercent: 50,
+                    waitingPeriodMonths: 0,
+                    frequencyLimit: "2 cleanings per plan year; 1 panoramic image per 36 months"
+                  }
+                }
+              : {})
+          },
+          lore: isDental ? "Dental eligibility checked." : "Eligibility checked.",
+          transactions: [
+            {
+              ...demoTransactions.find((transaction) => transaction.type === "270"),
+              id: isDental ? "tx-e2e-270-dental" : "tx-e2e-270-workflow",
+              payload: { x12: isDental ? "270 dental eligibility fixture" : "270 eligibility fixture", adventurerId: body.adventurerId, providerId: body.providerId, serviceType: body.serviceType },
+              rawX12: isDental ? "ST*270*dental~EQ*35~SE*3*dental~" : demoTransactions.find((transaction) => transaction.type === "270")!.rawX12
+            },
+            {
+              ...demoTransactions.find((transaction) => transaction.type === "271"),
+              id: isDental ? "tx-e2e-271-dental" : "tx-e2e-271-workflow",
+              status: "Accepted",
+              payload: {
+                x12: isDental ? "271 dental benefit response fixture" : "271 eligibility response fixture",
+                adventurerId: body.adventurerId,
+                eligible: true,
+                coverageStatus: "Active",
+                serviceType: body.serviceType,
+                ...(isDental
+                  ? {
+                      dentalEligibility: {
+                        serviceType: "dental",
+                        annualMaximumCents: 150000,
+                        remainingMaximumCents: 150000,
+                        preventiveCoveragePercent: 100,
+                        basicCoveragePercent: 80,
+                        majorCoveragePercent: 50,
+                        waitingPeriodMonths: 0,
+                        frequencyLimit: "2 cleanings per plan year; 1 panoramic image per 36 months"
+                      }
+                    }
+                  : {})
+              },
+              rawX12: isDental ? "ST*271*dental~EB*1**35~EB*B**35***23*1500.00~EB*C**35***29*1500.00~MSG*Preventive 100% Basic 80% Major 50%~SE*6*dental~" : demoTransactions.find((transaction) => transaction.type === "271")!.rawX12
+            }
+          ]
         }
       });
       return;
