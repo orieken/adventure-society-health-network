@@ -516,6 +516,10 @@ func TestAcceptRawX12RoutesAttachmentToPayerCore(t *testing.T) {
 	assert.Equal(t, "OZ", attachmentRequest.AttachmentType)
 	assert.Equal(t, "unsolicited", attachmentRequest.AttachmentPurpose)
 	assert.Equal(t, "trace-raw-275", attachmentRequest.AttachmentTraceID)
+	assert.Equal(t, "TXT", attachmentRequest.AttachmentFormatCode)
+	assert.Equal(t, "DOC", attachmentRequest.AttachmentObjectType)
+	assert.Equal(t, "ASC", attachmentRequest.AttachmentEncoding)
+	assert.Equal(t, "2026-07-18", attachmentRequest.AttachmentServiceDate)
 	assert.Equal(t, "ATTACH-RAW-1", attachmentRequest.AttachmentControlNumber)
 	assert.Equal(t, "B4", attachmentRequest.ReportTypeCode)
 	assert.Equal(t, "EL", attachmentRequest.TransmissionCode)
@@ -943,6 +947,10 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	assert.Equal(t, "claim-raw-1", attachment.Attachment.ClaimID)
 	assert.Equal(t, "unsolicited", attachment.Attachment.AttachmentPurpose)
 	assert.Equal(t, "trace-raw-275", attachment.Attachment.AttachmentTraceID)
+	assert.Equal(t, "TXT", attachment.Attachment.AttachmentFormatCode)
+	assert.Equal(t, "DOC", attachment.Attachment.AttachmentObjectType)
+	assert.Equal(t, "ASC", attachment.Attachment.AttachmentEncoding)
+	assert.Equal(t, "2026-07-18", attachment.Attachment.AttachmentServiceDate)
 	assert.Equal(t, "ATTACH-RAW-1", attachment.Attachment.AttachmentControlNumber)
 
 	payment, err := parseInboundRawX12([]byte(raw835Fixture()))
@@ -1944,7 +1952,13 @@ func raw275Fixture() string {
 		"REF*1K*claim-raw-1~",
 		"REF*6R*ATTACH-RAW-1~",
 		"REF*F8*packet-raw-1-OF-1~",
+		"TRN*2*ATTACH-RAW-1*provider-vitesse-temple~",
+		"DTP*472*D8*20260718~",
+		"LX*1~",
 		"PWK*B4*EL***AC*ATTACH-RAW-1~",
+		"CAT*B4*TXT~",
+		"OOI*DOC*ATTACH-RAW-1~",
+		"BDS*ASC**Content-Type: text/plain~",
 		"LQ*AT*OZ~",
 		"K3*Content-Type: text/plain~",
 		"NTE*ADD*Raw resurrection notes~",

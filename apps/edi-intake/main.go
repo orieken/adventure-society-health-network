@@ -120,6 +120,10 @@ type xmlAttachment struct {
 	ProviderID                 string `xml:"ProviderId" json:"providerId"`
 	AttachmentPurpose          string `xml:"AttachmentPurpose" json:"attachmentPurpose,omitempty"`
 	AttachmentTraceID          string `xml:"AttachmentTraceId" json:"attachmentTraceId,omitempty"`
+	AttachmentFormatCode       string `xml:"AttachmentFormatCode" json:"attachmentFormatCode,omitempty"`
+	AttachmentObjectType       string `xml:"AttachmentObjectType" json:"attachmentObjectType,omitempty"`
+	AttachmentEncoding         string `xml:"AttachmentEncoding" json:"attachmentEncoding,omitempty"`
+	AttachmentServiceDate      string `xml:"AttachmentServiceDate" json:"attachmentServiceDate,omitempty"`
 	AttachmentType             string `xml:"AttachmentType" json:"attachmentType"`
 	AttachmentControlNumber    string `xml:"AttachmentControlNumber" json:"attachmentControlNumber"`
 	ReportTypeCode             string `xml:"ReportTypeCode" json:"reportTypeCode"`
@@ -742,6 +746,24 @@ func raw275Attachment(segmentMap map[string][][]string, senderID string) (xmlAtt
 			attachment.AttachmentControlNumber = strings.TrimSpace(pwk[6])
 		}
 	}
+	if dtp := firstRawSegment(segmentMap, "DTP"); len(dtp) > 3 && strings.TrimSpace(dtp[1]) == "472" {
+		attachment.AttachmentServiceDate = rawDate(dtp[3])
+	}
+	if cat := firstRawSegment(segmentMap, "CAT"); len(cat) > 2 {
+		if attachment.ReportTypeCode == "" {
+			attachment.ReportTypeCode = strings.TrimSpace(cat[1])
+		}
+		attachment.AttachmentFormatCode = strings.TrimSpace(cat[2])
+	}
+	if ooi := firstRawSegment(segmentMap, "OOI"); len(ooi) > 1 {
+		attachment.AttachmentObjectType = strings.TrimSpace(ooi[1])
+	}
+	if bds := firstRawSegment(segmentMap, "BDS"); len(bds) > 1 {
+		attachment.AttachmentEncoding = strings.TrimSpace(bds[1])
+		if len(bds) > 3 && attachment.ContentType == "" {
+			applyRawK3(&attachment, bds[3])
+		}
+	}
 	if lq := firstRawSegment(segmentMap, "LQ"); len(lq) > 2 {
 		attachment.AttachmentType = strings.TrimSpace(lq[2])
 	}
@@ -854,6 +876,14 @@ func rawAmountCents(value string) string {
 		return ""
 	}
 	return strconv.FormatInt(amount*100, 10)
+}
+
+func rawDate(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) == 8 {
+		return value[:4] + "-" + value[4:6] + "-" + value[6:]
+	}
+	return value
 }
 
 func raw820AmountCents(segmentMap map[string][][]string) string {
@@ -1227,6 +1257,10 @@ func (t inboundTransaction) attachmentRequests() ([]domain.AttachmentRequest, st
 			PacketCount:             count,
 			AttachmentPurpose:       strings.TrimSpace(attachment.AttachmentPurpose),
 			AttachmentTraceID:       strings.TrimSpace(attachment.AttachmentTraceID),
+			AttachmentFormatCode:    strings.TrimSpace(attachment.AttachmentFormatCode),
+			AttachmentObjectType:    strings.TrimSpace(attachment.AttachmentObjectType),
+			AttachmentEncoding:      strings.TrimSpace(attachment.AttachmentEncoding),
+			AttachmentServiceDate:   strings.TrimSpace(attachment.AttachmentServiceDate),
 			AttachmentType:          strings.TrimSpace(attachment.AttachmentType),
 			AttachmentControlNumber: strings.TrimSpace(attachment.AttachmentControlNumber),
 			ReportTypeCode:          strings.TrimSpace(attachment.ReportTypeCode),

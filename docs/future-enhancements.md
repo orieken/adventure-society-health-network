@@ -145,7 +145,7 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [x] Model explicit `275` purpose: unsolicited `BGN01=02` versus solicited `BGN01=11`.
 - [x] Add solicited `275` trace correlation where response `TRN02` matches the payer's `277` request trace.
 - [ ] Preserve the app's current claim/auth attachment path while adding a closer `006020X314` envelope shape.
-- [ ] Generate and parse core `275` structures from the companion guides: `BGN`, `1000A/B/C/D`, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.
+- [x] Generate and parse core `275` structures from the companion guides: `BGN`, `1000A/B/C/D`, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.
 - [ ] Support `BDS01` encoding modes and MIME packaging rules for `ASC` and `B64` attachment payloads.
 - [ ] Validate file extension, MIME type, content-type match, and single-part MIME requirements.
 - [ ] Add configurable attachment size limits, packet/LX limits, and duplicate attachment-control-number detection.

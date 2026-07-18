@@ -87,6 +87,10 @@ func Generate275(claim domain.Claim, attachment domain.AttachmentRequest, relate
 		"packetCount":             attachment.PacketCount,
 		"attachmentPurpose":       attachmentPurpose(attachment.AttachmentPurpose, "unsolicited"),
 		"attachmentTraceId":       attachmentTraceID(attachment.AttachmentTraceID, relatedID),
+		"attachmentFormatCode":    attachmentFormatCode(attachment.AttachmentFormatCode, attachment.ContentType),
+		"attachmentObjectType":    attachmentObjectType(attachment.AttachmentObjectType),
+		"attachmentEncoding":      attachmentEncoding(attachment.AttachmentEncoding, attachment.Content),
+		"attachmentServiceDate":   attachment.AttachmentServiceDate,
 		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
 		"reportTypeCode": attachment.ReportTypeCode, "transmissionCode": attachment.TransmissionCode,
 		"contentType": attachment.ContentType, "documentReferenceId": attachment.DocumentReferenceID,
@@ -109,6 +113,10 @@ func Generate275ForAuthorization(auth domain.Transaction, attachment domain.Atta
 		"packetCount":             attachment.PacketCount,
 		"attachmentPurpose":       attachmentPurpose(attachment.AttachmentPurpose, "solicited"),
 		"attachmentTraceId":       attachmentTraceID(attachment.AttachmentTraceID, auth.ID),
+		"attachmentFormatCode":    attachmentFormatCode(attachment.AttachmentFormatCode, attachment.ContentType),
+		"attachmentObjectType":    attachmentObjectType(attachment.AttachmentObjectType),
+		"attachmentEncoding":      attachmentEncoding(attachment.AttachmentEncoding, attachment.Content),
+		"attachmentServiceDate":   attachment.AttachmentServiceDate,
 		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
 		"reportTypeCode": attachment.ReportTypeCode, "transmissionCode": attachment.TransmissionCode,
 		"contentType": attachment.ContentType, "documentReferenceId": attachment.DocumentReferenceID,
@@ -313,7 +321,13 @@ func transactionSegments(tx domain.Transaction) []string {
 			attachmentReferenceSegment(attachment),
 			"REF*6R*" + element(attachment.ControlNumber) + "~",
 			attachmentPacketSegment(attachment),
+			"TRN*2*" + element(attachment.ControlNumber) + "*" + element(tx.SenderID) + "~",
+			"DTP*472*D8*" + attachmentServiceDate(attachment, tx.CreatedAt) + "~",
+			"LX*" + strconv.Itoa(attachmentLoopNumber(attachment)) + "~",
 			"PWK*" + element(attachment.ReportTypeCode) + "*" + element(attachment.TransmissionCode) + "***AC*" + element(attachment.ControlNumber) + "~",
+			"CAT*" + element(attachment.ReportTypeCode) + "*" + element(attachmentFormatCode(attachment.FormatCode, attachment.ContentType)) + "~",
+			"OOI*" + element(attachmentObjectType(attachment.ObjectType)) + "*" + element(attachment.ControlNumber) + "~",
+			"BDS*" + element(attachmentEncoding(attachment.Encoding, attachment.Content)) + "**" + element(attachmentContentDescriptor(attachment)) + "~",
 			"LQ*AT*" + element(attachment.AttachmentType) + "~",
 			documentReferenceSegment(attachment),
 			"NTE*ADD*" + element(attachment.Description) + "~",
@@ -503,6 +517,10 @@ type x12AttachmentInfo struct {
 	PacketCount                int
 	Purpose                    string
 	TraceID                    string
+	FormatCode                 string
+	ObjectType                 string
+	Encoding                   string
+	ServiceDate                string
 	AttachmentType             string
 	ControlNumber              string
 	ReportTypeCode             string
@@ -538,6 +556,10 @@ func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
 	info.PacketCount = intValue(payload, "packetCount", info.PacketCount)
 	info.Purpose = stringValue(payload, "attachmentPurpose", info.Purpose)
 	info.TraceID = stringValue(payload, "attachmentTraceId", info.TraceID)
+	info.FormatCode = stringValue(payload, "attachmentFormatCode", info.FormatCode)
+	info.ObjectType = stringValue(payload, "attachmentObjectType", info.ObjectType)
+	info.Encoding = stringValue(payload, "attachmentEncoding", info.Encoding)
+	info.ServiceDate = stringValue(payload, "attachmentServiceDate", info.ServiceDate)
 	info.AttachmentType = stringValue(payload, "attachmentType", info.AttachmentType)
 	info.ControlNumber = stringValue(payload, "attachmentControlNumber", info.ControlNumber)
 	info.ReportTypeCode = stringValue(payload, "reportTypeCode", info.ReportTypeCode)
@@ -747,6 +769,69 @@ func bgnPurposeCode(purpose string) string {
 	default:
 		return "02"
 	}
+}
+
+func attachmentFormatCode(formatCode string, contentType string) string {
+	formatCode = strings.ToUpper(strings.TrimSpace(formatCode))
+	if formatCode != "" {
+		return formatCode
+	}
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	switch {
+	case strings.Contains(contentType, "pdf"):
+		return "PDF"
+	case strings.Contains(contentType, "image"), strings.Contains(contentType, "tiff"):
+		return "IMG"
+	default:
+		return "TXT"
+	}
+}
+
+func attachmentObjectType(objectType string) string {
+	objectType = strings.ToUpper(strings.TrimSpace(objectType))
+	if objectType == "" {
+		return "DOC"
+	}
+	return objectType
+}
+
+func attachmentEncoding(encoding string, content string) string {
+	encoding = strings.ToUpper(strings.TrimSpace(encoding))
+	if encoding == "ASC" || encoding == "B64" {
+		return encoding
+	}
+	if strings.TrimSpace(content) == "" {
+		return "REF"
+	}
+	return "ASC"
+}
+
+func attachmentServiceDate(attachment x12AttachmentInfo, createdAt time.Time) string {
+	date := strings.TrimSpace(attachment.ServiceDate)
+	if len(date) == 10 && date[4] == '-' && date[7] == '-' {
+		return strings.ReplaceAll(date, "-", "")
+	}
+	if len(date) == 8 {
+		return date
+	}
+	return createdAt.Format("20060102")
+}
+
+func attachmentLoopNumber(attachment x12AttachmentInfo) int {
+	if attachment.PacketSequence > 0 {
+		return attachment.PacketSequence
+	}
+	return 1
+}
+
+func attachmentContentDescriptor(attachment x12AttachmentInfo) string {
+	if strings.TrimSpace(attachment.DocumentReferenceURL) != "" {
+		return "Document-Reference: " + strings.TrimSpace(attachment.DocumentReferenceURL)
+	}
+	if strings.TrimSpace(attachment.ContentType) != "" {
+		return "Content-Type: " + strings.TrimSpace(attachment.ContentType)
+	}
+	return "ASHN attachment payload"
 }
 
 func firstNonEmptyString(values ...string) string {

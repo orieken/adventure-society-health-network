@@ -340,6 +340,10 @@ type AttachmentRequest struct {
 	PacketCount             int    `json:"packetCount,omitempty"`
 	AttachmentPurpose       string `json:"attachmentPurpose,omitempty"`
 	AttachmentTraceID       string `json:"attachmentTraceId,omitempty"`
+	AttachmentFormatCode    string `json:"attachmentFormatCode,omitempty"`
+	AttachmentObjectType    string `json:"attachmentObjectType,omitempty"`
+	AttachmentEncoding      string `json:"attachmentEncoding,omitempty"`
+	AttachmentServiceDate   string `json:"attachmentServiceDate,omitempty"`
 	AttachmentType          string `json:"attachmentType"`
 	AttachmentControlNumber string `json:"attachmentControlNumber"`
 	ReportTypeCode          string `json:"reportTypeCode"`

@@ -569,6 +569,10 @@ func normalizeAttachmentRequest(req domain.AttachmentRequest) domain.AttachmentR
 	req.PacketID = strings.TrimSpace(req.PacketID)
 	req.AttachmentPurpose = normalizeAttachmentPurpose(req.AttachmentPurpose)
 	req.AttachmentTraceID = strings.TrimSpace(req.AttachmentTraceID)
+	req.AttachmentFormatCode = strings.ToUpper(strings.TrimSpace(req.AttachmentFormatCode))
+	req.AttachmentObjectType = strings.ToUpper(strings.TrimSpace(req.AttachmentObjectType))
+	req.AttachmentEncoding = strings.ToUpper(strings.TrimSpace(req.AttachmentEncoding))
+	req.AttachmentServiceDate = strings.TrimSpace(req.AttachmentServiceDate)
 	req.AttachmentType = strings.TrimSpace(req.AttachmentType)
 	req.AttachmentControlNumber = strings.TrimSpace(req.AttachmentControlNumber)
 	req.ReportTypeCode = strings.TrimSpace(req.ReportTypeCode)
@@ -667,6 +671,10 @@ func addAttachmentSummary(data map[string]any, requests []domain.AttachmentReque
 	data["description"] = req.Description
 	data["attachmentPurpose"] = req.AttachmentPurpose
 	data["attachmentTraceId"] = req.AttachmentTraceID
+	data["attachmentFormatCode"] = req.AttachmentFormatCode
+	data["attachmentObjectType"] = req.AttachmentObjectType
+	data["attachmentEncoding"] = req.AttachmentEncoding
+	data["attachmentServiceDate"] = req.AttachmentServiceDate
 	data["documentReferenceId"] = req.DocumentReferenceID
 	data["documentReferenceUrl"] = req.DocumentReferenceURL
 }
@@ -683,6 +691,9 @@ func validateAttachmentRequest(req domain.AttachmentRequest) error {
 	}
 	if req.AttachmentPurpose != "" && req.AttachmentPurpose != "solicited" && req.AttachmentPurpose != "unsolicited" {
 		return fmt.Errorf("attachment purpose must be solicited or unsolicited")
+	}
+	if req.AttachmentEncoding != "" && req.AttachmentEncoding != "ASC" && req.AttachmentEncoding != "B64" && req.AttachmentEncoding != "REF" {
+		return fmt.Errorf("attachment encoding must be ASC, B64, or REF")
 	}
 	return nil
 }

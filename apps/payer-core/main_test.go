@@ -477,6 +477,10 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
 		AttachmentPurpose:       "02",
 		AttachmentTraceID:       "trace-837",
+		AttachmentFormatCode:    "TXT",
+		AttachmentObjectType:    "DOC",
+		AttachmentEncoding:      "ASC",
+		AttachmentServiceDate:   "2026-07-18",
 		AttachmentType:          "OZ",
 		AttachmentControlNumber: "ATTACH-1",
 		ReportTypeCode:          "B4",
@@ -493,9 +497,14 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	assert.Equal(t, "tx-837", envelope.Transaction.RelatedID)
 	assert.Contains(t, envelope.Transaction.RawX12, "ST*275")
 	assert.Contains(t, envelope.Transaction.RawX12, "BGN*02*trace-837")
+	assert.Contains(t, envelope.Transaction.RawX12, "DTP*472*D8*20260718")
+	assert.Contains(t, envelope.Transaction.RawX12, "CAT*B4*TXT")
+	assert.Contains(t, envelope.Transaction.RawX12, "OOI*DOC*ATTACH-1")
+	assert.Contains(t, envelope.Transaction.RawX12, "BDS*ASC**Content-Type: text/plain")
 	assert.Contains(t, envelope.Transaction.RawX12, "PWK*B4*EL***AC*ATTACH-1")
 	assert.Contains(t, envelope.Transaction.RawX12, "LQ*AT*OZ")
 	assert.Contains(t, string(envelope.Data), "unsolicited")
+	assert.Contains(t, string(envelope.Data), "2026-07-18")
 }
 
 func TestAttachClaimInformationAcceptsExternalDocumentReference(t *testing.T) {

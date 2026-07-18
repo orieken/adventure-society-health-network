@@ -127,6 +127,10 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 		PacketID:                "packet-claim-1",
 		PacketSequence:          1,
 		PacketCount:             2,
+		AttachmentFormatCode:    "TXT",
+		AttachmentObjectType:    "DOC",
+		AttachmentEncoding:      "ASC",
+		AttachmentServiceDate:   "2026-07-18",
 		AttachmentType:          "OZ",
 		AttachmentControlNumber: "ATTACH-1",
 		ReportTypeCode:          "B4",
@@ -144,7 +148,12 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "REF*1K*claim-1")
 	assert.Contains(t, tx.RawX12, "REF*6R*ATTACH-1")
 	assert.Contains(t, tx.RawX12, "REF*F8*packet-claim-1-1-OF-2")
+	assert.Contains(t, tx.RawX12, "DTP*472*D8*20260718")
+	assert.Contains(t, tx.RawX12, "LX*1")
 	assert.Contains(t, tx.RawX12, "PWK*B4*EL***AC*ATTACH-1")
+	assert.Contains(t, tx.RawX12, "CAT*B4*TXT")
+	assert.Contains(t, tx.RawX12, "OOI*DOC*ATTACH-1")
+	assert.Contains(t, tx.RawX12, "BDS*ASC**Content-Type: text/plain")
 	assert.Contains(t, tx.RawX12, "LQ*AT*OZ")
 	assert.Contains(t, tx.RawX12, "K3*Content-Type: text/plain")
 	assert.Contains(t, tx.RawX12, "BIN*")
