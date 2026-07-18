@@ -152,7 +152,8 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [x] Validate partner-configured attachment file extensions.
 - [x] Validate declared content type against attachment file extension.
 - [ ] Validate MIME sniffing and full single-part MIME requirements.
-- [ ] Add configurable attachment size limits, packet/LX limits, and duplicate attachment-control-number detection.
+- [x] Add duplicate attachment-control-number detection by claim/request context.
+- [ ] Add configurable attachment size limits and packet/LX limits.
 - [ ] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.
 - [ ] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.
 - [ ] Add `824` application reporting for attachment validation failures while keeping `999` for syntax acknowledgment.

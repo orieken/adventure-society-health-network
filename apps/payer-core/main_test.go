@@ -272,6 +272,30 @@ func TestAttachAuthorizationInformationValidatesTargetAndAttachment(t *testing.T
 	assert.Equal(t, "invalid attachment", decodeEnvelope(t, invalid).Error)
 }
 
+func TestAttachAuthorizationInformationRejectsDuplicateControlNumber(t *testing.T) {
+	app := newTestStore()
+	app.transactions["tx-278"] = domain.Transaction{ID: "tx-278", Type: domain.Tx278, Status: domain.TxStatusPending, SenderID: "provider-vitesse-temple", Payload: []byte(`{"providerId":"provider-vitesse-temple"}`)}
+	app.transactions["tx-275-auth"] = domain.Transaction{
+		ID:      "tx-275-auth",
+		Type:    domain.Tx275,
+		Payload: domain.Payload(map[string]any{"authorizationTransactionId": "tx-278", "attachmentControlNumber": "ATTACH-AUTH-1"}),
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-278/attachments", domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-AUTH-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Medical necessity notes",
+		Content:                 "Resurrection encounter notes and healer attestation.",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "already submitted for this authorization")
+}
+
 func TestEligibilityMissingReferencesReturnErrors(t *testing.T) {
 	app := newTestStore()
 	mux := newPayerTestMux(app)
@@ -742,6 +766,46 @@ func TestAttachClaimInformationAcceptsAttachmentPacket(t *testing.T) {
 	assert.Equal(t, float64(2), payloadValueForTest(t, envelope.Transactions[1].Payload, "packetSequence"))
 	assert.Contains(t, envelope.Transactions[1].RawX12, "REF*F8*packet-claim-1-2-OF-2")
 	assert.Contains(t, string(envelope.Data), `"attachmentCount":2`)
+}
+
+func TestAttachClaimInformationRejectsDuplicateControlNumbers(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimSubmitted,
+	}
+	app.transactions["tx-275-existing"] = domain.Transaction{
+		ID:      "tx-275-existing",
+		Type:    domain.Tx275,
+		Payload: domain.Payload(map[string]any{"claimId": "claim-1", "attachmentControlNumber": "ATTACH-OLD-1"}),
+	}
+	mux := newPayerTestMux(app)
+
+	duplicatePacket := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentPacketRequest{
+		PacketID: "packet-claim-dup",
+		Attachments: []domain.AttachmentRequest{
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-DUP-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "First note", Content: "first"},
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-DUP-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Second note", Content: "second"},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, duplicatePacket.Code)
+	assert.Contains(t, decodeEnvelope(t, duplicatePacket).Lore, "duplicate attachment control number ATTACH-DUP-1 in packet")
+
+	repeatedPriorControl := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-OLD-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Repeat note",
+		Content:                 "repeat",
+	})
+	assert.Equal(t, http.StatusBadRequest, repeatedPriorControl.Code)
+	assert.Contains(t, decodeEnvelope(t, repeatedPriorControl).Lore, "already submitted for this claim")
+	assert.Len(t, app.transactions, 1)
 }
 
 func TestReviewAttachmentUpdatesPayloadWithoutChangingTransactionAcceptance(t *testing.T) {

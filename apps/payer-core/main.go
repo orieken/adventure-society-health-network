@@ -256,14 +256,22 @@ func (s *store) attachAuthorizationInformation(w http.ResponseWriter, r *http.Re
 		fail(w, http.StatusBadRequest, "invalid authorization transaction", "Only 278 prior authorization runes can receive 275 attachments here.")
 		return
 	}
+	normalizeAttachmentRequests(requests)
+	if err := validateAttachmentPacketControls(requests); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		return
+	}
+	if err := s.validatePriorAttachmentControls("authorizationTransactionId", auth.ID, requests); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		return
+	}
 	providerID := transactionPayloadString(auth, "providerId")
 	if providerID == "" {
 		providerID = auth.SenderID
 	}
 	txs := make([]domain.Transaction, 0, len(requests))
 	for index, req := range requests {
-		req = normalizeAttachmentRequest(req)
-		requests[index] = req
+		req = requests[index]
 		if err := validateAttachmentRequest(req); err != nil {
 			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 			return
@@ -477,10 +485,18 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "claim not found", "The attachment scribe could not locate that claim.")
 		return
 	}
+	normalizeAttachmentRequests(requests)
+	if err := validateAttachmentPacketControls(requests); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		return
+	}
+	if err := s.validatePriorAttachmentControls("claimId", claim.ID, requests); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		return
+	}
 	txs := make([]domain.Transaction, 0, len(requests))
 	for index, req := range requests {
-		req = normalizeAttachmentRequest(req)
-		requests[index] = req
+		req = requests[index]
 		if err := validateAttachmentRequest(req); err != nil {
 			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 			return
@@ -588,6 +604,12 @@ func normalizeAttachmentRequest(req domain.AttachmentRequest) domain.AttachmentR
 	return req
 }
 
+func normalizeAttachmentRequests(requests []domain.AttachmentRequest) {
+	for index := range requests {
+		requests[index] = normalizeAttachmentRequest(requests[index])
+	}
+}
+
 func normalizeAttachmentPurpose(purpose string) string {
 	purpose = strings.ToLower(strings.TrimSpace(purpose))
 	switch purpose {
@@ -645,6 +667,64 @@ func normalizeAttachmentPacket(packet domain.AttachmentPacketRequest) []domain.A
 		}
 	}
 	return requests
+}
+
+func validateAttachmentPacketControls(requests []domain.AttachmentRequest) error {
+	seen := map[string]string{}
+	for _, req := range requests {
+		controlNumber := strings.TrimSpace(req.AttachmentControlNumber)
+		if controlNumber == "" {
+			continue
+		}
+		key := strings.ToUpper(controlNumber)
+		if first := seen[key]; first != "" {
+			return fmt.Errorf("duplicate attachment control number %s in packet", first)
+		}
+		seen[key] = controlNumber
+	}
+	return nil
+}
+
+func (s *store) validatePriorAttachmentControls(contextKey, contextValue string, requests []domain.AttachmentRequest) error {
+	contextValue = strings.TrimSpace(contextValue)
+	if contextValue == "" {
+		return nil
+	}
+	controls := map[string]string{}
+	for _, req := range requests {
+		controlNumber := strings.TrimSpace(req.AttachmentControlNumber)
+		if controlNumber != "" {
+			controls[strings.ToUpper(controlNumber)] = controlNumber
+		}
+	}
+	if len(controls) == 0 {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, tx := range s.transactions {
+		if tx.Type != domain.Tx275 {
+			continue
+		}
+		if !strings.EqualFold(transactionPayloadString(tx, contextKey), contextValue) {
+			continue
+		}
+		existingControl := strings.TrimSpace(transactionPayloadString(tx, "attachmentControlNumber"))
+		if existingControl == "" {
+			continue
+		}
+		if requestedControl := controls[strings.ToUpper(existingControl)]; requestedControl != "" {
+			return fmt.Errorf("attachment control number %s was already submitted for this %s", requestedControl, attachmentContextLabel(contextKey))
+		}
+	}
+	return nil
+}
+
+func attachmentContextLabel(contextKey string) string {
+	if contextKey == "authorizationTransactionId" {
+		return "authorization"
+	}
+	return "claim"
 }
 
 func packetIDFor(requests []domain.AttachmentRequest) string {
