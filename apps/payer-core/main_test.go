@@ -548,6 +548,13 @@ func TestAttachClaimInformationValidatesBDSAttachmentEncoding(t *testing.T) {
 		TransactionID: "tx-837",
 		Status:        domain.ClaimSubmitted,
 	}
+	app.claims["claim-rim"] = domain.Claim{
+		ID:            "claim-rim",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-rimaros-hospital",
+		TransactionID: "tx-837-rim",
+		Status:        domain.ClaimSubmitted,
+	}
 	mux := newPayerTestMux(app)
 	baseRequest := domain.AttachmentRequest{
 		AttachmentType:          "OZ",
@@ -584,6 +591,24 @@ func TestAttachClaimInformationValidatesBDSAttachmentEncoding(t *testing.T) {
 	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", disallowedFileExtension)
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, decodeEnvelope(t, response).Lore, "file extension .exe is not allowed")
+
+	contentTypeMismatch := baseRequest
+	contentTypeMismatch.AttachmentType = "PN"
+	contentTypeMismatch.AttachmentControlNumber = "RIM-BDS-1"
+	contentTypeMismatch.ReportTypeCode = "03"
+	contentTypeMismatch.FileName = "operative-note.txt"
+	contentTypeMismatch.ContentType = "application/pdf"
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-rim/attachments", contentTypeMismatch)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "does not match file extension .txt")
+
+	multipartBase64 := baseRequest
+	multipartBase64.AttachmentEncoding = "B64"
+	multipartBase64.FileName = "dragonfire-notes.txt"
+	multipartBase64.Content = base64.StdEncoding.EncodeToString([]byte("Content-Type: multipart/mixed; boundary=ASHN\r\n\r\n--ASHN"))
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", multipartBase64)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "single-part MIME packaging")
 
 	validBase64 := baseRequest
 	validBase64.AttachmentEncoding = "B64"

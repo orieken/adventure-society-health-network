@@ -147,9 +147,11 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [ ] Preserve the app's current claim/auth attachment path while adding a closer `006020X314` envelope shape.
 - [x] Generate and parse core `275` structures from the companion guides: `BGN`, `1000A/B/C/D`, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.
 - [x] Support `BDS01` encoding mode validation for `ASC`, `B64`, and `REF` attachment payloads.
+- [x] Reject multipart Base64 attachment payloads until full single-part MIME packaging support exists.
 - [ ] Add full single-part MIME packaging validation for Base64 attachment payloads.
 - [x] Validate partner-configured attachment file extensions.
-- [ ] Validate MIME type, content-type match, and single-part MIME requirements.
+- [x] Validate declared content type against attachment file extension.
+- [ ] Validate MIME sniffing and full single-part MIME requirements.
 - [ ] Add configurable attachment size limits, packet/LX limits, and duplicate attachment-control-number detection.
 - [ ] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.
 - [ ] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.

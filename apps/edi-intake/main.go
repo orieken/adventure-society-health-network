@@ -1409,6 +1409,9 @@ func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboun
 			if err := validateAttachmentExtensionProfile(partner.ID, attachment, profile.AllowedFileExtensions); err != nil {
 				return err
 			}
+			if err := validateAttachmentContentTypeProfile(attachment); err != nil {
+				return err
+			}
 			if len(profile.ControlNumberPrefixes) > 0 && !hasProfilePrefix(attachment.AttachmentControlNumber, profile.ControlNumberPrefixes) {
 				return fmt.Errorf("attachment control number must start with one of: %s", strings.Join(profile.ControlNumberPrefixes, ", "))
 			}
@@ -1500,6 +1503,29 @@ func validateAttachmentExtensionProfile(partnerID string, attachment xmlAttachme
 		return nil
 	}
 	return fmt.Errorf("attachment file extension %s is not allowed for trading partner %s; allowed: %s", extension, partnerID, strings.Join(allowed, ", "))
+}
+
+func validateAttachmentContentTypeProfile(attachment xmlAttachment) error {
+	extension := attachmentExtension(attachment)
+	if extension == "" {
+		return nil
+	}
+	expected := contentTypeForExtension(extension)
+	if expected == "" || strings.EqualFold(attachment.ContentType, expected) {
+		return nil
+	}
+	return fmt.Errorf("attachment content type %s does not match file extension %s; expected %s", attachment.ContentType, extension, expected)
+}
+
+func contentTypeForExtension(extension string) string {
+	switch strings.ToLower(strings.TrimSpace(extension)) {
+	case ".txt":
+		return "text/plain"
+	case ".pdf":
+		return "application/pdf"
+	default:
+		return ""
+	}
 }
 
 func attachmentExtension(attachment xmlAttachment) string {

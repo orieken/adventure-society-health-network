@@ -778,6 +778,9 @@ func validateAttachmentForProvider(providerID string, req domain.AttachmentReque
 	if err := validateAttachmentFileExtension(rule, req); err != nil {
 		return err
 	}
+	if err := validateAttachmentContentTypeMatch(req); err != nil {
+		return err
+	}
 	if !hasPrefix(req.AttachmentControlNumber, rule.ControlPrefixes) {
 		return fmt.Errorf("attachment control number must start with one of: %s", strings.Join(rule.ControlPrefixes, ", "))
 	}
@@ -826,6 +829,47 @@ func validateAttachmentFileExtension(rule attachmentCompanionRule, req domain.At
 		return fmt.Errorf("attachment file extension %s is not allowed for provider %s; allowed: %s", extension, rule.ProviderID, strings.Join(rule.AllowedExtensions, ", "))
 	}
 	return nil
+}
+
+func validateAttachmentContentTypeMatch(req domain.AttachmentRequest) error {
+	extension := attachmentFileExtension(req)
+	if extension != "" {
+		expected := contentTypeForExtension(extension)
+		if expected != "" && !strings.EqualFold(req.ContentType, expected) {
+			return fmt.Errorf("attachment content type %s does not match file extension %s; expected %s", req.ContentType, extension, expected)
+		}
+	}
+	if req.AttachmentEncoding != "B64" || strings.TrimSpace(req.Content) == "" {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(req.Content))
+	if err != nil {
+		return nil
+	}
+	mimeText := strings.TrimSpace(string(decoded))
+	if mimeText == "" || !strings.Contains(strings.ToLower(mimeText), "content-type:") {
+		return nil
+	}
+	lowerMimeText := strings.ToLower(mimeText)
+	lowerContentType := strings.ToLower(req.ContentType)
+	if strings.Contains(lowerMimeText, "multipart/") || strings.Contains(lowerMimeText, "boundary=") {
+		return fmt.Errorf("single-part MIME packaging is required for B64 attachments")
+	}
+	if !strings.Contains(lowerMimeText, "content-type: "+lowerContentType) && !strings.Contains(lowerMimeText, "content-type:"+lowerContentType) {
+		return fmt.Errorf("B64 MIME content type does not match declared content type %s", req.ContentType)
+	}
+	return nil
+}
+
+func contentTypeForExtension(extension string) string {
+	switch strings.ToLower(strings.TrimSpace(extension)) {
+	case ".txt":
+		return "text/plain"
+	case ".pdf":
+		return "application/pdf"
+	default:
+		return ""
+	}
 }
 
 func attachmentFileExtension(req domain.AttachmentRequest) string {

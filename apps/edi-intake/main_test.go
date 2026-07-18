@@ -1201,6 +1201,12 @@ func TestValidateTradingPartnerProfileAppliesAttachmentRules(t *testing.T) {
 	err = validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound)
 	require.Error(t, err)
 	assert.Equal(t, "attachment file extension .exe is not allowed for trading partner tp-rimaros-hospital; allowed: .txt, .pdf", err.Error())
+
+	inbound.Attachment.FileName = "operative-note.pdf"
+	inbound.Attachment.ContentType = "text/plain"
+	err = validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound)
+	require.Error(t, err)
+	assert.Equal(t, "attachment content type text/plain does not match file extension .pdf; expected application/pdf", err.Error())
 }
 
 func TestValidateTradingPartnerProfileRejectsPriorAuthOutsideProfile(t *testing.T) {
@@ -1327,6 +1333,42 @@ func TestAcceptXMLRejectsAttachmentFileExtensionProfileViolationBeforeForwarding
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Equal(t, "attachment file extension .exe is not allowed for trading partner tp-rimaros-hospital; allowed: .txt, .pdf", decodeEnvelope(t, response).Error)
+	assert.False(t, forwarded)
+}
+
+func TestAcceptXMLRejectsAttachmentContentTypeMismatchBeforeForwarding(t *testing.T) {
+	forwarded := false
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/transactions" {
+			forwarded = true
+		}
+		return jsonResponse(http.StatusCreated, domain.Envelope{})
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client, tradingPartners: seedTradingPartners()})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="275">
+  <Sender id="provider-rimaros-hospital" />
+  <Receiver id="Adventure Society" />
+  <Attachment>
+    <ClaimId>claim-1</ClaimId>
+    <ProviderId>provider-rimaros-hospital</ProviderId>
+    <AttachmentType>PN</AttachmentType>
+    <AttachmentControlNumber>RIM-275-1</AttachmentControlNumber>
+    <ReportTypeCode>03</ReportTypeCode>
+    <TransmissionCode>EL</TransmissionCode>
+    <ContentType>text/plain</ContentType>
+    <FileName>operative-note.pdf</FileName>
+    <Description>Operative note</Description>
+    <Content>%PDF-1.7</Content>
+  </Attachment>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "attachment content type text/plain does not match file extension .pdf; expected application/pdf", decodeEnvelope(t, response).Error)
 	assert.False(t, forwarded)
 }
 
