@@ -93,7 +93,7 @@ ASHN already implements a teaching-focused 275 workflow:
 - [x] Add partner-configurable file-extension allowlists.
 - [x] Validate declared content type against attachment file extension and reject multipart Base64 packaging.
 - [ ] Add full single-part MIME packaging validation.
-- [ ] Add configurable max `LX` loop count and transaction-set attachment byte limits.
+- [x] Add configurable max `LX` loop count and transaction-set attachment byte limits.
 - [x] Add duplicate attachment-control-number detection by claim/request context.
 - [ ] Add same-day and late-window validation for unsolicited 275 claim attachments.
 - [ ] Emit or simulate `824` application reporting for attachment validation failures.

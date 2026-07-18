@@ -130,6 +130,7 @@ type PartnerValidationProfile struct {
 	AllowedFileExtensions   []string `json:"allowedFileExtensions,omitempty"`
 	ControlNumberPrefixes   []string `json:"controlNumberPrefixes,omitempty"`
 	MaxEmbeddedContentBytes int      `json:"maxEmbeddedContentBytes,omitempty"`
+	MaxAttachmentsPerPacket int      `json:"maxAttachmentsPerPacket,omitempty"`
 	ServiceTypes            []string `json:"serviceTypes,omitempty"`
 	IncidentSeverities      []string `json:"incidentSeverities,omitempty"`
 	DiagnosisQualifiers     []string `json:"diagnosisQualifiers,omitempty"`

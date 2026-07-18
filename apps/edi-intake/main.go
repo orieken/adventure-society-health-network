@@ -1393,6 +1393,9 @@ func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboun
 		if len(attachments) == 0 {
 			return nil
 		}
+		if profile.MaxAttachmentsPerPacket > 0 && len(attachments) > profile.MaxAttachmentsPerPacket {
+			return fmt.Errorf("attachment packet contains %d LX loops; trading partner %s allows %d", len(attachments), partner.ID, profile.MaxAttachmentsPerPacket)
+		}
 		for _, attachment := range attachments {
 			if err := validateProfileCode(partner.ID, "attachment type", attachment.AttachmentType, profile.AttachmentTypes); err != nil {
 				return err
@@ -2175,6 +2178,7 @@ func vitesseValidationProfile() domain.PartnerValidationProfile {
 		AllowedFileExtensions:   []string{".txt"},
 		ControlNumberPrefixes:   []string{"TEMPLE-", "ATTACH-", "XML-"},
 		MaxEmbeddedContentBytes: 4096,
+		MaxAttachmentsPerPacket: 3,
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care", "dental-predetermination"},
 		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
 		DiagnosisQualifiers:     []string{"ABK", "ABF"},
@@ -2192,6 +2196,7 @@ func rimarosValidationProfile() domain.PartnerValidationProfile {
 		AllowedFileExtensions:   []string{".txt", ".pdf"},
 		ControlNumberPrefixes:   []string{"RIM-", "ATTACH-", "XML-"},
 		MaxEmbeddedContentBytes: 8192,
+		MaxAttachmentsPerPacket: 5,
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care", "dental-predetermination"},
 		IncidentSeverities:      []string{"Normal", "Awakened", "Diamond"},
 		DiagnosisQualifiers:     []string{"ABK", "ABF"},

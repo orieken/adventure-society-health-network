@@ -1207,6 +1207,17 @@ func TestValidateTradingPartnerProfileAppliesAttachmentRules(t *testing.T) {
 	err = validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound)
 	require.Error(t, err)
 	assert.Equal(t, "attachment content type text/plain does not match file extension .pdf; expected application/pdf", err.Error())
+
+	inbound.Attachment = nil
+	inbound.AttachmentPacket = &xmlAttachmentPacket{Attachments: []xmlAttachment{
+		{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Content: "one"},
+		{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-2", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Content: "two"},
+		{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-3", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Content: "three"},
+		{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-4", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Content: "four"},
+	}}
+	err = validateTradingPartnerProfile(partners["tp-vitesse-temple"], inbound)
+	require.Error(t, err)
+	assert.Equal(t, "attachment packet contains 4 LX loops; trading partner tp-vitesse-temple allows 3", err.Error())
 }
 
 func TestValidateTradingPartnerProfileRejectsPriorAuthOutsideProfile(t *testing.T) {
@@ -1422,6 +1433,7 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	assert.Contains(t, senderIDs, "partner-greenstone")
 	assert.Equal(t, []string{"OZ"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AttachmentTypes)
 	assert.Equal(t, []string{".txt"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AllowedFileExtensions)
+	assert.Equal(t, 3, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.MaxAttachmentsPerPacket)
 	assert.Equal(t, []string{"S610", "T509", "S062X9A", "K021"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DiagnosisCodes)
 	assert.Equal(t, []string{"ASHN", "RIM", "D"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }

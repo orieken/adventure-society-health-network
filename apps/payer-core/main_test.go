@@ -808,6 +808,32 @@ func TestAttachClaimInformationRejectsDuplicateControlNumbers(t *testing.T) {
 	assert.Len(t, app.transactions, 1)
 }
 
+func TestAttachClaimInformationRejectsPacketOverProviderLimit(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimSubmitted,
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentPacketRequest{
+		PacketID: "packet-too-large",
+		Attachments: []domain.AttachmentRequest{
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-1", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "First note", Content: "first"},
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-2", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Second note", Content: "second"},
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-3", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Third note", Content: "third"},
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-4", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Fourth note", Content: "fourth"},
+		},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "attachment packet contains 4 LX loops; provider provider-vitesse-temple allows 3")
+	assert.Empty(t, app.transactions)
+}
+
 func TestReviewAttachmentUpdatesPayloadWithoutChangingTransactionAcceptance(t *testing.T) {
 	app := newTestStore()
 	app.transactions["tx-275"] = domain.Transaction{

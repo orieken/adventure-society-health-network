@@ -24,6 +24,7 @@ type TradingPartner = {
     contentTypes?: string[];
     allowedFileExtensions?: string[];
     maxEmbeddedContentBytes?: number;
+    maxAttachmentsPerPacket?: number;
     diagnosisQualifiers?: string[];
     diagnosisCodes?: string[];
     procedureCodePrefixes?: string[];
@@ -2591,6 +2592,7 @@ function attachmentGuide(profile: NonNullable<TradingPartner["validationProfile"
     profile.reportTypeCodes?.length ? `${profile.reportTypeCodes.join("/")} reports` : "",
     profile.contentTypes?.length ? profile.contentTypes.join(", ") : "",
     profile.allowedFileExtensions?.length ? `${profile.allowedFileExtensions.join("/")} files` : "",
+    profile.maxAttachmentsPerPacket ? `${profile.maxAttachmentsPerPacket} docs/packet` : "",
     profile.maxEmbeddedContentBytes ? `${Math.round(profile.maxEmbeddedContentBytes / 1024)} KB embedded limit` : ""
   ].filter(Boolean);
   return pieces.join(" · ");

@@ -269,6 +269,10 @@ func (s *store) attachAuthorizationInformation(w http.ResponseWriter, r *http.Re
 	if providerID == "" {
 		providerID = auth.SenderID
 	}
+	if err := validateAttachmentPacketLimit(providerID, requests); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		return
+	}
 	txs := make([]domain.Transaction, 0, len(requests))
 	for index, req := range requests {
 		req = requests[index]
@@ -491,6 +495,10 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.validatePriorAttachmentControls("claimId", claim.ID, requests); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		return
+	}
+	if err := validateAttachmentPacketLimit(claim.ProviderID, requests); err != nil {
 		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 		return
 	}
@@ -839,6 +847,15 @@ type attachmentCompanionRule struct {
 	AllowedExtensions    []string
 	ControlPrefixes      []string
 	MaxContentBytes      int
+	MaxAttachments       int
+}
+
+func validateAttachmentPacketLimit(providerID string, requests []domain.AttachmentRequest) error {
+	rule := companionRuleForProvider(providerID)
+	if rule.MaxAttachments <= 0 || len(requests) <= rule.MaxAttachments {
+		return nil
+	}
+	return fmt.Errorf("attachment packet contains %d LX loops; provider %s allows %d", len(requests), providerID, rule.MaxAttachments)
 }
 
 func validateAttachmentForProvider(providerID string, req domain.AttachmentRequest) error {
@@ -882,6 +899,7 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 			AllowedExtensions:    []string{".txt", ".pdf"},
 			ControlPrefixes:      []string{"RIM-", "ATTACH-", "XML-"},
 			MaxContentBytes:      8192,
+			MaxAttachments:       5,
 		}
 	default:
 		return attachmentCompanionRule{
@@ -893,6 +911,7 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 			AllowedExtensions:    []string{".txt"},
 			ControlPrefixes:      []string{"TEMPLE-", "ATTACH-", "XML-"},
 			MaxContentBytes:      4096,
+			MaxAttachments:       3,
 		}
 	}
 }
