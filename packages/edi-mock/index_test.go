@@ -196,10 +196,12 @@ func TestGenerate275CanReferenceExternalDocumentWithoutEmbeddedContent(t *testin
 		TransmissionCode:        "EL",
 		ContentType:             "application/pdf",
 		Description:             "External operative notes",
+		AttachmentEncoding:      "REF",
 		DocumentReferenceID:     "doc-ashn-001",
 		DocumentReferenceURL:    "https://docs.example.test/ashn/doc-ashn-001.pdf",
 	}, "")
 
+	assert.Contains(t, tx.RawX12, "BDS*REF**Document-Reference: https://docs.example.test/ashn/doc-ashn-001.pdf")
 	assert.Contains(t, tx.RawX12, "K3*Document-Reference: https://docs.example.test/ashn/doc-ashn-001.pdf")
 	assert.NotContains(t, tx.RawX12, "BIN*")
 	assert.Contains(t, string(tx.Payload), `"documentReferenceId":"doc-ashn-001"`)

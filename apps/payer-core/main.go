@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"ashn/packages/ashnlog"
 	"ashn/packages/asyncjobs"
@@ -692,7 +694,43 @@ func validateAttachmentRequest(req domain.AttachmentRequest) error {
 	if req.AttachmentPurpose != "" && req.AttachmentPurpose != "solicited" && req.AttachmentPurpose != "unsolicited" {
 		return fmt.Errorf("attachment purpose must be solicited or unsolicited")
 	}
-	if req.AttachmentEncoding != "" && req.AttachmentEncoding != "ASC" && req.AttachmentEncoding != "B64" && req.AttachmentEncoding != "REF" {
+	if err := validateAttachmentEncoding(req); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateAttachmentEncoding(req domain.AttachmentRequest) error {
+	switch req.AttachmentEncoding {
+	case "":
+		return nil
+	case "ASC":
+		if strings.TrimSpace(req.Content) == "" {
+			return fmt.Errorf("ASC attachment encoding requires embedded content")
+		}
+		if !utf8.ValidString(req.Content) {
+			return fmt.Errorf("ASC attachment content must be valid text")
+		}
+		for _, char := range req.Content {
+			if char == '\n' || char == '\r' || char == '\t' {
+				continue
+			}
+			if char < 0x20 {
+				return fmt.Errorf("ASC attachment content contains unsupported control characters")
+			}
+		}
+	case "B64":
+		if strings.TrimSpace(req.Content) == "" {
+			return fmt.Errorf("B64 attachment encoding requires embedded content")
+		}
+		if _, err := base64.StdEncoding.DecodeString(strings.TrimSpace(req.Content)); err != nil {
+			return fmt.Errorf("B64 attachment content must be valid base64")
+		}
+	case "REF":
+		if strings.TrimSpace(req.DocumentReferenceURL) == "" {
+			return fmt.Errorf("REF attachment encoding requires documentReferenceUrl")
+		}
+	default:
 		return fmt.Errorf("attachment encoding must be ASC, B64, or REF")
 	}
 	return nil

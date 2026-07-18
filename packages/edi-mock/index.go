@@ -797,7 +797,7 @@ func attachmentObjectType(objectType string) string {
 
 func attachmentEncoding(encoding string, content string) string {
 	encoding = strings.ToUpper(strings.TrimSpace(encoding))
-	if encoding == "ASC" || encoding == "B64" {
+	if encoding == "ASC" || encoding == "B64" || encoding == "REF" {
 		return encoding
 	}
 	if strings.TrimSpace(content) == "" {

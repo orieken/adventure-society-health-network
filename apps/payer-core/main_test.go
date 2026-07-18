@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -536,6 +537,56 @@ func TestAttachClaimInformationAcceptsExternalDocumentReference(t *testing.T) {
 	assert.Contains(t, envelope.Transaction.RawX12, "K3*Document-Reference: https://docs.example.test/rim/doc-rim-001.pdf")
 	assert.NotContains(t, envelope.Transaction.RawX12, "BIN*")
 	assert.Contains(t, string(envelope.Data), "doc-rim-001")
+}
+
+func TestAttachClaimInformationValidatesBDSAttachmentEncoding(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837",
+		Status:        domain.ClaimSubmitted,
+	}
+	mux := newPayerTestMux(app)
+	baseRequest := domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-BDS-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Encoding validation notes",
+		Content:                 "Patient survived a dragonfire incident.",
+	}
+
+	invalidBase64 := baseRequest
+	invalidBase64.AttachmentEncoding = "B64"
+	invalidBase64.Content = "not base64"
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", invalidBase64)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "valid base64")
+
+	referenceWithoutURL := baseRequest
+	referenceWithoutURL.AttachmentEncoding = "REF"
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", referenceWithoutURL)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "documentReferenceUrl")
+
+	asciiWithControlCharacter := baseRequest
+	asciiWithControlCharacter.AttachmentEncoding = "ASC"
+	asciiWithControlCharacter.Content = "patient\x00notes"
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", asciiWithControlCharacter)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "control characters")
+
+	validBase64 := baseRequest
+	validBase64.AttachmentEncoding = "B64"
+	validBase64.Content = base64.StdEncoding.EncodeToString([]byte("Patient survived a dragonfire incident."))
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", validBase64)
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Contains(t, envelope.Transaction.RawX12, "BDS*B64**Content-Type: text/plain")
 }
 
 func TestTransactionDocumentReferenceResolvesExternalVaultPointer(t *testing.T) {

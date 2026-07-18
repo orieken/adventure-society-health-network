@@ -89,7 +89,7 @@ ASHN already implements a teaching-focused 275 workflow:
 - [x] Store payer request trace for solicited claim documentation requests and require response trace matching.
 - [ ] Store originating 837/PWK attachment control values for unsolicited claim attachments.
 - [x] Add a `275` raw shape closer to `006020X314` with party loops, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.
-- [ ] Add `BDS01` support for `ASC` and `B64`, including Base64 decode validation.
+- [x] Add `BDS01` support for `ASC`, `B64`, and `REF`, including Base64 decode validation.
 - [ ] Add partner-configurable file-extension allowlists.
 - [ ] Validate MIME type, extension, declared content type, and single-part MIME packaging.
 - [ ] Add configurable max `LX` loop count and transaction-set attachment byte limits.
