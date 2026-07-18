@@ -603,6 +603,7 @@ func TestAcceptXMLRoutesAttachmentToPayerCore(t *testing.T) {
     <ReportTypeCode>B4</ReportTypeCode>
     <TransmissionCode>EL</TransmissionCode>
     <ContentType>text/plain</ContentType>
+    <FileName>doc-xml-001.txt</FileName>
     <Description>Resurrection notes</Description>
     <Content>Patient survived a dragonfire incident.</Content>
     <DocumentReferenceId>doc-xml-001</DocumentReferenceId>
@@ -619,6 +620,7 @@ func TestAcceptXMLRoutesAttachmentToPayerCore(t *testing.T) {
 	assert.Equal(t, "B4", attachmentRequest.ReportTypeCode)
 	assert.Equal(t, "EL", attachmentRequest.TransmissionCode)
 	assert.Equal(t, "text/plain", attachmentRequest.ContentType)
+	assert.Equal(t, "doc-xml-001.txt", attachmentRequest.FileName)
 	assert.Equal(t, "doc-xml-001", attachmentRequest.DocumentReferenceID)
 	assert.Equal(t, "https://docs.example.test/doc-xml-001.txt", attachmentRequest.DocumentReferenceURL)
 }
@@ -1194,6 +1196,11 @@ func TestValidateTradingPartnerProfileAppliesAttachmentRules(t *testing.T) {
 	assert.Equal(t, "attachment type PN is not allowed for trading partner tp-vitesse-temple; allowed: OZ", err.Error())
 
 	require.NoError(t, validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound))
+
+	inbound.Attachment.FileName = "operative-note.exe"
+	err = validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound)
+	require.Error(t, err)
+	assert.Equal(t, "attachment file extension .exe is not allowed for trading partner tp-rimaros-hospital; allowed: .txt, .pdf", err.Error())
 }
 
 func TestValidateTradingPartnerProfileRejectsPriorAuthOutsideProfile(t *testing.T) {
@@ -1274,6 +1281,7 @@ func TestAcceptXMLRejectsPartnerProfileViolationBeforeForwarding(t *testing.T) {
     <ReportTypeCode>03</ReportTypeCode>
     <TransmissionCode>EL</TransmissionCode>
     <ContentType>application/pdf</ContentType>
+    <FileName>operative-note.exe</FileName>
     <Description>Operative note</Description>
     <Content>%PDF-1.7</Content>
   </Attachment>
@@ -1283,6 +1291,42 @@ func TestAcceptXMLRejectsPartnerProfileViolationBeforeForwarding(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Equal(t, "attachment type PN is not allowed for trading partner tp-vitesse-temple; allowed: OZ", decodeEnvelope(t, response).Error)
+	assert.False(t, forwarded)
+}
+
+func TestAcceptXMLRejectsAttachmentFileExtensionProfileViolationBeforeForwarding(t *testing.T) {
+	forwarded := false
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/transactions" {
+			forwarded = true
+		}
+		return jsonResponse(http.StatusCreated, domain.Envelope{})
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client, tradingPartners: seedTradingPartners()})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", strings.NewReader(`
+<AshnX12Transaction type="275">
+  <Sender id="provider-rimaros-hospital" />
+  <Receiver id="Adventure Society" />
+  <Attachment>
+    <ClaimId>claim-1</ClaimId>
+    <ProviderId>provider-rimaros-hospital</ProviderId>
+    <AttachmentType>PN</AttachmentType>
+    <AttachmentControlNumber>RIM-275-1</AttachmentControlNumber>
+    <ReportTypeCode>03</ReportTypeCode>
+    <TransmissionCode>EL</TransmissionCode>
+    <ContentType>application/pdf</ContentType>
+    <FileName>operative-note.exe</FileName>
+    <Description>Operative note</Description>
+    <Content>%PDF-1.7</Content>
+  </Attachment>
+</AshnX12Transaction>`))
+	request.Header.Set("Content-Type", "application/xml")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "attachment file extension .exe is not allowed for trading partner tp-rimaros-hospital; allowed: .txt, .pdf", decodeEnvelope(t, response).Error)
 	assert.False(t, forwarded)
 }
 
@@ -1335,6 +1379,7 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	}
 	assert.Contains(t, senderIDs, "partner-greenstone")
 	assert.Equal(t, []string{"OZ"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AttachmentTypes)
+	assert.Equal(t, []string{".txt"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AllowedFileExtensions)
 	assert.Equal(t, []string{"S610", "T509", "S062X9A", "K021"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DiagnosisCodes)
 	assert.Equal(t, []string{"ASHN", "RIM", "D"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }

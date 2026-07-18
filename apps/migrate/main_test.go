@@ -138,6 +138,11 @@ func assertSeedData(t *testing.T, db *sql.DB) {
 	require.NoError(t, db.QueryRow(`SELECT allowed_transaction_types FROM trading_partners WHERE id = 'tp-vitesse-temple'`).Scan(&allowedTypes))
 	assert.Contains(t, allowedTypes, "275")
 	assert.Contains(t, allowedTypes, "837")
+
+	var validationProfile string
+	require.NoError(t, db.QueryRow(`SELECT validation_profile FROM trading_partners WHERE id = 'tp-vitesse-temple'`).Scan(&validationProfile))
+	assert.Contains(t, validationProfile, "allowedFileExtensions")
+	assert.Contains(t, validationProfile, ".txt")
 }
 
 func writeMigration(t *testing.T, content string) string {

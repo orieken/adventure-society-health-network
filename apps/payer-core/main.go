@@ -580,6 +580,7 @@ func normalizeAttachmentRequest(req domain.AttachmentRequest) domain.AttachmentR
 	req.ReportTypeCode = strings.TrimSpace(req.ReportTypeCode)
 	req.TransmissionCode = strings.TrimSpace(req.TransmissionCode)
 	req.ContentType = strings.TrimSpace(req.ContentType)
+	req.FileName = strings.TrimSpace(req.FileName)
 	req.Description = strings.TrimSpace(req.Description)
 	req.Content = strings.TrimSpace(req.Content)
 	req.DocumentReferenceID = strings.TrimSpace(req.DocumentReferenceID)
@@ -670,6 +671,7 @@ func addAttachmentSummary(data map[string]any, requests []domain.AttachmentReque
 	data["reportTypeCode"] = req.ReportTypeCode
 	data["transmissionCode"] = req.TransmissionCode
 	data["contentType"] = req.ContentType
+	data["fileName"] = req.FileName
 	data["description"] = req.Description
 	data["attachmentPurpose"] = req.AttachmentPurpose
 	data["attachmentTraceId"] = req.AttachmentTraceID
@@ -754,6 +756,7 @@ type attachmentCompanionRule struct {
 	AllowedReportTypes   []string
 	AllowedTransmissions []string
 	AllowedContentTypes  []string
+	AllowedExtensions    []string
 	ControlPrefixes      []string
 	MaxContentBytes      int
 }
@@ -771,6 +774,9 @@ func validateAttachmentForProvider(providerID string, req domain.AttachmentReque
 	}
 	if !containsCode(rule.AllowedContentTypes, req.ContentType) {
 		return fmt.Errorf("content type %s is not allowed for provider %s; allowed: %s", req.ContentType, providerID, strings.Join(rule.AllowedContentTypes, ", "))
+	}
+	if err := validateAttachmentFileExtension(rule, req); err != nil {
+		return err
 	}
 	if !hasPrefix(req.AttachmentControlNumber, rule.ControlPrefixes) {
 		return fmt.Errorf("attachment control number must start with one of: %s", strings.Join(rule.ControlPrefixes, ", "))
@@ -790,6 +796,7 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 			AllowedReportTypes:   []string{"03", "B4"},
 			AllowedTransmissions: []string{"EL"},
 			AllowedContentTypes:  []string{"text/plain", "application/pdf"},
+			AllowedExtensions:    []string{".txt", ".pdf"},
 			ControlPrefixes:      []string{"RIM-", "ATTACH-", "XML-"},
 			MaxContentBytes:      8192,
 		}
@@ -800,10 +807,47 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 			AllowedReportTypes:   []string{"B4"},
 			AllowedTransmissions: []string{"EL"},
 			AllowedContentTypes:  []string{"text/plain"},
+			AllowedExtensions:    []string{".txt"},
 			ControlPrefixes:      []string{"TEMPLE-", "ATTACH-", "XML-"},
 			MaxContentBytes:      4096,
 		}
 	}
+}
+
+func validateAttachmentFileExtension(rule attachmentCompanionRule, req domain.AttachmentRequest) error {
+	if len(rule.AllowedExtensions) == 0 {
+		return nil
+	}
+	extension := attachmentFileExtension(req)
+	if extension == "" {
+		return nil
+	}
+	if !containsCode(rule.AllowedExtensions, extension) {
+		return fmt.Errorf("attachment file extension %s is not allowed for provider %s; allowed: %s", extension, rule.ProviderID, strings.Join(rule.AllowedExtensions, ", "))
+	}
+	return nil
+}
+
+func attachmentFileExtension(req domain.AttachmentRequest) string {
+	for _, candidate := range []string{req.FileName, req.DocumentReferenceURL, req.DocumentReferenceID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if value, _, ok := strings.Cut(candidate, "?"); ok {
+			candidate = value
+		}
+		if value, _, ok := strings.Cut(candidate, "#"); ok {
+			candidate = value
+		}
+		if slash := strings.LastIndex(candidate, "/"); slash >= 0 {
+			candidate = candidate[slash+1:]
+		}
+		if dot := strings.LastIndex(candidate, "."); dot >= 0 && dot < len(candidate)-1 {
+			return strings.ToLower(candidate[dot:])
+		}
+	}
+	return ""
 }
 
 func containsCode(values []string, candidate string) bool {
@@ -954,6 +998,7 @@ func (s *store) documentReferencePayload(w http.ResponseWriter, transactionID st
 		AttachmentControlNumber:    payloadStringValue(payload, "attachmentControlNumber"),
 		ReportTypeCode:             payloadStringValue(payload, "reportTypeCode"),
 		ContentType:                payloadStringValue(payload, "contentType"),
+		FileName:                   payloadStringValue(payload, "fileName"),
 		Description:                payloadStringValue(payload, "description"),
 		DocumentReferenceID:        payloadStringValue(payload, "documentReferenceId"),
 		DocumentReferenceURL:       payloadStringValue(payload, "documentReferenceUrl"),

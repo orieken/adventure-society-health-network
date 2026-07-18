@@ -127,6 +127,7 @@ type PartnerValidationProfile struct {
 	ReportTypeCodes         []string `json:"reportTypeCodes,omitempty"`
 	TransmissionCodes       []string `json:"transmissionCodes,omitempty"`
 	ContentTypes            []string `json:"contentTypes,omitempty"`
+	AllowedFileExtensions   []string `json:"allowedFileExtensions,omitempty"`
 	ControlNumberPrefixes   []string `json:"controlNumberPrefixes,omitempty"`
 	MaxEmbeddedContentBytes int      `json:"maxEmbeddedContentBytes,omitempty"`
 	ServiceTypes            []string `json:"serviceTypes,omitempty"`
@@ -157,6 +158,7 @@ type DocumentReference struct {
 	AttachmentControlNumber    string `json:"attachmentControlNumber,omitempty"`
 	ReportTypeCode             string `json:"reportTypeCode,omitempty"`
 	ContentType                string `json:"contentType,omitempty"`
+	FileName                   string `json:"fileName,omitempty"`
 	Description                string `json:"description,omitempty"`
 	DocumentReferenceID        string `json:"documentReferenceId,omitempty"`
 	DocumentReferenceURL       string `json:"documentReferenceUrl,omitempty"`
@@ -349,6 +351,7 @@ type AttachmentRequest struct {
 	ReportTypeCode          string `json:"reportTypeCode"`
 	TransmissionCode        string `json:"transmissionCode"`
 	ContentType             string `json:"contentType"`
+	FileName                string `json:"fileName,omitempty"`
 	Description             string `json:"description"`
 	Content                 string `json:"content"`
 	DocumentReferenceID     string `json:"documentReferenceId,omitempty"`

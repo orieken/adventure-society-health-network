@@ -129,6 +129,7 @@ type xmlAttachment struct {
 	ReportTypeCode             string `xml:"ReportTypeCode" json:"reportTypeCode"`
 	TransmissionCode           string `xml:"TransmissionCode" json:"transmissionCode"`
 	ContentType                string `xml:"ContentType" json:"contentType"`
+	FileName                   string `xml:"FileName" json:"fileName,omitempty"`
 	Description                string `xml:"Description" json:"description"`
 	Content                    string `xml:"Content" json:"content,omitempty"`
 	DocumentReferenceID        string `xml:"DocumentReferenceId" json:"documentReferenceId,omitempty"`
@@ -1266,6 +1267,7 @@ func (t inboundTransaction) attachmentRequests() ([]domain.AttachmentRequest, st
 			ReportTypeCode:          strings.TrimSpace(attachment.ReportTypeCode),
 			TransmissionCode:        strings.TrimSpace(attachment.TransmissionCode),
 			ContentType:             strings.TrimSpace(attachment.ContentType),
+			FileName:                strings.TrimSpace(attachment.FileName),
 			Description:             strings.TrimSpace(attachment.Description),
 			Content:                 strings.TrimSpace(attachment.Content),
 			DocumentReferenceID:     strings.TrimSpace(attachment.DocumentReferenceID),
@@ -1404,6 +1406,9 @@ func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboun
 			if err := validateProfileCode(partner.ID, "content type", attachment.ContentType, profile.ContentTypes); err != nil {
 				return err
 			}
+			if err := validateAttachmentExtensionProfile(partner.ID, attachment, profile.AllowedFileExtensions); err != nil {
+				return err
+			}
 			if len(profile.ControlNumberPrefixes) > 0 && !hasProfilePrefix(attachment.AttachmentControlNumber, profile.ControlNumberPrefixes) {
 				return fmt.Errorf("attachment control number must start with one of: %s", strings.Join(profile.ControlNumberPrefixes, ", "))
 			}
@@ -1481,6 +1486,42 @@ func validateProfileCode(partnerID, label, value string, allowed []string) error
 		return nil
 	}
 	return fmt.Errorf("%s %s is not allowed for trading partner %s; allowed: %s", label, strings.TrimSpace(value), partnerID, strings.Join(allowed, ", "))
+}
+
+func validateAttachmentExtensionProfile(partnerID string, attachment xmlAttachment, allowed []string) error {
+	if len(allowed) == 0 {
+		return nil
+	}
+	extension := attachmentExtension(attachment)
+	if extension == "" {
+		return nil
+	}
+	if containsProfileCode(allowed, extension) {
+		return nil
+	}
+	return fmt.Errorf("attachment file extension %s is not allowed for trading partner %s; allowed: %s", extension, partnerID, strings.Join(allowed, ", "))
+}
+
+func attachmentExtension(attachment xmlAttachment) string {
+	for _, candidate := range []string{attachment.FileName, attachment.DocumentReferenceURL, attachment.DocumentReferenceID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if value, _, ok := strings.Cut(candidate, "?"); ok {
+			candidate = value
+		}
+		if value, _, ok := strings.Cut(candidate, "#"); ok {
+			candidate = value
+		}
+		if slash := strings.LastIndex(candidate, "/"); slash >= 0 {
+			candidate = candidate[slash+1:]
+		}
+		if dot := strings.LastIndex(candidate, "."); dot >= 0 && dot < len(candidate)-1 {
+			return strings.ToLower(candidate[dot:])
+		}
+	}
+	return ""
 }
 
 func validateProcedureProfile(partnerID, procedureCode string, profile domain.PartnerValidationProfile) error {
@@ -2105,6 +2146,7 @@ func vitesseValidationProfile() domain.PartnerValidationProfile {
 		ReportTypeCodes:         []string{"B4"},
 		TransmissionCodes:       []string{"EL"},
 		ContentTypes:            []string{"text/plain"},
+		AllowedFileExtensions:   []string{".txt"},
 		ControlNumberPrefixes:   []string{"TEMPLE-", "ATTACH-", "XML-"},
 		MaxEmbeddedContentBytes: 4096,
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care", "dental-predetermination"},
@@ -2121,6 +2163,7 @@ func rimarosValidationProfile() domain.PartnerValidationProfile {
 		ReportTypeCodes:         []string{"03", "B4"},
 		TransmissionCodes:       []string{"EL"},
 		ContentTypes:            []string{"text/plain", "application/pdf"},
+		AllowedFileExtensions:   []string{".txt", ".pdf"},
 		ControlNumberPrefixes:   []string{"RIM-", "ATTACH-", "XML-"},
 		MaxEmbeddedContentBytes: 8192,
 		ServiceTypes:            []string{"resurrection", "restoration", "curse-removal", "trauma-care", "dental-predetermination"},

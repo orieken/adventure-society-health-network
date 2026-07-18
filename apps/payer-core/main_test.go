@@ -579,14 +579,22 @@ func TestAttachClaimInformationValidatesBDSAttachmentEncoding(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, decodeEnvelope(t, response).Lore, "control characters")
 
+	disallowedFileExtension := baseRequest
+	disallowedFileExtension.FileName = "dragonfire-notes.exe"
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", disallowedFileExtension)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "file extension .exe is not allowed")
+
 	validBase64 := baseRequest
 	validBase64.AttachmentEncoding = "B64"
+	validBase64.FileName = "dragonfire-notes.txt"
 	validBase64.Content = base64.StdEncoding.EncodeToString([]byte("Patient survived a dragonfire incident."))
 	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", validBase64)
 	assert.Equal(t, http.StatusCreated, response.Code)
 	envelope := decodeEnvelope(t, response)
 	require.NotNil(t, envelope.Transaction)
 	assert.Contains(t, envelope.Transaction.RawX12, "BDS*B64**Content-Type: text/plain")
+	assert.Contains(t, string(envelope.Transaction.Payload), `"fileName":"dragonfire-notes.txt"`)
 }
 
 func TestTransactionDocumentReferenceResolvesExternalVaultPointer(t *testing.T) {

@@ -727,6 +727,7 @@ async function mockDashboardApi(page: Page) {
         attachmentTypes: ["OZ"],
         reportTypeCodes: ["B4"],
         contentTypes: ["text/plain"],
+        allowedFileExtensions: [".txt"],
         maxEmbeddedContentBytes: 2048,
         serviceTypes: ["resurrection", "restoration", "curse-removal", "dental-predetermination"],
         incidentSeverities: ["Normal", "Awakened"],
