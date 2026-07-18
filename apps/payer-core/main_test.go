@@ -805,7 +805,8 @@ func TestAttachClaimInformationRejectsDuplicateControlNumbers(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, repeatedPriorControl.Code)
 	assert.Contains(t, decodeEnvelope(t, repeatedPriorControl).Lore, "already submitted for this claim")
-	assert.Len(t, app.transactions, 1)
+	assert.Len(t, app.transactions, 3)
+	assert.Equal(t, 2, countTransactionsByType(app.transactions, domain.Tx824))
 }
 
 func TestAttachClaimInformationRejectsPacketOverProviderLimit(t *testing.T) {
@@ -831,7 +832,14 @@ func TestAttachClaimInformationRejectsPacketOverProviderLimit(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, decodeEnvelope(t, response).Lore, "attachment packet contains 4 LX loops; provider provider-vitesse-temple allows 3")
-	assert.Empty(t, app.transactions)
+	require.Len(t, app.transactions, 1)
+	for _, tx := range app.transactions {
+		assert.Equal(t, domain.Tx824, tx.Type)
+		assert.Equal(t, domain.TxStatusFailed, tx.Status)
+		assert.Equal(t, "tx-837", tx.RelatedID)
+		assert.Contains(t, tx.RawX12, "ST*824")
+		assert.Contains(t, string(tx.Payload), "attachment packet contains 4 LX loops")
+	}
 }
 
 func TestAttachClaimInformationEnforcesUnsolicitedTimingWindow(t *testing.T) {
@@ -1748,6 +1756,16 @@ func payloadValueForTest(t *testing.T, payload json.RawMessage, key string) any 
 	var values map[string]any
 	require.NoError(t, json.Unmarshal(payload, &values))
 	return values[key]
+}
+
+func countTransactionsByType(transactions map[string]domain.Transaction, txType domain.TransactionType) int {
+	count := 0
+	for _, tx := range transactions {
+		if tx.Type == txType {
+			count++
+		}
+	}
+	return count
 }
 
 func newPayerMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock, func()) {

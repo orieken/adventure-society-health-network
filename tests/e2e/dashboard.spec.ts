@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 import { dashboardUrl } from "./config.js";
 
-const transactionTypes = ["834", "820", "270", "271", "275", "278", "837", "837D", "835", "276", "277", "269", "999", "277CA"] as const;
+const transactionTypes = ["834", "820", "270", "271", "275", "278", "837", "837D", "835", "824", "276", "277", "269", "999", "277CA"] as const;
 
 type DemoTransactionType = (typeof transactionTypes)[number];
 
@@ -35,8 +35,8 @@ const demoTransactions: DemoTransaction[] = transactionTypes.map((type, index) =
   id: `tx-e2e-${type.toLowerCase()}`,
   type,
   status: type === "999" || type === "275" ? "Accepted" : "Dispatched",
-  senderId: type === "834" || type === "820" || type === "999" || type === "277CA" ? "Adventure Society" : "provider-vitesse-temple",
-  receiverId: type === "834" || type === "820" || type === "999" || type === "277CA" ? "provider-vitesse-temple" : "Adventure Society",
+  senderId: type === "834" || type === "820" || type === "824" || type === "999" || type === "277CA" ? "Adventure Society" : "provider-vitesse-temple",
+  receiverId: type === "834" || type === "820" || type === "824" || type === "999" || type === "277CA" ? "provider-vitesse-temple" : "Adventure Society",
   payload: {
     x12: `${type} dashboard display fixture`,
     claimId: `claim-e2e-${type.toLowerCase()}`,

@@ -96,7 +96,7 @@ ASHN already implements a teaching-focused 275 workflow:
 - [x] Add configurable max `LX` loop count and transaction-set attachment byte limits.
 - [x] Add duplicate attachment-control-number detection by claim/request context.
 - [x] Add same-day and late-window validation for unsolicited 275 claim attachments.
-- [ ] Emit or simulate `824` application reporting for attachment validation failures.
+- [x] Emit or simulate `824` application reporting for attachment validation failures.
 - [ ] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
 - [ ] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.
 - [ ] Add demo fixtures for invalid `BGN01`, invalid `CAT02`, oversized packet, corrupt Base64, missing trace, and late attachment.

@@ -156,7 +156,7 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [x] Add configurable attachment size limits and packet/LX limits.
 - [x] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.
 - [ ] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.
-- [ ] Add `824` application reporting for attachment validation failures while keeping `999` for syntax acknowledgment.
+- [x] Add `824` application reporting for attachment validation failures while keeping `999` for syntax acknowledgment.
 - [ ] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
 - [ ] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.
 - [ ] Review what it would take to build or integrate a full clearinghouse-grade X12 parser instead of extending the current demo parser indefinitely.

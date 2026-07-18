@@ -215,6 +215,18 @@ func TestGenerate999UsesAcknowledgedTransactionType(t *testing.T) {
 	assert.True(t, strings.Contains(tx.RawX12, "AK9*R*1*1*0"))
 }
 
+func TestGenerate824ReportsApplicationValidationFailure(t *testing.T) {
+	tx := Generate824("tx-837", domain.Tx275, "Adventure Society", "provider-vitesse-temple", "attachment packet contains 4 LX loops")
+
+	assert.Equal(t, domain.Tx824, tx.Type)
+	assert.Equal(t, domain.TxStatusFailed, tx.Status)
+	assert.Equal(t, "tx-837", tx.RelatedID)
+	assert.Contains(t, tx.RawX12, "ST*824")
+	assert.Contains(t, tx.RawX12, "OTI*TR*TN*tx-837")
+	assert.Contains(t, tx.RawX12, "TED*007*attachment packet contains 4 LX loops")
+	assert.Contains(t, string(tx.Payload), `"rejectedType":"275"`)
+}
+
 func TestGenerateEnrollmentEligibilityAuthAndStatusTransactions(t *testing.T) {
 	adventurer := domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
 	provider := domain.Provider{ID: "provider-vitesse-temple", Name: "Temple of the Healer, Vitesse"}

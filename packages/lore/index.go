@@ -63,6 +63,8 @@ func ThemeTransaction(txType domain.TransactionType, parties ...string) string {
 		return fmt.Sprintf("Dental claim submitted by %s for %s", receiver, sender)
 	case domain.Tx835:
 		return fmt.Sprintf("Adventure Society remittance issued to %s for %s", receiver, sender)
+	case domain.Tx824:
+		return fmt.Sprintf("Application advice rejected %s for %s", sender, receiver)
 	case domain.Tx276:
 		return fmt.Sprintf("Claim status inquiry sent by %s to %s", sender, receiver)
 	case domain.Tx277:

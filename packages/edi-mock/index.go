@@ -210,6 +210,17 @@ func Generate999(relatedID string, acknowledgedType domain.TransactionType, send
 	return tx
 }
 
+func Generate824(relatedID string, rejectedType domain.TransactionType, senderID, receiverID, errorText string) domain.Transaction {
+	tx := transaction(domain.Tx824, domain.TxStatusFailed, senderID, receiverID, map[string]any{
+		"x12": "824 Application Advice", "relatedId": relatedID, "rejectedType": rejectedType,
+		"accepted": false, "outcome": "application-rejected", "error": errorText,
+		"lore": lore.ThemeTransaction(domain.Tx824, relatedID, receiverID),
+	})
+	tx.RelatedID = relatedID
+	tx.RawX12 = rawX12(tx)
+	return tx
+}
+
 func Generate277CA(claim domain.Claim, relatedID string, accepted bool) domain.Transaction {
 	status := domain.TxStatusAccepted
 	outcome := "accepted"
@@ -398,6 +409,13 @@ func transactionSegments(tx domain.Transaction) []string {
 			"IK5*" + implementationAckCode(tx.Status) + "~",
 			"AK9*" + implementationAckCode(tx.Status) + "*1*1*" + ackAcceptedCount(tx.Status) + "~",
 		}
+	case domain.Tx824:
+		return []string{
+			"BGN*11*" + element(tx.ID) + "*" + tx.CreatedAt.Format("20060102") + "~",
+			"OTI*TR*" + applicationAdviceReference(tx) + "*" + element(tx.RelatedID) + "~",
+			"TED*007*" + element(payloadString(tx, "error", "application validation failed")) + "~",
+			"NTE*ADD*Rejected " + element(string(rejectedTransactionType(tx))) + " application advice~",
+		}
 	case domain.Tx277CA:
 		return []string{
 			"TRN*1*" + controlNumber(tx.RelatedID) + "*" + element(tx.SenderID) + "~",
@@ -464,6 +482,8 @@ func implementationGuide(txType domain.TransactionType) string {
 		return "278A1"
 	case domain.Tx835:
 		return "835A1"
+	case domain.Tx824:
+		return "824A1"
 	case domain.Tx999:
 		return "999A1"
 	case domain.Tx277CA:
@@ -485,6 +505,25 @@ func acknowledgedTransactionType(tx domain.Transaction) domain.TransactionType {
 		return domain.Tx837
 	}
 	return domain.TransactionType(fmt.Sprint(acknowledgedType))
+}
+
+func rejectedTransactionType(tx domain.Transaction) domain.TransactionType {
+	var payload map[string]any
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return domain.Tx275
+	}
+	rejectedType, ok := payload["rejectedType"]
+	if !ok {
+		return domain.Tx275
+	}
+	return domain.TransactionType(fmt.Sprint(rejectedType))
+}
+
+func applicationAdviceReference(tx domain.Transaction) string {
+	if tx.RelatedID == "" {
+		return "TN"
+	}
+	return "TN"
 }
 
 type remittance struct {

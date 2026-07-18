@@ -338,7 +338,7 @@ const claimPageSize = 10;
 const transactionPageSize = 25;
 const auditPageSize = 10;
 const dashboardRefreshMs = 3000;
-const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837", "837D", "835", "276", "277", "269", "999", "277CA"];
+const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837", "837D", "835", "824", "276", "277", "269", "999", "277CA"];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
@@ -3341,6 +3341,7 @@ function timelineTitle(transaction: Transaction, claimId?: string, adventurerId?
   if (adventurerName) return `Adventurer lifecycle: ${adventurerName}`;
   if (adventurerId) return "Adventurer lifecycle";
   if (transaction.type === "999") return "Implementation acknowledgment";
+  if (transaction.type === "824") return "Application advice";
   return "Standalone transaction";
 }
 

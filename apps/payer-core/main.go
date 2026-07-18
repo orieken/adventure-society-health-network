@@ -256,32 +256,32 @@ func (s *store) attachAuthorizationInformation(w http.ResponseWriter, r *http.Re
 		fail(w, http.StatusBadRequest, "invalid authorization transaction", "Only 278 prior authorization runes can receive 275 attachments here.")
 		return
 	}
-	normalizeAttachmentRequests(requests)
-	if err := validateAttachmentPacketControls(requests); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
-		return
-	}
-	if err := s.validatePriorAttachmentControls("authorizationTransactionId", auth.ID, requests); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
-		return
-	}
 	providerID := transactionPayloadString(auth, "providerId")
 	if providerID == "" {
 		providerID = auth.SenderID
 	}
+	normalizeAttachmentRequests(requests)
+	if err := validateAttachmentPacketControls(requests); err != nil {
+		s.rejectAttachment(w, auth.ID, providerID, err)
+		return
+	}
+	if err := s.validatePriorAttachmentControls("authorizationTransactionId", auth.ID, requests); err != nil {
+		s.rejectAttachment(w, auth.ID, providerID, err)
+		return
+	}
 	if err := validateAttachmentPacketLimit(providerID, requests); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		s.rejectAttachment(w, auth.ID, providerID, err)
 		return
 	}
 	txs := make([]domain.Transaction, 0, len(requests))
 	for index, req := range requests {
 		req = requests[index]
 		if err := validateAttachmentRequest(req); err != nil {
-			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			s.rejectAttachment(w, auth.ID, providerID, err)
 			return
 		}
 		if err := validateAttachmentForProvider(providerID, req); err != nil {
-			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			s.rejectAttachment(w, auth.ID, providerID, err)
 			return
 		}
 		tx := edimock.Generate275ForAuthorization(auth, req)
@@ -491,34 +491,34 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 	}
 	normalizeAttachmentRequests(requests)
 	if err := validateAttachmentPacketControls(requests); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 		return
 	}
 	if err := s.validatePriorAttachmentControls("claimId", claim.ID, requests); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 		return
 	}
 	if err := validateAttachmentPacketLimit(claim.ProviderID, requests); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 		return
 	}
 	if err := s.validateUnsolicitedAttachmentTiming(claim, requests); err != nil {
-		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 		return
 	}
 	txs := make([]domain.Transaction, 0, len(requests))
 	for index, req := range requests {
 		req = requests[index]
 		if err := validateAttachmentRequest(req); err != nil {
-			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 			return
 		}
 		if err := validateAttachmentForProvider(claim.ProviderID, req); err != nil {
-			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 			return
 		}
 		if err := s.validateSolicitedAttachmentTrace(claim, req); err != nil {
-			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 			return
 		}
 		tx := edimock.Generate275(claim, req, claim.TransactionID)
@@ -560,6 +560,20 @@ func (s *store) validateSolicitedAttachmentTrace(claim domain.Claim, req domain.
 		return fmt.Errorf("solicited attachment trace %s does not match expected %s", req.AttachmentTraceID, expectedTraceID)
 	}
 	return nil
+}
+
+func (s *store) rejectAttachment(w http.ResponseWriter, relatedID, providerID string, err error) {
+	errorText := err.Error()
+	advice := edimock.Generate824(relatedID, domain.Tx275, societyID, providerID, errorText)
+	s.saveTransaction(advice)
+	fail(w, http.StatusBadRequest, "invalid attachment", errorText)
+}
+
+func attachmentRelatedID(claim domain.Claim) string {
+	if strings.TrimSpace(claim.TransactionID) != "" {
+		return claim.TransactionID
+	}
+	return claim.ID
 }
 
 func (s *store) latestDocumentationRequestTraceID(claim domain.Claim) string {
