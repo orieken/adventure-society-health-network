@@ -118,6 +118,71 @@ h2 {
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
 }
 
+.acknowledgment-drilldown {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  border-color: rgba(145, 215, 255, 0.18);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(145, 215, 255, 0.16), transparent 32rem),
+    rgba(255, 255, 255, 0.05);
+}
+
+.acknowledgment-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.acknowledgment-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(14, 9, 20, 0.66);
+  padding: 14px;
+}
+
+.acknowledgment-card.interchange {
+  border-color: rgba(145, 215, 255, 0.3);
+}
+
+.acknowledgment-card.syntax {
+  border-color: rgba(135, 226, 167, 0.28);
+}
+
+.acknowledgment-card.application {
+  border-color: rgba(246, 185, 90, 0.32);
+}
+
+.acknowledgment-card.business-review {
+  border-color: rgba(255, 118, 118, 0.28);
+}
+
+.acknowledgment-card span {
+  color: #f6b95a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.acknowledgment-card strong {
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 1;
+}
+
+.acknowledgment-card p,
+.acknowledgment-card small {
+  margin: 0;
+  color: #d8c8b8;
+}
+
+.acknowledgment-card small {
+  overflow-wrap: anywhere;
+  color: #91d7ff;
+}
+
 .raw-x12-panel {
   align-content: start;
 }
@@ -1463,6 +1528,7 @@ pre {
   .partner-grid,
   .partner-form,
   .history-grid,
+  .acknowledgment-grid,
   .filters-grid,
   .saved-filter-bar,
   .detail-grid {

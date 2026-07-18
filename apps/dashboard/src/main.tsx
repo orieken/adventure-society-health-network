@@ -212,6 +212,15 @@ type TransactionRelationshipMap = {
   children: Transaction[];
 };
 
+type AcknowledgmentDrilldown = {
+  id: string;
+  label: string;
+  typeFilter: string;
+  count: number;
+  detail: string;
+  examples: Transaction[];
+};
+
 type DashboardTab = "workflow" | "timeline" | "ledger" | "xml" | "partners";
 type PayloadTab = "json" | "xml" | "x12";
 
@@ -676,6 +685,11 @@ function App() {
     [recentTransactions]
   );
 
+  const acknowledgmentDrilldowns = useMemo(
+    () => buildAcknowledgmentDrilldowns(recentTransactions),
+    [recentTransactions]
+  );
+
   useEffect(() => {
     void refresh();
   }, [adventurerOffset, auditOffset, auditStatusFilter, auditTypeFilter, claimOffset, claimStatusFilter, providerFilter, searchTerm, transactionOffset, transactionStatusFilter, transactionTypeFilter]);
@@ -781,6 +795,14 @@ function App() {
     setSearchTerm(item.query || item.partnerId || item.label);
     setAuditOffset(0);
     setActiveTab("xml");
+  }
+
+  function applyAcknowledgmentDrilldown(item: AcknowledgmentDrilldown) {
+    setTransactionTypeFilter(item.typeFilter);
+    setTransactionStatusFilter("All");
+    setSearchTerm("");
+    setTransactionOffset(0);
+    setActiveTab("ledger");
   }
 
   function currentFilterState(name: string): SavedFilter {
@@ -2137,6 +2159,8 @@ function App() {
       )}
 
       {activeTab === "ledger" && (
+      <>
+      <AcknowledgmentDrilldownPanel drilldowns={acknowledgmentDrilldowns} onDrilldown={applyAcknowledgmentDrilldown} />
       <section className="history-grid">
         <div className="panel ledger">
           <div className="ledger-title">
@@ -2182,6 +2206,7 @@ function App() {
           <Pager page={adventurerPage} onPrevious={() => setAdventurerOffset(Math.max(0, adventurerPage.offset - adventurerPage.limit))} onNext={() => setAdventurerOffset(adventurerPage.offset + adventurerPage.limit)} />
         </div>
       </section>
+      </>
       )}
 
       {activeTab === "xml" && (
@@ -2405,6 +2430,42 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
       <strong>{value}</strong>
       <p>{detail}</p>
     </div>
+  );
+}
+
+function AcknowledgmentDrilldownPanel({
+  drilldowns,
+  onDrilldown
+}: {
+  drilldowns: AcknowledgmentDrilldown[];
+  onDrilldown: (item: AcknowledgmentDrilldown) => void;
+}) {
+  const total = drilldowns.reduce((sum, item) => sum + item.count, 0);
+  return (
+    <section className="panel acknowledgment-drilldown" aria-label="acknowledgment outcome drilldown">
+      <div className="ledger-title">
+        <div>
+          <h2>Acknowledgment Outcomes</h2>
+          <p className="muted">Separates interchange, syntax, application-advice, and business-review evidence from the loaded ledger page.</p>
+        </div>
+        <span className="muted">{total} signals</span>
+      </div>
+      <div className="acknowledgment-grid">
+        {drilldowns.map((item) => (
+          <article key={item.id} className={`acknowledgment-card ${item.id}`}>
+            <span>{item.label}</span>
+            <strong>{item.count}</strong>
+            <p>{item.detail}</p>
+            {item.examples.length > 0 && (
+              <small>{item.examples.slice(0, 2).map((transaction) => transaction.id).join(", ")}</small>
+            )}
+            <button type="button" className="secondary" disabled={item.count === 0} onClick={() => onDrilldown(item)}>
+              Drill into {item.typeFilter}
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -3235,6 +3296,56 @@ function buildTransactionRelationshipMap(current: Transaction, transactions: Tra
     current,
     children
   };
+}
+
+function buildAcknowledgmentDrilldowns(transactions: Transaction[]): AcknowledgmentDrilldown[] {
+  const byType = (type: string) => transactions.filter((transaction) => transaction.type === type);
+  const businessReviews = transactions.filter(isBusinessReviewTransaction);
+
+  return [
+    {
+      id: "interchange",
+      label: "TA1 Interchange",
+      typeFilter: "TA1",
+      count: byType("TA1").length,
+      detail: "Envelope or interchange pre-screen failures before transaction translation.",
+      examples: byType("TA1")
+    },
+    {
+      id: "syntax",
+      label: "999 Syntax",
+      typeFilter: "999",
+      count: byType("999").length,
+      detail: "Implementation acknowledgments for accepted or rejected transaction syntax.",
+      examples: byType("999")
+    },
+    {
+      id: "application",
+      label: "824 Application",
+      typeFilter: "824",
+      count: byType("824").length,
+      detail: "Application advice for companion-guide or attachment-validation failures.",
+      examples: byType("824")
+    },
+    {
+      id: "business-review",
+      label: "Business Review",
+      typeFilter: "275",
+      count: businessReviews.length,
+      detail: "Manual authorization or attachment review outcomes after EDI acceptance.",
+      examples: businessReviews
+    }
+  ];
+}
+
+function isBusinessReviewTransaction(transaction: Transaction) {
+  if (transaction.type === "275" && payloadString(transaction, "attachmentReviewStatus")) {
+    return true;
+  }
+  if (transaction.type === "278" && ["Pending", "Approved", "Denied"].includes(transaction.status)) {
+    return true;
+  }
+  return Boolean(payloadString(transaction, "authorizationStatus") || payloadString(transaction, "attachmentReviewReason"));
 }
 
 function claimAttachmentTransactions(claim: Claim, transactions: Transaction[]) {

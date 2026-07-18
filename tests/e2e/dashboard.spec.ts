@@ -168,6 +168,25 @@ test.describe("ASHN dashboard smoke", () => {
     }
   });
 
+  test("separates acknowledgment and business review drilldowns", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    const drilldown = page.getByLabel("acknowledgment outcome drilldown");
+
+    await expect(drilldown.getByText("TA1 Interchange")).toBeVisible();
+    await expect(drilldown.getByText("999 Syntax")).toBeVisible();
+    await expect(drilldown.getByText("824 Application")).toBeVisible();
+    await expect(drilldown.getByText("Business Review")).toBeVisible();
+    await expect(drilldown.getByText("Envelope or interchange pre-screen failures before transaction translation.")).toBeVisible();
+    await expect(drilldown.getByText("Manual authorization or attachment review outcomes after EDI acceptance.")).toBeVisible();
+
+    await drilldown.getByRole("button", { name: "Drill into TA1" }).click();
+    await expect(page.getByLabel("Transaction type")).toHaveValue("TA1");
+    await expect(page.locator(".compact-row").filter({ hasText: "tx-e2e-ta1" })).toBeVisible();
+  });
+
   test("saves applies and deletes dashboard filter presets", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);

@@ -98,7 +98,7 @@ ASHN already implements a teaching-focused 275 workflow:
 - [x] Add same-day and late-window validation for unsolicited 275 claim attachments.
 - [x] Emit or simulate `824` application reporting for attachment validation failures.
 - [x] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
-- [ ] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.
+- [x] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.
 - [ ] Add demo fixtures for invalid `BGN01`, invalid `CAT02`, oversized packet, corrupt Base64, missing trace, and late attachment.
 
 ## Design Guardrails
