@@ -407,6 +407,7 @@ func (s *store) requestClaimDocumentation(w http.ResponseWriter, r *http.Request
 			"reason":              documentationRequest.Reason,
 			"dueDate":             documentationRequest.DueDate,
 			"expectedTransaction": domain.Tx275,
+			"attachmentTraceId":   request.ID,
 			"requiredDocuments":   documentationRequest.RequiredDocuments,
 		},
 		"relatedId": claim.TransactionID,
@@ -418,6 +419,7 @@ func (s *store) requestClaimDocumentation(w http.ResponseWriter, r *http.Request
 		"requestedTransaction":  domain.Tx275,
 		"reason":                documentationRequest.Reason,
 		"dueDate":               documentationRequest.DueDate,
+		"attachmentTraceId":     request.ID,
 		"requiredDocuments":     documentationRequest.RequiredDocuments,
 		"requiredDocumentCount": len(documentationRequest.RequiredDocuments),
 	}
@@ -485,6 +487,10 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 			return
 		}
+		if err := s.validateSolicitedAttachmentTrace(claim, req); err != nil {
+			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+			return
+		}
 		tx := edimock.Generate275(claim, req, claim.TransactionID)
 		s.saveTransaction(tx)
 		txs = append(txs, tx)
@@ -507,6 +513,56 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 	}
 	addAttachmentSummary(data, requests)
 	respond(w, http.StatusCreated, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx275, claim.ProviderID, "Adventure Society"), Transaction: firstTransaction(txs), Transactions: txs})
+}
+
+func (s *store) validateSolicitedAttachmentTrace(claim domain.Claim, req domain.AttachmentRequest) error {
+	if req.AttachmentPurpose != "solicited" {
+		return nil
+	}
+	expectedTraceID := s.latestDocumentationRequestTraceID(claim)
+	if expectedTraceID == "" {
+		return fmt.Errorf("solicited attachment has no matching documentation request trace")
+	}
+	if strings.TrimSpace(req.AttachmentTraceID) == "" {
+		return fmt.Errorf("solicited attachment must include attachmentTraceId %s", expectedTraceID)
+	}
+	if strings.TrimSpace(req.AttachmentTraceID) != expectedTraceID {
+		return fmt.Errorf("solicited attachment trace %s does not match expected %s", req.AttachmentTraceID, expectedTraceID)
+	}
+	return nil
+}
+
+func (s *store) latestDocumentationRequestTraceID(claim domain.Claim) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var latest domain.Transaction
+	for _, tx := range s.transactions {
+		if tx.Type != domain.Tx277 {
+			continue
+		}
+		if tx.RelatedID != "" && tx.RelatedID != claim.TransactionID {
+			continue
+		}
+		if !transactionDocumentsClaim(tx, claim.ID) {
+			continue
+		}
+		if latest.ID == "" || tx.CreatedAt.After(latest.CreatedAt) {
+			latest = tx
+		}
+	}
+	return latest.ID
+}
+
+func transactionDocumentsClaim(tx domain.Transaction, claimID string) bool {
+	var payload map[string]any
+	if err := json.Unmarshal(tx.Payload, &payload); err != nil {
+		return false
+	}
+	if strings.TrimSpace(fmt.Sprint(payload["claimId"])) != claimID {
+		return false
+	}
+	_, ok := payload["documentationRequest"]
+	return ok
 }
 
 func normalizeAttachmentRequest(req domain.AttachmentRequest) domain.AttachmentRequest {

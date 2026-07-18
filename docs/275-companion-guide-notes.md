@@ -86,7 +86,7 @@ ASHN already implements a teaching-focused 275 workflow:
 
 - [x] Add `attachmentPurpose` to 275 payloads: `unsolicited` and `solicited`.
 - [x] Generate `BGN` for raw 275 output and parse `BGN01/BGN02` from inbound raw 275.
-- [ ] Store payer request trace for solicited claim documentation requests and require response trace matching.
+- [x] Store payer request trace for solicited claim documentation requests and require response trace matching.
 - [ ] Store originating 837/PWK attachment control values for unsolicited claim attachments.
 - [ ] Add a `275` raw shape closer to `006020X314` with party loops, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.
 - [ ] Add `BDS01` support for `ASC` and `B64`, including Base64 decode validation.

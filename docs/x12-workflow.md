@@ -156,7 +156,7 @@ Raw delimiter-based `837` intake is available at `POST /v1/x12/raw` with `Conten
 
 Some claims and prior authorization requests need extra supporting documentation. ASHN models this with a `275 Patient Information` transaction linked back to either the claim's original `837` transaction or the prior authorization `278` transaction through `relatedId`.
 
-The payer can also solicit documentation by marking a claim `Pending Documentation` through `POST /claims/{id}/documentation-request`. That emits a related `277` status response with a structured documentation checklist, due date, and expected `275` response. When a valid `275` packet arrives, ASHN clears the hold back to `Pending` and queues claim finalization again.
+The payer can also solicit documentation by marking a claim `Pending Documentation` through `POST /claims/{id}/documentation-request`. That emits a related `277` status response with a structured documentation checklist, due date, expected `275` response, and `attachmentTraceId`. When a solicited `275` packet arrives, ASHN can require the attachment trace to match the latest payer documentation request before clearing the hold back to `Pending` and queuing claim finalization again.
 
 For prior authorization, the dashboard and API can submit `POST /auth-requests/{transactionId}/attachments`. XML intake also accepts `<AuthorizationTransactionId>` inside a `275` `<Attachment>` payload. Claim attachments use `REF*1K`; authorization attachments use `REF*G1` in the generated X12.
 

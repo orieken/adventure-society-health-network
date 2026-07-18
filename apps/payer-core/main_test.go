@@ -724,16 +724,29 @@ func TestReviewAttachmentValidatesTransactionAndStatus(t *testing.T) {
 
 func TestAttachClaimInformationClearsDocumentationHold(t *testing.T) {
 	app := newTestStore()
-	app.claims["claim-1"] = domain.Claim{
+	claim := domain.Claim{
 		ID:            "claim-1",
 		AdventurerID:  "adv-1",
 		ProviderID:    "provider-vitesse-temple",
 		TransactionID: "tx-837",
 		Status:        domain.ClaimPendingDocumentation,
 	}
+	app.claims["claim-1"] = claim
+	docRequest := edimock.Generate277("claim-1", domain.ClaimPendingDocumentation)
+	docRequest.ID = "tx-doc-request"
+	docRequest.RelatedID = "tx-837"
+	docRequest.Payload = domain.Payload(map[string]any{
+		"claimId": "claim-1",
+		"documentationRequest": map[string]any{
+			"attachmentTraceId": "tx-doc-request",
+		},
+	})
+	app.transactions[docRequest.ID] = docRequest
 	mux := newPayerTestMux(app)
 
 	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentPurpose:       "solicited",
+		AttachmentTraceID:       "tx-doc-request",
 		AttachmentType:          "OZ",
 		AttachmentControlNumber: "ATTACH-1",
 		ReportTypeCode:          "B4",
@@ -746,6 +759,35 @@ func TestAttachClaimInformationClearsDocumentationHold(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, response.Code)
 	assert.Equal(t, domain.ClaimPending, app.claims["claim-1"].Status)
 	assert.Contains(t, string(decodeEnvelope(t, response).Data), string(domain.ClaimPending))
+	assert.Contains(t, string(decodeEnvelope(t, response).Data), "tx-doc-request")
+}
+
+func TestAttachClaimInformationRejectsSolicitedTraceMismatch(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{ID: "claim-1", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", TransactionID: "tx-837", Status: domain.ClaimPendingDocumentation}
+	docRequest := edimock.Generate277("claim-1", domain.ClaimPendingDocumentation)
+	docRequest.ID = "tx-doc-request"
+	docRequest.RelatedID = "tx-837"
+	docRequest.Payload = domain.Payload(map[string]any{"claimId": "claim-1", "documentationRequest": map[string]any{"attachmentTraceId": "tx-doc-request"}})
+	app.transactions[docRequest.ID] = docRequest
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentPurpose:       "solicited",
+		AttachmentTraceID:       "wrong-trace",
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Resurrection notes",
+		Content:                 "Patient survived a dragonfire incident.",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "invalid attachment", decodeEnvelope(t, response).Error)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "does not match expected tx-doc-request")
+	assert.Equal(t, domain.ClaimPendingDocumentation, app.claims["claim-1"].Status)
 }
 
 func TestAttachClaimInformationValidatesClaimAndRequiredFields(t *testing.T) {
@@ -955,12 +997,14 @@ func TestRequestClaimDocumentationMarksClaimAndEmits277(t *testing.T) {
 	var data struct {
 		Reason                string                              `json:"reason"`
 		DueDate               string                              `json:"dueDate"`
+		AttachmentTraceID     string                              `json:"attachmentTraceId"`
 		RequiredDocumentCount int                                 `json:"requiredDocumentCount"`
 		RequiredDocuments     []domain.DocumentationChecklistItem `json:"requiredDocuments"`
 	}
 	require.NoError(t, json.Unmarshal(envelope.Data, &data))
 	assert.Equal(t, "Need appeal evidence", data.Reason)
 	assert.Equal(t, "2026-07-17", data.DueDate)
+	assert.Equal(t, envelope.Transaction.ID, data.AttachmentTraceID)
 	assert.Equal(t, 1, data.RequiredDocumentCount)
 	require.Len(t, data.RequiredDocuments, 1)
 	assert.Equal(t, "APPEAL", data.RequiredDocuments[0].Code)
