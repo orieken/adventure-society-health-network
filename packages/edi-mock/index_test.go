@@ -227,6 +227,18 @@ func TestGenerate824ReportsApplicationValidationFailure(t *testing.T) {
 	assert.Contains(t, string(tx.Payload), `"rejectedType":"275"`)
 }
 
+func TestGenerateTA1ReportsInterchangeRejection(t *testing.T) {
+	tx := GenerateTA1("msg-1", "edi-intake", "external-partner", "unsupported content type")
+
+	assert.Equal(t, domain.TxTA1, tx.Type)
+	assert.Equal(t, domain.TxStatusFailed, tx.Status)
+	assert.Equal(t, "msg-1", tx.RelatedID)
+	assert.Contains(t, tx.RawX12, "ST*TA1")
+	assert.Contains(t, tx.RawX12, "TA1*")
+	assert.Contains(t, tx.RawX12, "*R*000")
+	assert.Contains(t, tx.RawX12, "NTE*ADD*unsupported content type")
+}
+
 func TestGenerateEnrollmentEligibilityAuthAndStatusTransactions(t *testing.T) {
 	adventurer := domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
 	provider := domain.Provider{ID: "provider-vitesse-temple", Name: "Temple of the Healer, Vitesse"}

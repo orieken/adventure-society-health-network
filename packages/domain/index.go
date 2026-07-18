@@ -59,6 +59,7 @@ const (
 	Tx276   TransactionType = "276"
 	Tx277   TransactionType = "277"
 	Tx269   TransactionType = "269"
+	TxTA1   TransactionType = "TA1"
 	Tx999   TransactionType = "999"
 	Tx277CA TransactionType = "277CA"
 )

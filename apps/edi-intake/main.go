@@ -185,6 +185,7 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		messageID := a.auditInboundMessage(contentType, "", "", "", "rejected", "invalid payload", http.StatusBadRequest)
+		a.recordTA1(r, messageID, "", "invalid payload")
 		a.record999(r, messageID, "", "", false, "invalid payload")
 		fail(w, http.StatusBadRequest, "invalid payload", "The intake scroll faded before the scribe could read it.")
 		return
@@ -193,6 +194,7 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 	inbound, err := parseInboundPayload(contentType, body)
 	if errors.Is(err, errUnsupportedContentType) {
 		messageID := a.auditInboundMessage(contentType, "", "", rawPayload, "rejected", "unsupported content type", http.StatusUnsupportedMediaType)
+		a.recordTA1(r, messageID, "", "unsupported content type")
 		a.record999(r, messageID, "", "", false, "unsupported content type")
 		fail(w, http.StatusUnsupportedMediaType, "unsupported content type", "The intake scribe accepts canonical ASHN XML, JSON, or raw X12 scrolls.")
 		return
@@ -200,6 +202,7 @@ func (a intakeApp) acceptTransaction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errorText := invalidPayloadError(contentType)
 		messageID := a.auditInboundMessage(contentType, "", "", rawPayload, "rejected", errorText, http.StatusBadRequest)
+		a.recordTA1(r, messageID, "", errorText)
 		a.record999(r, messageID, "", "", false, errorText)
 		fail(w, http.StatusBadRequest, errorText, "The intake scroll does not match the Society canonical transaction format.")
 		return
@@ -1757,26 +1760,41 @@ func (a intakeApp) record999(inbound *http.Request, relatedID string, transactio
 		receiverID = "external-partner"
 	}
 	ack := edimock.Generate999(relatedID, domain.TransactionType(transactionType), "edi-intake", receiverID, accepted, errorText)
-	payload, err := json.Marshal(ack)
+	a.recordGeneratedTransaction(inbound, ack, "ack_999")
+}
+
+func (a intakeApp) recordTA1(inbound *http.Request, relatedID string, receiverID string, errorText string) {
+	if relatedID == "" {
+		return
+	}
+	if receiverID == "" {
+		receiverID = "external-partner"
+	}
+	ack := edimock.GenerateTA1(relatedID, "edi-intake", receiverID, errorText)
+	a.recordGeneratedTransaction(inbound, ack, "ack_ta1")
+}
+
+func (a intakeApp) recordGeneratedTransaction(inbound *http.Request, tx domain.Transaction, logPrefix string) {
+	payload, err := json.Marshal(tx)
 	if err != nil {
-		ashnlog.Error("ack_999_marshal_failed", err, "service", "edi-intake", "relatedId", relatedID)
+		ashnlog.Error(logPrefix+"_marshal_failed", err, "service", "edi-intake", "relatedId", tx.RelatedID)
 		return
 	}
 	req, err := http.NewRequest(http.MethodPost, a.payerURL+"/transactions", bytes.NewReader(payload))
 	if err != nil {
-		ashnlog.Error("ack_999_request_creation_failed", err, "service", "edi-intake", "relatedId", relatedID)
+		ashnlog.Error(logPrefix+"_request_creation_failed", err, "service", "edi-intake", "relatedId", tx.RelatedID)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	requestmeta.Propagate(inbound, req)
 	resp, err := a.httpClient().Do(req)
 	if err != nil {
-		ashnlog.Error("ack_999_persistence_failed", err, "service", "edi-intake", "relatedId", relatedID)
+		ashnlog.Error(logPrefix+"_persistence_failed", err, "service", "edi-intake", "relatedId", tx.RelatedID)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		ashnlog.Info("ack_999_persistence_rejected", "service", "edi-intake", "relatedId", relatedID, "status", resp.Status)
+		ashnlog.Info(logPrefix+"_persistence_rejected", "service", "edi-intake", "relatedId", tx.RelatedID, "status", resp.Status)
 	}
 }
 

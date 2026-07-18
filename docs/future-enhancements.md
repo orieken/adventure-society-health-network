@@ -87,8 +87,8 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Track acknowledgment relationships between source transactions and responses.
 - [x] Add dashboard filters for acknowledgment transaction types.
 - [x] Add tests for accepted and rejected acknowledgment flows.
-- [ ] Add `824` application reporting for `275` attachment validation failures.
-- [ ] Add `TA1` interchange acknowledgment/rejection for ISA/IEA pre-screen failures.
+- [x] Add `824` application reporting for `275` attachment validation failures.
+- [x] Add `TA1` interchange acknowledgment/rejection for ISA/IEA pre-screen failures.
 - [ ] Distinguish syntax acknowledgments, attachment validation responses, and business review outcomes in transaction relationships.
 
 ### P1 — Asynchronous Processing
@@ -157,7 +157,7 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [x] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.
 - [ ] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.
 - [x] Add `824` application reporting for attachment validation failures while keeping `999` for syntax acknowledgment.
-- [ ] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
+- [x] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
 - [ ] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.
 - [ ] Review what it would take to build or integrate a full clearinghouse-grade X12 parser instead of extending the current demo parser indefinitely.
 

@@ -221,6 +221,17 @@ func Generate824(relatedID string, rejectedType domain.TransactionType, senderID
 	return tx
 }
 
+func GenerateTA1(relatedID, senderID, receiverID, errorText string) domain.Transaction {
+	tx := transaction(domain.TxTA1, domain.TxStatusFailed, senderID, receiverID, map[string]any{
+		"x12": "TA1 Interchange Acknowledgment", "relatedId": relatedID,
+		"accepted": false, "outcome": "interchange-rejected", "error": errorText,
+		"lore": lore.ThemeTransaction(domain.TxTA1, relatedID, receiverID),
+	})
+	tx.RelatedID = relatedID
+	tx.RawX12 = rawX12(tx)
+	return tx
+}
+
 func Generate277CA(claim domain.Claim, relatedID string, accepted bool) domain.Transaction {
 	status := domain.TxStatusAccepted
 	outcome := "accepted"
@@ -416,6 +427,11 @@ func transactionSegments(tx domain.Transaction) []string {
 			"TED*007*" + element(payloadString(tx, "error", "application validation failed")) + "~",
 			"NTE*ADD*Rejected " + element(string(rejectedTransactionType(tx))) + " application advice~",
 		}
+	case domain.TxTA1:
+		return []string{
+			"TA1*" + controlNumber(tx.RelatedID) + "*" + tx.CreatedAt.Format("060102") + "*" + tx.CreatedAt.Format("1504") + "*R*000~",
+			"NTE*ADD*" + element(payloadString(tx, "error", "interchange rejected")) + "~",
+		}
 	case domain.Tx277CA:
 		return []string{
 			"TRN*1*" + controlNumber(tx.RelatedID) + "*" + element(tx.SenderID) + "~",
@@ -484,6 +500,8 @@ func implementationGuide(txType domain.TransactionType) string {
 		return "835A1"
 	case domain.Tx824:
 		return "824A1"
+	case domain.TxTA1:
+		return "TA1"
 	case domain.Tx999:
 		return "999A1"
 	case domain.Tx277CA:

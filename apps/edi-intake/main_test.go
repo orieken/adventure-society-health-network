@@ -1693,6 +1693,26 @@ func TestRecord999HandlesRejectedPersistenceResponse(t *testing.T) {
 	})
 }
 
+func TestRecordTA1PersistsInterchangeAcknowledgment(t *testing.T) {
+	var recorded domain.Transaction
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		assert.Equal(t, "/transactions", r.URL.Path)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&recorded))
+		return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &recorded})
+	})}
+
+	request := httptest.NewRequest(http.MethodPost, "/x12/xml", nil)
+	intakeApp{payerURL: "http://payer", client: client}.recordTA1(request, "message-1", "", "unsupported content type")
+
+	assert.Equal(t, domain.TxTA1, recorded.Type)
+	assert.Equal(t, domain.TxStatusFailed, recorded.Status)
+	assert.Equal(t, "message-1", recorded.RelatedID)
+	assert.Equal(t, "edi-intake", recorded.SenderID)
+	assert.Equal(t, "external-partner", recorded.ReceiverID)
+	assert.Contains(t, recorded.RawX12, "TA1*")
+	assert.Contains(t, recorded.RawX12, "NTE*ADD*unsupported content type")
+}
+
 func TestAuditInboundMessagePersistsWhenDatabaseExists(t *testing.T) {
 	db, mock, cleanup := newIntakeMockDB(t)
 	defer cleanup()

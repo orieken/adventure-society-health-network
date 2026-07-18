@@ -168,7 +168,7 @@ ASHN also supports multi-attachment packets. A packet is represented as multiple
 
 Raw delimiter-based `275` intake is also supported at `POST /v1/x12/raw`. The parser extracts solicited/unsolicited purpose and trace from `BGN01/BGN02`, claim/auth correlation from `REF*1K` or `REF*G1`, attachment control from `REF*6R`/`PWK`, packet metadata from `REF*F8`, attachment type from `LQ*AT`, document references from `K3`, notes from `NTE`, and embedded content from `BIN`.
 
-The extracted UHC/esMD companion-guide notes are summarized in [275 Companion Guide Notes](275-companion-guide-notes.md). ASHN now includes explicit solicited/unsolicited purpose via `BGN`, request-trace matching, and companion-guide-inspired `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS` metadata. The next fidelity layers are loop/size limits, MIME/Base64 validation, `824` application reporting, and `TA1` envelope rejection examples.
+The extracted UHC/esMD companion-guide notes are summarized in [275 Companion Guide Notes](275-companion-guide-notes.md). ASHN now includes explicit solicited/unsolicited purpose via `BGN`, request-trace matching, companion-guide-inspired `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS` metadata, loop/size limits, MIME/Base64 validation, `824` application reporting, and `TA1` envelope rejection examples.
 
 In ASHN, a provider can submit:
 
