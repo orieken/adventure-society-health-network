@@ -259,8 +259,9 @@ func (s *store) attachAuthorizationInformation(w http.ResponseWriter, r *http.Re
 		providerID = auth.SenderID
 	}
 	txs := make([]domain.Transaction, 0, len(requests))
-	for _, req := range requests {
+	for index, req := range requests {
 		req = normalizeAttachmentRequest(req)
+		requests[index] = req
 		if err := validateAttachmentRequest(req); err != nil {
 			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 			return
@@ -473,8 +474,9 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	txs := make([]domain.Transaction, 0, len(requests))
-	for _, req := range requests {
+	for index, req := range requests {
 		req = normalizeAttachmentRequest(req)
+		requests[index] = req
 		if err := validateAttachmentRequest(req); err != nil {
 			fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 			return
@@ -509,6 +511,8 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 
 func normalizeAttachmentRequest(req domain.AttachmentRequest) domain.AttachmentRequest {
 	req.PacketID = strings.TrimSpace(req.PacketID)
+	req.AttachmentPurpose = normalizeAttachmentPurpose(req.AttachmentPurpose)
+	req.AttachmentTraceID = strings.TrimSpace(req.AttachmentTraceID)
 	req.AttachmentType = strings.TrimSpace(req.AttachmentType)
 	req.AttachmentControlNumber = strings.TrimSpace(req.AttachmentControlNumber)
 	req.ReportTypeCode = strings.TrimSpace(req.ReportTypeCode)
@@ -519,6 +523,18 @@ func normalizeAttachmentRequest(req domain.AttachmentRequest) domain.AttachmentR
 	req.DocumentReferenceID = strings.TrimSpace(req.DocumentReferenceID)
 	req.DocumentReferenceURL = strings.TrimSpace(req.DocumentReferenceURL)
 	return req
+}
+
+func normalizeAttachmentPurpose(purpose string) string {
+	purpose = strings.ToLower(strings.TrimSpace(purpose))
+	switch purpose {
+	case "02":
+		return "unsolicited"
+	case "11":
+		return "solicited"
+	default:
+		return purpose
+	}
 }
 
 func decodeAttachmentRequests(w http.ResponseWriter, r *http.Request) ([]domain.AttachmentRequest, bool) {
@@ -593,6 +609,8 @@ func addAttachmentSummary(data map[string]any, requests []domain.AttachmentReque
 	data["transmissionCode"] = req.TransmissionCode
 	data["contentType"] = req.ContentType
 	data["description"] = req.Description
+	data["attachmentPurpose"] = req.AttachmentPurpose
+	data["attachmentTraceId"] = req.AttachmentTraceID
 	data["documentReferenceId"] = req.DocumentReferenceID
 	data["documentReferenceUrl"] = req.DocumentReferenceURL
 }
@@ -606,6 +624,9 @@ func validateAttachmentRequest(req domain.AttachmentRequest) error {
 	}
 	if req.DocumentReferenceURL != "" && !(strings.HasPrefix(req.DocumentReferenceURL, "https://") || strings.HasPrefix(req.DocumentReferenceURL, "s3://") || strings.HasPrefix(req.DocumentReferenceURL, "gs://")) {
 		return fmt.Errorf("document reference URL must start with https://, s3://, or gs://")
+	}
+	if req.AttachmentPurpose != "" && req.AttachmentPurpose != "solicited" && req.AttachmentPurpose != "unsolicited" {
+		return fmt.Errorf("attachment purpose must be solicited or unsolicited")
 	}
 	return nil
 }

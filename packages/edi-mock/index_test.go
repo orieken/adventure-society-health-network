@@ -140,6 +140,7 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	assert.Equal(t, domain.TxStatusAccepted, tx.Status)
 	assert.Equal(t, "tx-837", tx.RelatedID)
 	assert.Contains(t, tx.RawX12, "ST*275")
+	assert.Contains(t, tx.RawX12, "BGN*02*tx-837")
 	assert.Contains(t, tx.RawX12, "REF*1K*claim-1")
 	assert.Contains(t, tx.RawX12, "REF*6R*ATTACH-1")
 	assert.Contains(t, tx.RawX12, "REF*F8*packet-claim-1-1-OF-2")
@@ -170,7 +171,9 @@ func TestGenerate275ForAuthorizationUsesAuthReference(t *testing.T) {
 
 	assert.Equal(t, domain.Tx275, tx.Type)
 	assert.Equal(t, "tx-278", tx.RelatedID)
+	assert.Contains(t, tx.RawX12, "BGN*11*tx-278")
 	assert.Contains(t, tx.RawX12, "REF*G1*tx-278")
+	assert.Contains(t, string(tx.Payload), `"attachmentPurpose":"solicited"`)
 	assert.NotContains(t, tx.RawX12, "REF*1K*tx-278")
 }
 

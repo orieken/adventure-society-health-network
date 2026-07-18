@@ -514,6 +514,8 @@ func TestAcceptRawX12RoutesAttachmentToPayerCore(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, response.Code)
 	assert.Equal(t, []string{"/claims/claim-raw-1/attachments", "/transactions"}, downstreamPaths)
 	assert.Equal(t, "OZ", attachmentRequest.AttachmentType)
+	assert.Equal(t, "unsolicited", attachmentRequest.AttachmentPurpose)
+	assert.Equal(t, "trace-raw-275", attachmentRequest.AttachmentTraceID)
 	assert.Equal(t, "ATTACH-RAW-1", attachmentRequest.AttachmentControlNumber)
 	assert.Equal(t, "B4", attachmentRequest.ReportTypeCode)
 	assert.Equal(t, "EL", attachmentRequest.TransmissionCode)
@@ -939,6 +941,8 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	assert.Equal(t, "275", attachment.Type)
 	require.NotNil(t, attachment.Attachment)
 	assert.Equal(t, "claim-raw-1", attachment.Attachment.ClaimID)
+	assert.Equal(t, "unsolicited", attachment.Attachment.AttachmentPurpose)
+	assert.Equal(t, "trace-raw-275", attachment.Attachment.AttachmentTraceID)
 	assert.Equal(t, "ATTACH-RAW-1", attachment.Attachment.AttachmentControlNumber)
 
 	payment, err := parseInboundRawX12([]byte(raw835Fixture()))
@@ -1930,6 +1934,7 @@ func raw275Fixture() string {
 		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000002*0*T*:~",
 		"GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000002*X*005010X275A1~",
 		"ST*275*000000002~",
+		"BGN*02*trace-raw-275*20260708~",
 		"BHT*0019*00*000000002*20260708*1200*CH~",
 		"TRN*1*tx-raw-275*provider-vitesse-temple~",
 		"HL*1**20*1~",

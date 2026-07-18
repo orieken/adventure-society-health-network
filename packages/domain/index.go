@@ -338,6 +338,8 @@ type AttachmentRequest struct {
 	PacketID                string `json:"packetId,omitempty"`
 	PacketSequence          int    `json:"packetSequence,omitempty"`
 	PacketCount             int    `json:"packetCount,omitempty"`
+	AttachmentPurpose       string `json:"attachmentPurpose,omitempty"`
+	AttachmentTraceID       string `json:"attachmentTraceId,omitempty"`
 	AttachmentType          string `json:"attachmentType"`
 	AttachmentControlNumber string `json:"attachmentControlNumber"`
 	ReportTypeCode          string `json:"reportTypeCode"`

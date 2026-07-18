@@ -85,6 +85,8 @@ func Generate275(claim domain.Claim, attachment domain.AttachmentRequest, relate
 		"adventurerId": claim.AdventurerID, "attachmentType": attachment.AttachmentType,
 		"packetId": attachment.PacketID, "packetSequence": attachment.PacketSequence,
 		"packetCount":             attachment.PacketCount,
+		"attachmentPurpose":       attachmentPurpose(attachment.AttachmentPurpose, "unsolicited"),
+		"attachmentTraceId":       attachmentTraceID(attachment.AttachmentTraceID, relatedID),
 		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
 		"reportTypeCode": attachment.ReportTypeCode, "transmissionCode": attachment.TransmissionCode,
 		"contentType": attachment.ContentType, "documentReferenceId": attachment.DocumentReferenceID,
@@ -105,6 +107,8 @@ func Generate275ForAuthorization(auth domain.Transaction, attachment domain.Atta
 		"adventurerId": adventurerID, "attachmentType": attachment.AttachmentType,
 		"packetId": attachment.PacketID, "packetSequence": attachment.PacketSequence,
 		"packetCount":             attachment.PacketCount,
+		"attachmentPurpose":       attachmentPurpose(attachment.AttachmentPurpose, "solicited"),
+		"attachmentTraceId":       attachmentTraceID(attachment.AttachmentTraceID, auth.ID),
 		"attachmentControlNumber": attachment.AttachmentControlNumber, "description": attachment.Description,
 		"reportTypeCode": attachment.ReportTypeCode, "transmissionCode": attachment.TransmissionCode,
 		"contentType": attachment.ContentType, "documentReferenceId": attachment.DocumentReferenceID,
@@ -300,6 +304,7 @@ func transactionSegments(tx domain.Transaction) []string {
 	case domain.Tx275:
 		attachment := attachmentInfo(tx)
 		segments := []string{
+			"BGN*" + bgnPurposeCode(attachment.Purpose) + "*" + element(firstNonEmptyString(attachment.TraceID, tx.ID)) + "*" + tx.CreatedAt.Format("20060102") + "~",
 			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
 			"HL*1**20*1~",
 			"NM1*1P*2*" + element(tx.SenderID) + "*****XX*" + element(tx.SenderID) + "~",
@@ -496,6 +501,8 @@ type x12AttachmentInfo struct {
 	PacketID                   string
 	PacketSequence             int
 	PacketCount                int
+	Purpose                    string
+	TraceID                    string
 	AttachmentType             string
 	ControlNumber              string
 	ReportTypeCode             string
@@ -529,6 +536,8 @@ func attachmentInfo(tx domain.Transaction) x12AttachmentInfo {
 	info.PacketID = stringValue(payload, "packetId", info.PacketID)
 	info.PacketSequence = intValue(payload, "packetSequence", info.PacketSequence)
 	info.PacketCount = intValue(payload, "packetCount", info.PacketCount)
+	info.Purpose = stringValue(payload, "attachmentPurpose", info.Purpose)
+	info.TraceID = stringValue(payload, "attachmentTraceId", info.TraceID)
 	info.AttachmentType = stringValue(payload, "attachmentType", info.AttachmentType)
 	info.ControlNumber = stringValue(payload, "attachmentControlNumber", info.ControlNumber)
 	info.ReportTypeCode = stringValue(payload, "reportTypeCode", info.ReportTypeCode)
@@ -711,6 +720,42 @@ func serviceLinesValue(payload map[string]any, key string) []domain.ClaimService
 
 func payloadString(tx domain.Transaction, key string, fallback string) string {
 	return stringValue(payloadMap(tx), key, fallback)
+}
+
+func attachmentPurpose(purpose string, fallback string) string {
+	purpose = strings.ToLower(strings.TrimSpace(purpose))
+	switch purpose {
+	case "02":
+		return "unsolicited"
+	case "11":
+		return "solicited"
+	case "solicited", "unsolicited":
+		return purpose
+	default:
+		return fallback
+	}
+}
+
+func attachmentTraceID(traceID string, fallback string) string {
+	return firstNonEmptyString(traceID, fallback)
+}
+
+func bgnPurposeCode(purpose string) string {
+	switch attachmentPurpose(purpose, "unsolicited") {
+	case "solicited":
+		return "11"
+	default:
+		return "02"
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func eligibilityServiceType(serviceTypes ...string) string {

@@ -118,6 +118,8 @@ type xmlAttachment struct {
 	ClaimID                    string `xml:"ClaimId" json:"claimId,omitempty"`
 	AuthorizationTransactionID string `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
 	ProviderID                 string `xml:"ProviderId" json:"providerId"`
+	AttachmentPurpose          string `xml:"AttachmentPurpose" json:"attachmentPurpose,omitempty"`
+	AttachmentTraceID          string `xml:"AttachmentTraceId" json:"attachmentTraceId,omitempty"`
 	AttachmentType             string `xml:"AttachmentType" json:"attachmentType"`
 	AttachmentControlNumber    string `xml:"AttachmentControlNumber" json:"attachmentControlNumber"`
 	ReportTypeCode             string `xml:"ReportTypeCode" json:"reportTypeCode"`
@@ -712,6 +714,10 @@ func raw275Attachment(segmentMap map[string][][]string, senderID string) (xmlAtt
 		Description:      "Raw X12 patient information attachment",
 		TransmissionCode: "EL",
 	}
+	if bgn := firstRawSegment(segmentMap, "BGN"); len(bgn) > 2 {
+		attachment.AttachmentPurpose = attachmentPurposeFromBGN01(bgn[1])
+		attachment.AttachmentTraceID = strings.TrimSpace(bgn[2])
+	}
 	for _, ref := range segmentMap["REF"] {
 		if len(ref) < 3 {
 			continue
@@ -1219,6 +1225,8 @@ func (t inboundTransaction) attachmentRequests() ([]domain.AttachmentRequest, st
 			PacketID:                firstNonEmpty(strings.TrimSpace(attachment.PacketID), packetID),
 			PacketSequence:          sequence,
 			PacketCount:             count,
+			AttachmentPurpose:       strings.TrimSpace(attachment.AttachmentPurpose),
+			AttachmentTraceID:       strings.TrimSpace(attachment.AttachmentTraceID),
 			AttachmentType:          strings.TrimSpace(attachment.AttachmentType),
 			AttachmentControlNumber: strings.TrimSpace(attachment.AttachmentControlNumber),
 			ReportTypeCode:          strings.TrimSpace(attachment.ReportTypeCode),
@@ -1240,6 +1248,17 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func attachmentPurposeFromBGN01(code string) string {
+	switch strings.TrimSpace(code) {
+	case "02":
+		return "unsolicited"
+	case "11":
+		return "solicited"
+	default:
+		return strings.TrimSpace(code)
+	}
 }
 
 func (a intakeApp) forward(w http.ResponseWriter, inbound *http.Request, method, path string, body any) (int, string) {

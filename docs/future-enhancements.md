@@ -142,7 +142,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 
 Extracted companion-guide notes live in [275 Companion Guide Notes](275-companion-guide-notes.md). The local PDFs were intentionally not retained in git; the durable implementation ideas are summarized there.
 
-- [ ] Model explicit `275` purpose: unsolicited `BGN01=02` versus solicited `BGN01=11`.
+- [x] Model explicit `275` purpose: unsolicited `BGN01=02` versus solicited `BGN01=11`.
 - [ ] Add solicited `275` trace correlation where response `TRN02` matches the payer's `277` request trace.
 - [ ] Preserve the app's current claim/auth attachment path while adding a closer `006020X314` envelope shape.
 - [ ] Generate and parse core `275` structures from the companion guides: `BGN`, `1000A/B/C/D`, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.

@@ -475,6 +475,8 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	mux := newPayerTestMux(app)
 
 	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentPurpose:       "02",
+		AttachmentTraceID:       "trace-837",
 		AttachmentType:          "OZ",
 		AttachmentControlNumber: "ATTACH-1",
 		ReportTypeCode:          "B4",
@@ -490,8 +492,10 @@ func TestAttachClaimInformationEmits275Transaction(t *testing.T) {
 	assert.Equal(t, domain.Tx275, envelope.Transaction.Type)
 	assert.Equal(t, "tx-837", envelope.Transaction.RelatedID)
 	assert.Contains(t, envelope.Transaction.RawX12, "ST*275")
+	assert.Contains(t, envelope.Transaction.RawX12, "BGN*02*trace-837")
 	assert.Contains(t, envelope.Transaction.RawX12, "PWK*B4*EL***AC*ATTACH-1")
 	assert.Contains(t, envelope.Transaction.RawX12, "LQ*AT*OZ")
+	assert.Contains(t, string(envelope.Data), "unsolicited")
 }
 
 func TestAttachClaimInformationAcceptsExternalDocumentReference(t *testing.T) {

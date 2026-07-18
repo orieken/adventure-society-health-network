@@ -166,7 +166,7 @@ Attachments can include embedded `content` or reference an external document wit
 
 ASHN also supports multi-attachment packets. A packet is represented as multiple `275` transactions that share a `packetId`, with `packetSequence` and `packetCount` showing each document's position in the packet. JSON callers can post an `attachments[]` packet to the existing claim or authorization attachment endpoints, and XML callers can use `<AttachmentPacket packetId="...">` with repeated `<Attachment>` children. Raw X12 emits `REF*F8` with the packet identifier and sequence/count marker.
 
-Raw delimiter-based `275` intake is also supported at `POST /v1/x12/raw`. The parser extracts claim/auth correlation from `REF*1K` or `REF*G1`, attachment control from `REF*6R`/`PWK`, packet metadata from `REF*F8`, attachment type from `LQ*AT`, document references from `K3`, notes from `NTE`, and embedded content from `BIN`.
+Raw delimiter-based `275` intake is also supported at `POST /v1/x12/raw`. The parser extracts solicited/unsolicited purpose and trace from `BGN01/BGN02`, claim/auth correlation from `REF*1K` or `REF*G1`, attachment control from `REF*6R`/`PWK`, packet metadata from `REF*F8`, attachment type from `LQ*AT`, document references from `K3`, notes from `NTE`, and embedded content from `BIN`.
 
 The extracted UHC/esMD companion-guide notes are summarized in [275 Companion Guide Notes](275-companion-guide-notes.md). The next fidelity layer should add explicit solicited/unsolicited purpose via `BGN`, request-trace matching, `LX` loop limits, `CAT`/`OOI`/`BDS` metadata, MIME/Base64 validation, `824` application reporting, and `TA1` envelope rejection examples.
 
