@@ -25,6 +25,7 @@ type TradingPartner = {
     allowedFileExtensions?: string[];
     maxEmbeddedContentBytes?: number;
     maxAttachmentsPerPacket?: number;
+    unsolicitedAttachmentWindowDays?: number;
     diagnosisQualifiers?: string[];
     diagnosisCodes?: string[];
     procedureCodePrefixes?: string[];
@@ -2593,6 +2594,7 @@ function attachmentGuide(profile: NonNullable<TradingPartner["validationProfile"
     profile.contentTypes?.length ? profile.contentTypes.join(", ") : "",
     profile.allowedFileExtensions?.length ? `${profile.allowedFileExtensions.join("/")} files` : "",
     profile.maxAttachmentsPerPacket ? `${profile.maxAttachmentsPerPacket} docs/packet` : "",
+    profile.unsolicitedAttachmentWindowDays === 0 ? "same-day unsolicited" : profile.unsolicitedAttachmentWindowDays ? `${profile.unsolicitedAttachmentWindowDays}d unsolicited window` : "",
     profile.maxEmbeddedContentBytes ? `${Math.round(profile.maxEmbeddedContentBytes / 1024)} KB embedded limit` : ""
   ].filter(Boolean);
   return pieces.join(" · ");

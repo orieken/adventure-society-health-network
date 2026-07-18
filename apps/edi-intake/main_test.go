@@ -1434,6 +1434,7 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	assert.Equal(t, []string{"OZ"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AttachmentTypes)
 	assert.Equal(t, []string{".txt"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.AllowedFileExtensions)
 	assert.Equal(t, 3, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.MaxAttachmentsPerPacket)
+	assert.Equal(t, 0, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.UnsolicitedAttachmentWindowDays)
 	assert.Equal(t, []string{"S610", "T509", "S062X9A", "K021"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DiagnosisCodes)
 	assert.Equal(t, []string{"ASHN", "RIM", "D"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }

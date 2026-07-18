@@ -123,20 +123,21 @@ type TradingPartner struct {
 }
 
 type PartnerValidationProfile struct {
-	AttachmentTypes         []string `json:"attachmentTypes,omitempty"`
-	ReportTypeCodes         []string `json:"reportTypeCodes,omitempty"`
-	TransmissionCodes       []string `json:"transmissionCodes,omitempty"`
-	ContentTypes            []string `json:"contentTypes,omitempty"`
-	AllowedFileExtensions   []string `json:"allowedFileExtensions,omitempty"`
-	ControlNumberPrefixes   []string `json:"controlNumberPrefixes,omitempty"`
-	MaxEmbeddedContentBytes int      `json:"maxEmbeddedContentBytes,omitempty"`
-	MaxAttachmentsPerPacket int      `json:"maxAttachmentsPerPacket,omitempty"`
-	ServiceTypes            []string `json:"serviceTypes,omitempty"`
-	IncidentSeverities      []string `json:"incidentSeverities,omitempty"`
-	DiagnosisQualifiers     []string `json:"diagnosisQualifiers,omitempty"`
-	DiagnosisCodes          []string `json:"diagnosisCodes,omitempty"`
-	ProcedureCodePrefixes   []string `json:"procedureCodePrefixes,omitempty"`
-	ProcedureCodes          []string `json:"procedureCodes,omitempty"`
+	AttachmentTypes                 []string `json:"attachmentTypes,omitempty"`
+	ReportTypeCodes                 []string `json:"reportTypeCodes,omitempty"`
+	TransmissionCodes               []string `json:"transmissionCodes,omitempty"`
+	ContentTypes                    []string `json:"contentTypes,omitempty"`
+	AllowedFileExtensions           []string `json:"allowedFileExtensions,omitempty"`
+	ControlNumberPrefixes           []string `json:"controlNumberPrefixes,omitempty"`
+	MaxEmbeddedContentBytes         int      `json:"maxEmbeddedContentBytes,omitempty"`
+	MaxAttachmentsPerPacket         int      `json:"maxAttachmentsPerPacket,omitempty"`
+	UnsolicitedAttachmentWindowDays int      `json:"unsolicitedAttachmentWindowDays,omitempty"`
+	ServiceTypes                    []string `json:"serviceTypes,omitempty"`
+	IncidentSeverities              []string `json:"incidentSeverities,omitempty"`
+	DiagnosisQualifiers             []string `json:"diagnosisQualifiers,omitempty"`
+	DiagnosisCodes                  []string `json:"diagnosisCodes,omitempty"`
+	ProcedureCodePrefixes           []string `json:"procedureCodePrefixes,omitempty"`
+	ProcedureCodes                  []string `json:"procedureCodes,omitempty"`
 }
 
 type Transaction struct {

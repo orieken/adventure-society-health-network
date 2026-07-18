@@ -834,6 +834,61 @@ func TestAttachClaimInformationRejectsPacketOverProviderLimit(t *testing.T) {
 	assert.Empty(t, app.transactions)
 }
 
+func TestAttachClaimInformationEnforcesUnsolicitedTimingWindow(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837-old",
+		Status:        domain.ClaimSubmitted,
+	}
+	app.transactions["tx-837-old"] = domain.Transaction{
+		ID:        "tx-837-old",
+		Type:      domain.Tx837,
+		Status:    domain.TxStatusAccepted,
+		CreatedAt: time.Now().UTC().AddDate(0, 0, -1),
+	}
+	mux := newPayerTestMux(app)
+
+	lateUnsolicited := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-LATE-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Late note",
+		Content:                 "late",
+	})
+	assert.Equal(t, http.StatusBadRequest, lateUnsolicited.Code)
+	assert.Contains(t, decodeEnvelope(t, lateUnsolicited).Lore, "must be submitted on the same day")
+
+	app.claims["claim-1"] = domain.Claim{
+		ID:            "claim-1",
+		AdventurerID:  "adv-1",
+		ProviderID:    "provider-vitesse-temple",
+		TransactionID: "tx-837-old",
+		Status:        domain.ClaimPendingDocumentation,
+	}
+	docRequest := edimock.Generate277("claim-1", domain.ClaimPendingDocumentation)
+	docRequest.ID = "tx-doc-request"
+	docRequest.RelatedID = "tx-837-old"
+	docRequest.Payload = domain.Payload(map[string]any{"claimId": "claim-1", "documentationRequest": map[string]any{"attachmentTraceId": "tx-doc-request"}})
+	app.transactions[docRequest.ID] = docRequest
+	solicited := serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", domain.AttachmentRequest{
+		AttachmentPurpose:       "solicited",
+		AttachmentTraceID:       "tx-doc-request",
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "ATTACH-SOL-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "text/plain",
+		Description:             "Solicited note",
+		Content:                 "solicited",
+	})
+	assert.Equal(t, http.StatusCreated, solicited.Code)
+}
+
 func TestReviewAttachmentUpdatesPayloadWithoutChangingTransactionAcceptance(t *testing.T) {
 	app := newTestStore()
 	app.transactions["tx-275"] = domain.Transaction{

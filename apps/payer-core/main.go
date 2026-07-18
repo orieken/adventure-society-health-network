@@ -502,6 +502,10 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
 		return
 	}
+	if err := s.validateUnsolicitedAttachmentTiming(claim, requests); err != nil {
+		fail(w, http.StatusBadRequest, "invalid attachment", err.Error())
+		return
+	}
 	txs := make([]domain.Transaction, 0, len(requests))
 	for index, req := range requests {
 		req = requests[index]
@@ -839,15 +843,16 @@ func transactionPayloadString(tx domain.Transaction, key string) string {
 }
 
 type attachmentCompanionRule struct {
-	ProviderID           string
-	AllowedTypes         []string
-	AllowedReportTypes   []string
-	AllowedTransmissions []string
-	AllowedContentTypes  []string
-	AllowedExtensions    []string
-	ControlPrefixes      []string
-	MaxContentBytes      int
-	MaxAttachments       int
+	ProviderID            string
+	AllowedTypes          []string
+	AllowedReportTypes    []string
+	AllowedTransmissions  []string
+	AllowedContentTypes   []string
+	AllowedExtensions     []string
+	ControlPrefixes       []string
+	MaxContentBytes       int
+	MaxAttachments        int
+	UnsolicitedWindowDays int
 }
 
 func validateAttachmentPacketLimit(providerID string, requests []domain.AttachmentRequest) error {
@@ -856,6 +861,36 @@ func validateAttachmentPacketLimit(providerID string, requests []domain.Attachme
 		return nil
 	}
 	return fmt.Errorf("attachment packet contains %d LX loops; provider %s allows %d", len(requests), providerID, rule.MaxAttachments)
+}
+
+func (s *store) validateUnsolicitedAttachmentTiming(claim domain.Claim, requests []domain.AttachmentRequest) error {
+	if strings.TrimSpace(claim.TransactionID) == "" {
+		return nil
+	}
+	hasUnsolicited := false
+	for _, req := range requests {
+		if req.AttachmentPurpose != "solicited" {
+			hasUnsolicited = true
+			break
+		}
+	}
+	if !hasUnsolicited {
+		return nil
+	}
+	claimTx, ok := s.findTransaction(claim.TransactionID)
+	if !ok || claimTx.CreatedAt.IsZero() {
+		return nil
+	}
+	rule := companionRuleForProvider(claim.ProviderID)
+	windowDays := rule.UnsolicitedWindowDays
+	deadline := claimTx.CreatedAt.UTC().AddDate(0, 0, windowDays+1)
+	if time.Now().UTC().Before(deadline) {
+		return nil
+	}
+	if windowDays == 0 {
+		return fmt.Errorf("unsolicited 275 attachments for provider %s must be submitted on the same day as the originating 837 claim", claim.ProviderID)
+	}
+	return fmt.Errorf("unsolicited 275 attachments for provider %s must be submitted within %d days of the originating 837 claim", claim.ProviderID, windowDays)
 }
 
 func validateAttachmentForProvider(providerID string, req domain.AttachmentRequest) error {
@@ -891,27 +926,29 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 	switch providerID {
 	case "provider-rimaros-hospital":
 		return attachmentCompanionRule{
-			ProviderID:           providerID,
-			AllowedTypes:         []string{"OZ", "PN"},
-			AllowedReportTypes:   []string{"03", "B4"},
-			AllowedTransmissions: []string{"EL"},
-			AllowedContentTypes:  []string{"text/plain", "application/pdf"},
-			AllowedExtensions:    []string{".txt", ".pdf"},
-			ControlPrefixes:      []string{"RIM-", "ATTACH-", "XML-"},
-			MaxContentBytes:      8192,
-			MaxAttachments:       5,
+			ProviderID:            providerID,
+			AllowedTypes:          []string{"OZ", "PN"},
+			AllowedReportTypes:    []string{"03", "B4"},
+			AllowedTransmissions:  []string{"EL"},
+			AllowedContentTypes:   []string{"text/plain", "application/pdf"},
+			AllowedExtensions:     []string{".txt", ".pdf"},
+			ControlPrefixes:       []string{"RIM-", "ATTACH-", "XML-"},
+			MaxContentBytes:       8192,
+			MaxAttachments:        5,
+			UnsolicitedWindowDays: 7,
 		}
 	default:
 		return attachmentCompanionRule{
-			ProviderID:           providerID,
-			AllowedTypes:         []string{"OZ"},
-			AllowedReportTypes:   []string{"B4"},
-			AllowedTransmissions: []string{"EL"},
-			AllowedContentTypes:  []string{"text/plain"},
-			AllowedExtensions:    []string{".txt"},
-			ControlPrefixes:      []string{"TEMPLE-", "ATTACH-", "XML-"},
-			MaxContentBytes:      4096,
-			MaxAttachments:       3,
+			ProviderID:            providerID,
+			AllowedTypes:          []string{"OZ"},
+			AllowedReportTypes:    []string{"B4"},
+			AllowedTransmissions:  []string{"EL"},
+			AllowedContentTypes:   []string{"text/plain"},
+			AllowedExtensions:     []string{".txt"},
+			ControlPrefixes:       []string{"TEMPLE-", "ATTACH-", "XML-"},
+			MaxContentBytes:       4096,
+			MaxAttachments:        3,
+			UnsolicitedWindowDays: 0,
 		}
 	}
 }

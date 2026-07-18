@@ -143,6 +143,7 @@ func assertSeedData(t *testing.T, db *sql.DB) {
 	require.NoError(t, db.QueryRow(`SELECT validation_profile FROM trading_partners WHERE id = 'tp-vitesse-temple'`).Scan(&validationProfile))
 	assert.Contains(t, validationProfile, "allowedFileExtensions")
 	assert.Contains(t, validationProfile, "maxAttachmentsPerPacket")
+	assert.Contains(t, validationProfile, "unsolicitedAttachmentWindowDays")
 	assert.Contains(t, validationProfile, ".txt")
 }
 

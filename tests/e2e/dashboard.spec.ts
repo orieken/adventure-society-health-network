@@ -729,6 +729,7 @@ async function mockDashboardApi(page: Page) {
         contentTypes: ["text/plain"],
         allowedFileExtensions: [".txt"],
         maxAttachmentsPerPacket: 3,
+        unsolicitedAttachmentWindowDays: 0,
         maxEmbeddedContentBytes: 2048,
         serviceTypes: ["resurrection", "restoration", "curse-removal", "dental-predetermination"],
         incidentSeverities: ["Normal", "Awakened"],
