@@ -1,4 +1,5 @@
 import { expect, test } from "@orieken/saturday-playwright";
+import type { APIRequestContext } from "@playwright/test";
 
 import { runMutatingE2E, services, serviceUrls, uniqueDemoName } from "./config.js";
 
@@ -27,6 +28,37 @@ type ClaimDetail = {
   adjustmentReason?: string;
 };
 
+type Adventurer = {
+  id: string;
+  coverageStatus: string;
+};
+
+type InboundMessage = {
+  id: string;
+  contentType: string;
+  transactionType: string;
+  status: string;
+  error?: string;
+};
+
+type TradingPartner = {
+  id: string;
+  name: string;
+  senderId: string;
+  receiverId: string;
+  allowedTransactionTypes: string[];
+  routeTarget: string;
+  status: string;
+};
+
+type DocumentReference = {
+  transactionId: string;
+  retrievalMode: string;
+  retrievalStatus: string;
+  embeddedContentAvailable: boolean;
+  documentReferenceUrl?: string;
+};
+
 type Envelope<T = unknown> = {
   data?: T;
   error?: string;
@@ -40,6 +72,24 @@ type Envelope<T = unknown> = {
   transaction?: TransactionSummary;
   transactions?: TransactionSummary[];
 };
+
+async function enrollAdventurer(request: APIRequestContext, namePrefix: string) {
+  const enrollment = await request.post(`${serviceUrls.apiGateway}/v1/adventurers`, {
+    data: {
+      name: uniqueDemoName(namePrefix),
+      rank: "Gold",
+      guild: "Contract Testers Guild",
+      region: "Rimaros"
+    }
+  });
+  expect(enrollment.status()).toBe(201);
+
+  const enrolled = (await enrollment.json()) as Envelope<Adventurer>;
+  expect(enrolled.data?.id).toBeTruthy();
+  expect(enrolled.data?.coverageStatus).toBe("Active");
+  expect(enrolled.transaction?.type).toBe("834");
+  return enrolled;
+}
 
 test.describe("ASHN service contracts", () => {
   for (const service of services) {
@@ -90,6 +140,22 @@ test.describe("ASHN service contracts", () => {
     expect(envelope.page?.offset).toBe(0);
     expect(typeof envelope.page?.count).toBe("number");
     expect(typeof envelope.page?.hasMore).toBe("boolean");
+  });
+
+  test("gateway propagates request and correlation headers", async ({ request }) => {
+    const requestId = `req-e2e-${Date.now()}`;
+    const correlationId = `corr-e2e-${Date.now()}`;
+
+    const response = await request.get(`${serviceUrls.apiGateway}/v1/health`, {
+      headers: {
+        "X-Request-ID": requestId,
+        "X-Correlation-ID": correlationId
+      }
+    });
+    expect(response.ok()).toBeTruthy();
+    expect(response.headers()["x-request-id"]).toBe(requestId);
+    expect(response.headers()["x-correlation-id"]).toBe(correlationId);
+    expect(response.headers()["traceparent"]).toMatch(/^00-/);
   });
 });
 
@@ -495,5 +561,274 @@ test.describe("ASHN mutating demo contracts", () => {
 
     const envelope = (await messages.json()) as Envelope<Array<{ contentType: string; transactionType: string; status: string }>>;
     expect(envelope.data?.some((message) => message.contentType.includes("json") && message.transactionType === "834" && message.status === "accepted")).toBeTruthy();
+  });
+
+  test("gateway exports transactions and resolves embedded 275 document content", async ({ request }) => {
+    const enrolled = await enrollAdventurer(request, "Export Cleric");
+
+    const claim = await request.post(`${serviceUrls.apiGateway}/v1/claims`, {
+      data: {
+        adventurerId: enrolled.data?.id,
+        providerId: "provider-vitesse-temple",
+        incidentSeverity: "dragonfire",
+        amountCents: 42_000
+      }
+    });
+    expect(claim.status()).toBe(201);
+
+    const claimEnvelope = (await claim.json()) as Envelope<{ id: string }>;
+    expect(claimEnvelope.transaction?.id).toBeTruthy();
+
+    const x12Export = await request.get(`${serviceUrls.apiGateway}/v1/transactions/${claimEnvelope.transaction?.id}/export?format=x12`);
+    expect(x12Export.ok()).toBeTruthy();
+    expect(x12Export.headers()["content-type"]).toContain("text/plain");
+    await expect(await x12Export.text()).toContain("ST*837");
+
+    const xmlExport = await request.get(`${serviceUrls.apiGateway}/v1/transactions/${claimEnvelope.transaction?.id}/export?format=xml`);
+    expect(xmlExport.ok()).toBeTruthy();
+    expect(xmlExport.headers()["content-type"]).toContain("application/xml");
+    await expect(await xmlExport.text()).toContain("<AshnTransactionExport");
+
+    const jsonExport = await request.get(`${serviceUrls.apiGateway}/v1/transactions/${claimEnvelope.transaction?.id}/export?format=json`);
+    expect(jsonExport.ok()).toBeTruthy();
+    expect(jsonExport.headers()["content-type"]).toContain("application/json");
+    const exportedTransaction = (await jsonExport.json()) as TransactionSummary;
+    expect(exportedTransaction.type).toBe("837");
+
+    const attachment = await request.post(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}/attachments`, {
+      data: {
+        attachmentType: "OZ",
+        attachmentControlNumber: `ATTACH-EXPORT-${Date.now()}`,
+        reportTypeCode: "B4",
+        transmissionCode: "EL",
+        contentType: "text/plain",
+        description: "Embedded notes for export",
+        content: "Embedded 275 scroll content for document-vault testing."
+      }
+    });
+    expect(attachment.status()).toBe(201);
+
+    const attachmentEnvelope = (await attachment.json()) as Envelope;
+    expect(attachmentEnvelope.transaction?.type).toBe("275");
+
+    const reference = await request.get(`${serviceUrls.apiGateway}/v1/transactions/${attachmentEnvelope.transaction?.id}/document-reference`);
+    expect(reference.ok()).toBeTruthy();
+    const referenceEnvelope = (await reference.json()) as Envelope<DocumentReference>;
+    expect(referenceEnvelope.data).toMatchObject({
+      transactionId: attachmentEnvelope.transaction?.id,
+      retrievalMode: "embedded",
+      retrievalStatus: "available",
+      embeddedContentAvailable: true
+    });
+
+    const content = await request.get(`${serviceUrls.apiGateway}/v1/transactions/${attachmentEnvelope.transaction?.id}/document-reference/content`);
+    expect(content.ok()).toBeTruthy();
+    expect(content.headers()["content-type"]).toContain("text/plain");
+    await expect(await content.text()).toContain("Embedded 275 scroll content");
+  });
+
+  test("gateway exports and replays accepted XML intake audit messages", async ({ request }) => {
+    const xmlName = uniqueDemoName("Replay Mage");
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="834">
+  <Sender id="partner-greenstone"/>
+  <Receiver id="Adventure Society"/>
+  <Enrollment>
+    <Name>${xmlName}</Name>
+    <Rank>Silver</Rank>
+    <Guild>Replay Guild</Guild>
+    <Region>Greenstone</Region>
+  </Enrollment>
+</AshnX12Transaction>`;
+
+    const intake = await request.post(`${serviceUrls.apiGateway}/v1/x12/xml`, {
+      headers: { "Content-Type": "application/xml" },
+      data: xml
+    });
+    expect(intake.status()).toBe(201);
+
+    const messages = await request.get(`${serviceUrls.apiGateway}/v1/x12/messages?limit=5&type=834&q=${encodeURIComponent(xmlName)}`);
+    expect(messages.ok()).toBeTruthy();
+    const messageEnvelope = (await messages.json()) as Envelope<InboundMessage[]>;
+    const message = messageEnvelope.data?.find((item) => item.transactionType === "834" && item.status === "accepted");
+    expect(message?.id).toBeTruthy();
+
+    const xmlExport = await request.get(`${serviceUrls.apiGateway}/v1/x12/messages/${message?.id}/export`);
+    expect(xmlExport.ok()).toBeTruthy();
+    expect(xmlExport.headers()["content-type"]).toContain("application/xml");
+    await expect(await xmlExport.text()).toContain(xmlName);
+
+    const jsonExport = await request.get(`${serviceUrls.apiGateway}/v1/x12/messages/${message?.id}/export?format=json`);
+    expect(jsonExport.ok()).toBeTruthy();
+    const exportedMessage = (await jsonExport.json()) as InboundMessage;
+    expect(exportedMessage.id).toBe(message?.id);
+    expect(exportedMessage.transactionType).toBe("834");
+
+    const replay = await request.post(`${serviceUrls.apiGateway}/v1/x12/messages/${message?.id}/replay`);
+    expect(replay.status()).toBe(201);
+    const replayEnvelope = (await replay.json()) as Envelope;
+    expect(replayEnvelope.transaction?.type).toBe("834");
+  });
+
+  test("gateway accepts multipart batch intake with accepted and rejected scrolls", async ({ request }) => {
+    const batchName = uniqueDemoName("Batch Bard");
+    const acceptedXml = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="834">
+  <Sender id="partner-greenstone"/>
+  <Receiver id="Adventure Society"/>
+  <Enrollment>
+    <Name>${batchName}</Name>
+    <Rank>Bronze</Rank>
+    <Guild>Batch Guild</Guild>
+    <Region>Greenstone</Region>
+  </Enrollment>
+</AshnX12Transaction>`;
+    const rejectedXml = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="278">
+  <Sender id="provider-vitesse-temple"/>
+  <Receiver id="Adventure Society"/>
+  <PriorAuthorization>
+    <AdventurerId>adv-batch-missing</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <ServiceType>dragon-riding</ServiceType>
+    <IncidentSeverity>Diamond</IncidentSeverity>
+  </PriorAuthorization>
+</AshnX12Transaction>`;
+
+    const batch = await request.post(`${serviceUrls.apiGateway}/v1/x12/batch`, {
+      multipart: {
+        files: {
+          name: "accepted-834.xml",
+          mimeType: "application/xml",
+          buffer: Buffer.from(acceptedXml)
+        },
+        file: {
+          name: "rejected-278.xml",
+          mimeType: "application/xml",
+          buffer: Buffer.from(rejectedXml)
+        }
+      }
+    });
+    expect(batch.status()).toBe(207);
+    const batchEnvelope = (await batch.json()) as Envelope<{ total: number; accepted: number; rejected: number; results: Array<{ accepted: boolean; statusCode: number; transactionType?: string; error?: string }> }>;
+    expect(batchEnvelope.data).toMatchObject({ total: 2, accepted: 1, rejected: 1 });
+    expect(batchEnvelope.data?.results.some((result) => result.accepted && result.transactionType === "834")).toBeTruthy();
+    expect(batchEnvelope.data?.results.some((result) => !result.accepted && result.statusCode === 400)).toBeTruthy();
+  });
+
+  test("gateway manages trading partner profiles through the public route", async ({ request }) => {
+    const senderId = `provider-e2e-${Date.now()}`;
+    const partner = {
+      name: "E2E Crystal Tower Partner",
+      senderId,
+      receiverId: "Adventure Society",
+      allowedTransactionTypes: ["270", "275", "837"],
+      routeTarget: "payer-core",
+      status: "active"
+    };
+
+    const created = await request.post(`${serviceUrls.apiGateway}/v1/x12/trading-partners`, { data: partner });
+    expect(created.status()).toBe(201);
+    const createdEnvelope = (await created.json()) as Envelope<TradingPartner>;
+    expect(createdEnvelope.data?.id).toBe(`tp-${senderId}`);
+    expect(createdEnvelope.data?.allowedTransactionTypes).toEqual(["270", "275", "837"]);
+
+    const listed = await request.get(`${serviceUrls.apiGateway}/v1/x12/trading-partners`);
+    expect(listed.ok()).toBeTruthy();
+    const listedEnvelope = (await listed.json()) as Envelope<TradingPartner[]>;
+    expect(listedEnvelope.data?.some((item) => item.id === createdEnvelope.data?.id)).toBeTruthy();
+
+    const updated = await request.put(`${serviceUrls.apiGateway}/v1/x12/trading-partners/${createdEnvelope.data?.id}`, {
+      data: {
+        ...partner,
+        allowedTransactionTypes: ["270"],
+        status: "inactive"
+      }
+    });
+    expect(updated.ok()).toBeTruthy();
+    const updatedEnvelope = (await updated.json()) as Envelope<TradingPartner>;
+    expect(updatedEnvelope.data?.status).toBe("inactive");
+    expect(updatedEnvelope.data?.allowedTransactionTypes).toEqual(["270"]);
+
+    const deleted = await request.delete(`${serviceUrls.apiGateway}/v1/x12/trading-partners/${createdEnvelope.data?.id}`);
+    expect(deleted.ok()).toBeTruthy();
+  });
+
+  test("gateway accepts dental 278 and 837D XML workflows", async ({ request }) => {
+    const enrolled = await enrollAdventurer(request, "Dental Knight");
+
+    const dentalAuthXml = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="278">
+  <Sender id="provider-vitesse-temple"/>
+  <Receiver id="Adventure Society"/>
+  <PriorAuthorization>
+    <AdventurerId>${enrolled.data?.id}</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <ServiceType>dental-predetermination</ServiceType>
+    <IncidentSeverity>Normal</IncidentSeverity>
+    <DentalService>
+      <CDTCode>D7240</CDTCode>
+      <ToothNumber>14</ToothNumber>
+      <Surface>MO</Surface>
+      <Quadrant>UR</Quadrant>
+      <Orthodontic>false</Orthodontic>
+    </DentalService>
+  </PriorAuthorization>
+</AshnX12Transaction>`;
+
+    const auth = await request.post(`${serviceUrls.apiGateway}/v1/x12/xml`, {
+      headers: { "Content-Type": "application/xml" },
+      data: dentalAuthXml
+    });
+    expect(auth.status()).toBe(202);
+    const authEnvelope = (await auth.json()) as Envelope;
+    expect(authEnvelope.transaction?.type).toBe("278");
+    expect(authEnvelope.transaction?.status).toBe("Pending");
+
+    const dentalClaimXml = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="837D">
+  <Sender id="provider-vitesse-temple"/>
+  <Receiver id="Adventure Society"/>
+  <Claim>
+    <AdventurerId>${enrolled.data?.id}</AdventurerId>
+    <ProviderId>provider-vitesse-temple</ProviderId>
+    <IncidentSeverity>Normal</IncidentSeverity>
+    <AmountCents>85000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true"><Code>K021</Code></Diagnosis>
+    <ServiceLine lineNumber="1">
+      <ProcedureCode>D7240</ProcedureCode>
+      <CDTCode>D7240</CDTCode>
+      <Description>Removal of impacted tooth</Description>
+      <Units>1</Units>
+      <AmountCents>85000</AmountCents>
+      <ToothNumber>14</ToothNumber>
+      <Surface>MO</Surface>
+      <Quadrant>UR</Quadrant>
+      <Orthodontic>false</Orthodontic>
+    </ServiceLine>
+  </Claim>
+</AshnX12Transaction>`;
+
+    const claim = await request.post(`${serviceUrls.apiGateway}/v1/x12/xml`, {
+      headers: { "Content-Type": "application/xml" },
+      data: dentalClaimXml
+    });
+    expect(claim.status()).toBe(201);
+    const claimEnvelope = (await claim.json()) as Envelope<{ id: string }>;
+    expect(claimEnvelope.transaction?.type).toBe("837D");
+    expect(claimEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["837D", "277CA"]);
+
+    const claimDetail = await request.get(`${serviceUrls.apiGateway}/v1/claims/${claimEnvelope.data?.id}`);
+    expect(claimDetail.ok()).toBeTruthy();
+    const claimDetailEnvelope = (await claimDetail.json()) as Envelope<{
+      serviceLines?: Array<{ procedureCode: string; cdtCode?: string; toothNumber?: string; surface?: string; quadrant?: string }>;
+    }>;
+    expect(claimDetailEnvelope.data?.serviceLines?.[0]).toMatchObject({
+      procedureCode: "D7240",
+      cdtCode: "D7240",
+      toothNumber: "14",
+      surface: "MO",
+      quadrant: "UR"
+    });
   });
 });
