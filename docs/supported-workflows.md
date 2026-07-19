@@ -312,6 +312,7 @@ sequenceDiagram
 **Current behavior**
 
 - `835` includes billed, allowed, paid, adjustment, and patient responsibility fields.
+- Dental `835` examples use CDT `AD` service lines with allowed amount, paid amount, patient responsibility, adjustment, denial reason, tooth, surface, quadrant, and orthodontic references.
 - Payment updates claim status to `Paid`.
 - Transaction detail shows request/response links plus JSON, XML, and raw X12 payload tabs with remittance-inspired X12 segments, and the loaded transaction ledger can be exported as CSV.
 

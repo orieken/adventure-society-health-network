@@ -170,8 +170,12 @@ func Generate835(claim domain.Claim, paymentAmountCents int64) domain.Transactio
 	if claim.PaidAmountCents > 0 || claim.Status == domain.ClaimDenied {
 		paymentAmountCents = claim.PaidAmountCents
 	}
+	label := "835 Claim Payment / Remittance Advice"
+	if claimHasDentalServiceLines(claim) {
+		label = "835 Dental Claim Payment / Remittance Advice"
+	}
 	return transaction(domain.Tx835, domain.TxStatusPaid, "Adventure Society", claim.ProviderID, map[string]any{
-		"x12": "835 Claim Payment / Remittance Advice", "claimId": claim.ID,
+		"x12": label, "claimId": claim.ID,
 		"billedAmountCents": claim.AmountCents, "allowedAmountCents": claim.AllowedAmountCents,
 		"paymentAmountCents": paymentAmountCents, "patientResponsibilityCents": claim.PatientResponsibilityCents,
 		"adjustmentAmountCents": claim.AdjustmentAmountCents, "adjustmentReason": claim.AdjustmentReason,
@@ -785,7 +789,7 @@ func claimLineIsDental(line domain.ClaimServiceLine) bool {
 }
 
 func remittanceServiceLineSegments(remit remittance) []string {
-	segments := make([]string, 0, len(remit.ServiceLines)*3)
+	segments := make([]string, 0, len(remit.ServiceLines)*7)
 	for index, line := range remit.ServiceLines {
 		lineNumber := line.LineNumber
 		if lineNumber <= 0 {
@@ -795,11 +799,47 @@ func remittanceServiceLineSegments(remit remittance) []string {
 		if procedureCode == "" {
 			procedureCode = fmt.Sprintf("ASHN%d", lineNumber)
 		}
-		segments = append(segments,
-			"SVC*HC:"+element(procedureCode)+"*"+cents(line.AmountCents)+"*"+cents(line.PaidAmountCents)+"~",
-			"CAS*CO*45*"+cents(line.AdjustmentAmountCents)+"~",
-			"REF*6R*"+strconv.Itoa(lineNumber)+"~",
-		)
+		qualifier := "HC"
+		if claimLineIsDental(line) {
+			qualifier = "AD"
+			if strings.TrimSpace(line.CDTCode) != "" {
+				procedureCode = strings.TrimSpace(line.CDTCode)
+			}
+		}
+		segments = append(segments, "SVC*"+qualifier+":"+element(procedureCode)+"*"+cents(line.AmountCents)+"*"+cents(line.PaidAmountCents)+"~")
+		if line.AdjustmentAmountCents > 0 {
+			segments = append(segments, "CAS*CO*45*"+cents(line.AdjustmentAmountCents)+"~")
+		}
+		if line.AllowedAmountCents > 0 {
+			segments = append(segments, "AMT*AU*"+cents(line.AllowedAmountCents)+"~")
+		}
+		if line.PatientResponsibilityCents > 0 {
+			segments = append(segments, "AMT*PR*"+cents(line.PatientResponsibilityCents)+"~")
+		}
+		segments = append(segments, "REF*6R*"+strconv.Itoa(lineNumber)+"~")
+		if claimLineIsDental(line) {
+			segments = append(segments, dentalRemittanceReferenceSegments(line)...)
+		}
+		if strings.TrimSpace(line.DenialReason) != "" {
+			segments = append(segments, "LQ*HE*"+element(line.DenialReason)+"~")
+		}
+	}
+	return segments
+}
+
+func dentalRemittanceReferenceSegments(line domain.ClaimServiceLine) []string {
+	segments := []string{}
+	if strings.TrimSpace(line.ToothNumber) != "" {
+		segments = append(segments, "REF*XZ*TOOTH-"+element(line.ToothNumber)+"~")
+	}
+	if strings.TrimSpace(line.Surface) != "" {
+		segments = append(segments, "REF*D9*SURFACE-"+element(line.Surface)+"~")
+	}
+	if strings.TrimSpace(line.Quadrant) != "" {
+		segments = append(segments, "REF*D9*QUADRANT-"+element(line.Quadrant)+"~")
+	}
+	if line.Orthodontic {
+		segments = append(segments, "REF*D9*ORTHODONTIC~")
 	}
 	return segments
 }

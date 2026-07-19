@@ -135,7 +135,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add dental eligibility detail to `270 → 271`, including dental benefit/service-type coverage, frequency limits, waiting periods, and annual maximum examples.
 - [x] Add `837D` dental claim support with CDT procedure codes, tooth/surface/quadrant fields, oral-cavity indicators, and dental-specific diagnosis/procedure validation.
 - [x] Add dental `275` attachment packets for x-rays, perio charts, narratives, orthodontic records, and treatment-plan documents.
-- [ ] Add dental `835` remittance examples with CDT line-level allowed, paid, patient responsibility, adjustments, and denial reasons.
+- [x] Add dental `835` remittance examples with CDT line-level allowed, paid, patient responsibility, adjustments, and denial reasons.
 - [ ] Add dashboard workflow cards and E2E tests for dental eligibility, predetermination, claim, attachment, and remittance scenarios.
 
 ### P2 — 275 Companion Guide Fidelity

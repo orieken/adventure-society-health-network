@@ -118,6 +118,80 @@ func TestGenerate835RepresentsDeniedClaimWithoutPayment(t *testing.T) {
 	assert.Contains(t, string(tx.Payload), `"denialReason":"Prior authorization or benefit exception required"`)
 }
 
+func TestGenerate835IncludesDentalServiceLineRemittance(t *testing.T) {
+	claim := domain.Claim{
+		ID:                         "claim-dental-1",
+		ProviderID:                 "provider-vitesse-temple",
+		AmountCents:                85000,
+		AllowedAmountCents:         76500,
+		PaidAmountCents:            68850,
+		PatientResponsibilityCents: 7650,
+		AdjustmentAmountCents:      8500,
+		AdjustmentReason:           "Dental plan allowance",
+		Status:                     domain.ClaimApproved,
+		ServiceLines: []domain.ClaimServiceLine{
+			{
+				LineNumber:                 1,
+				ProcedureCode:              "D7240",
+				CDTCode:                    "D7240",
+				AmountCents:                85000,
+				AllowedAmountCents:         76500,
+				PaidAmountCents:            68850,
+				PatientResponsibilityCents: 7650,
+				AdjustmentAmountCents:      8500,
+				ToothNumber:                "14",
+				Surface:                    "MO",
+				Quadrant:                   "UR",
+				Orthodontic:                true,
+			},
+		},
+	}
+
+	tx := Generate835(claim, 0)
+
+	assert.Contains(t, string(tx.Payload), `"x12":"835 Dental Claim Payment / Remittance Advice"`)
+	assert.Contains(t, tx.RawX12, "CLP*claim-dental-1*1*850.00*688.50*76.50")
+	assert.Contains(t, tx.RawX12, "SVC*AD:D7240*850.00*688.50")
+	assert.Contains(t, tx.RawX12, "CAS*CO*45*85.00")
+	assert.Contains(t, tx.RawX12, "AMT*AU*765.00")
+	assert.Contains(t, tx.RawX12, "AMT*PR*76.50")
+	assert.Contains(t, tx.RawX12, "REF*XZ*TOOTH-14")
+	assert.Contains(t, tx.RawX12, "REF*D9*SURFACE-MO")
+	assert.Contains(t, tx.RawX12, "REF*D9*QUADRANT-UR")
+	assert.Contains(t, tx.RawX12, "REF*D9*ORTHODONTIC")
+}
+
+func TestGenerate835IncludesDentalDenialReason(t *testing.T) {
+	claim := domain.Claim{
+		ID:                    "claim-dental-denied",
+		ProviderID:            "provider-vitesse-temple",
+		AmountCents:           95000,
+		AdjustmentAmountCents: 95000,
+		AdjustmentReason:      "Dental plan exclusion",
+		DenialReason:          "Missing accepted x-ray evidence",
+		Status:                domain.ClaimDenied,
+		ServiceLines: []domain.ClaimServiceLine{
+			{
+				LineNumber:            1,
+				ProcedureCode:         "D7240",
+				CDTCode:               "D7240",
+				AmountCents:           95000,
+				AdjustmentAmountCents: 95000,
+				AdjustmentReason:      "Dental plan exclusion",
+				DenialReason:          "Missing accepted x-ray evidence",
+				ToothNumber:           "14",
+			},
+		},
+	}
+
+	tx := Generate835(claim, 0)
+
+	assert.Contains(t, tx.RawX12, "CLP*claim-dental-denied*4*950.00*0.00*0.00")
+	assert.Contains(t, tx.RawX12, "SVC*AD:D7240*950.00*0.00")
+	assert.Contains(t, tx.RawX12, "CAS*CO*45*950.00")
+	assert.Contains(t, tx.RawX12, "LQ*HE*Missing accepted x-ray evidence")
+}
+
 func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	claim := domain.Claim{
 		ID:            "claim-1",

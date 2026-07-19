@@ -500,6 +500,54 @@ func TestSubmitDentalClaimPersistsDentalLinesAndEmits837D(t *testing.T) {
 	assert.Contains(t, envelope.Transactions[0].RawX12, "CRC*ZZ*Y*ORTHO")
 }
 
+func TestPayDentalClaimEmitsDental835ServiceLineRemittance(t *testing.T) {
+	app := newTestStore()
+	app.claims["claim-dental-1"] = domain.Claim{
+		ID:                         "claim-dental-1",
+		AdventurerID:               "adv-1",
+		ProviderID:                 "provider-vitesse-temple",
+		IncidentSeverity:           domain.SeverityNormal,
+		AmountCents:                85000,
+		AllowedAmountCents:         76500,
+		PaidAmountCents:            68850,
+		PatientResponsibilityCents: 7650,
+		AdjustmentAmountCents:      8500,
+		AdjustmentReason:           "Dental plan allowance",
+		Status:                     domain.ClaimApproved,
+		ServiceLines: []domain.ClaimServiceLine{
+			{
+				LineNumber:                 1,
+				ProcedureCode:              "D7240",
+				CDTCode:                    "D7240",
+				Description:                "Removal of impacted tooth",
+				Units:                      1,
+				AmountCents:                85000,
+				AllowedAmountCents:         76500,
+				PaidAmountCents:            68850,
+				PatientResponsibilityCents: 7650,
+				AdjustmentAmountCents:      8500,
+				ToothNumber:                "14",
+				Surface:                    "MO",
+				Quadrant:                   "UR",
+			},
+		},
+	}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/claims/claim-dental-1/payment", domain.PaymentRequest{PaymentAmountCents: 85000})
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx835, envelope.Transaction.Type)
+	assert.Contains(t, string(envelope.Transaction.Payload), `"835 Dental Claim Payment / Remittance Advice"`)
+	assert.Contains(t, envelope.Transaction.RawX12, "SVC*AD:D7240*850.00*688.50")
+	assert.Contains(t, envelope.Transaction.RawX12, "AMT*AU*765.00")
+	assert.Contains(t, envelope.Transaction.RawX12, "AMT*PR*76.50")
+	assert.Contains(t, envelope.Transaction.RawX12, "REF*XZ*TOOTH-14")
+	assert.Equal(t, domain.ClaimPaid, app.claims["claim-dental-1"].Status)
+}
+
 func TestSubmitClaimLinksApprovedAuthorization(t *testing.T) {
 	app := newTestStore()
 	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
