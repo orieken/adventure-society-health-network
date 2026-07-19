@@ -21,6 +21,9 @@ func TestGenerate837IncludesCompanionGuideInspiredSegments(t *testing.T) {
 			{Qualifier: "ABK", Code: "T509", Primary: true},
 			{Qualifier: "ABF", Code: "S610"},
 		},
+		AttachmentControls: []domain.AttachmentControl{
+			{ReportTypeCode: "B4", TransmissionCode: "EL", AttachmentControlNumber: "PWK-CLAIM-1"},
+		},
 		ServiceLines: []domain.ClaimServiceLine{
 			{LineNumber: 1, ProcedureCode: "ASHN1", Description: "Resurrection stabilization", Units: 1, AmountCents: 95000},
 			{LineNumber: 2, ProcedureCode: "ASHN2", Description: "Dragonfire trauma supplies", Units: 1, AmountCents: 30000},
@@ -33,6 +36,7 @@ func TestGenerate837IncludesCompanionGuideInspiredSegments(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "NM1*IL*1*adv-1")
 	assert.Contains(t, tx.RawX12, "CLM*claim-1*1250.00")
 	assert.Contains(t, tx.RawX12, "HI*ABK:T509*ABF:S610")
+	assert.Contains(t, tx.RawX12, "PWK*B4*EL****PWK-CLAIM-1")
 	assert.Contains(t, tx.RawX12, "SV1*HC:ASHN1*950.00*UN*1***1")
 	assert.Contains(t, tx.RawX12, "SV1*HC:ASHN2*300.00*UN*1***2")
 }

@@ -31,7 +31,7 @@ import (
 )
 
 const societyID = "adventure-society"
-const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status, COALESCE(service_lines, '[]'::jsonb), COALESCE(diagnoses, '[]'::jsonb)`
+const claimSelectColumns = `id, adventurer_id, provider_id, incident_severity, COALESCE(transaction_id, ''), COALESCE(authorization_transaction_id, ''), COALESCE(authorization_status, ''), COALESCE(authorization_reason, ''), amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, COALESCE(adjustment_reason, ''), COALESCE(denial_reason, ''), status, COALESCE(service_lines, '[]'::jsonb), COALESCE(diagnoses, '[]'::jsonb), COALESCE(attachment_controls, '[]'::jsonb)`
 
 type store struct {
 	mu           sync.RWMutex
@@ -329,7 +329,7 @@ func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	claim := domain.Claim{
 		ID: domain.NewID(), AdventurerID: adventurer.ID, ProviderID: provider.ID,
-		IncidentSeverity: req.IncidentSeverity, AmountCents: amountCents, ServiceLines: serviceLines, Diagnoses: diagnoses, Status: domain.ClaimSubmitted,
+		IncidentSeverity: req.IncidentSeverity, AmountCents: amountCents, ServiceLines: serviceLines, Diagnoses: diagnoses, AttachmentControls: normalizeAttachmentControls(req.AttachmentControls), Status: domain.ClaimSubmitted,
 	}
 	if strings.TrimSpace(req.AuthorizationTransactionID) != "" {
 		authStatus, authReason, ok := s.authorizationForClaim(req.AuthorizationTransactionID, adventurer.ID, provider.ID)
@@ -506,6 +506,10 @@ func (s *store) attachClaimInformation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.validateUnsolicitedAttachmentTiming(claim, requests); err != nil {
+		s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
+		return
+	}
+	if err := validateUnsolicitedAttachmentControls(claim, requests); err != nil {
 		s.rejectAttachment(w, attachmentRelatedID(claim), claim.ProviderID, err)
 		return
 	}
@@ -1562,8 +1566,9 @@ func (s *store) saveClaim(claim domain.Claim) {
 	if s.db != nil {
 		serviceLines := jsonArrayString(claim.ServiceLines)
 		diagnoses := jsonArrayString(claim.Diagnoses)
-		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, service_lines, diagnoses, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17::jsonb, $18) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, service_lines = EXCLUDED.service_lines, diagnoses = EXCLUDED.diagnoses, status = EXCLUDED.status`,
-			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, serviceLines, diagnoses, claim.Status)
+		attachmentControls := jsonArrayString(claim.AttachmentControls)
+		_, err := s.db.Exec(`INSERT INTO claims (id, adventurer_id, provider_id, incident_severity, transaction_id, authorization_transaction_id, authorization_status, authorization_reason, amount_cents, allowed_amount_cents, paid_amount_cents, patient_responsibility_cents, adjustment_amount_cents, adjustment_reason, denial_reason, service_lines, diagnoses, attachment_controls, status) VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11, $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17::jsonb, $18::jsonb, $19) ON CONFLICT (id) DO UPDATE SET transaction_id = EXCLUDED.transaction_id, authorization_transaction_id = EXCLUDED.authorization_transaction_id, authorization_status = EXCLUDED.authorization_status, authorization_reason = EXCLUDED.authorization_reason, amount_cents = EXCLUDED.amount_cents, allowed_amount_cents = EXCLUDED.allowed_amount_cents, paid_amount_cents = EXCLUDED.paid_amount_cents, patient_responsibility_cents = EXCLUDED.patient_responsibility_cents, adjustment_amount_cents = EXCLUDED.adjustment_amount_cents, adjustment_reason = EXCLUDED.adjustment_reason, denial_reason = EXCLUDED.denial_reason, service_lines = EXCLUDED.service_lines, diagnoses = EXCLUDED.diagnoses, attachment_controls = EXCLUDED.attachment_controls, status = EXCLUDED.status`,
+			claim.ID, claim.AdventurerID, claim.ProviderID, claim.IncidentSeverity, claim.TransactionID, claim.AuthorizationTransactionID, claim.AuthorizationStatus, claim.AuthorizationReason, claim.AmountCents, claim.AllowedAmountCents, claim.PaidAmountCents, claim.PatientResponsibilityCents, claim.AdjustmentAmountCents, claim.AdjustmentReason, claim.DenialReason, serviceLines, diagnoses, attachmentControls, claim.Status)
 		if err != nil {
 			ashnlog.Error("postgres_claim_persistence_failed", err, "service", "payer-core", "claimId", claim.ID)
 		}
@@ -1820,6 +1825,8 @@ func scanClaimDest(claim *domain.Claim) []any {
 	serviceLinesJSON.target = &claim.ServiceLines
 	var diagnosesJSON jsonScanner[domain.ClaimDiagnosis]
 	diagnosesJSON.target = &claim.Diagnoses
+	var attachmentControlsJSON jsonScanner[domain.AttachmentControl]
+	attachmentControlsJSON.target = &claim.AttachmentControls
 	return []any{
 		&claim.ID,
 		&claim.AdventurerID,
@@ -1839,6 +1846,7 @@ func scanClaimDest(claim *domain.Claim) []any {
 		&claim.Status,
 		&serviceLinesJSON,
 		&diagnosesJSON,
+		&attachmentControlsJSON,
 	}
 }
 
@@ -1957,6 +1965,62 @@ func normalizeClaimDiagnoses(req domain.ClaimRequest) []domain.ClaimDiagnosis {
 		diagnoses[0].Qualifier = "ABK"
 	}
 	return diagnoses
+}
+
+func normalizeAttachmentControls(controls []domain.AttachmentControl) []domain.AttachmentControl {
+	normalized := make([]domain.AttachmentControl, 0, len(controls))
+	seen := map[string]struct{}{}
+	for _, raw := range controls {
+		control := domain.AttachmentControl{
+			ReportTypeCode:          strings.TrimSpace(raw.ReportTypeCode),
+			TransmissionCode:        strings.TrimSpace(raw.TransmissionCode),
+			AttachmentControlNumber: strings.TrimSpace(raw.AttachmentControlNumber),
+		}
+		if control.AttachmentControlNumber == "" {
+			continue
+		}
+		key := strings.ToUpper(control.AttachmentControlNumber)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, control)
+	}
+	return normalized
+}
+
+func validateUnsolicitedAttachmentControls(claim domain.Claim, requests []domain.AttachmentRequest) error {
+	expected := normalizeAttachmentControls(claim.AttachmentControls)
+	if len(expected) == 0 {
+		return nil
+	}
+	allowed := map[string]struct{}{}
+	for _, control := range expected {
+		allowed[strings.ToUpper(control.AttachmentControlNumber)] = struct{}{}
+	}
+	for _, req := range requests {
+		if req.AttachmentPurpose == "solicited" {
+			continue
+		}
+		controlNumber := strings.ToUpper(strings.TrimSpace(req.AttachmentControlNumber))
+		if controlNumber == "" {
+			continue
+		}
+		if _, ok := allowed[controlNumber]; !ok {
+			return fmt.Errorf("unsolicited attachment control %s does not match originating 837 PWK controls: %s", req.AttachmentControlNumber, strings.Join(attachmentControlNumbers(expected), ", "))
+		}
+	}
+	return nil
+}
+
+func attachmentControlNumbers(controls []domain.AttachmentControl) []string {
+	numbers := make([]string, 0, len(controls))
+	for _, control := range controls {
+		if strings.TrimSpace(control.AttachmentControlNumber) != "" {
+			numbers = append(numbers, strings.TrimSpace(control.AttachmentControlNumber))
+		}
+	}
+	return numbers
 }
 
 func defaultClaimDiagnosis(severity domain.IncidentSeverity) domain.ClaimDiagnosis {

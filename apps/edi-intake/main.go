@@ -74,13 +74,20 @@ type xmlPriorAuth struct {
 }
 
 type xmlClaim struct {
-	AdventurerID               string                `xml:"AdventurerId" json:"adventurerId"`
-	ProviderID                 string                `xml:"ProviderId" json:"providerId"`
-	IncidentSeverity           string                `xml:"IncidentSeverity" json:"incidentSeverity"`
-	AmountCents                string                `xml:"AmountCents" json:"amountCents"`
-	AuthorizationTransactionID string                `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
-	ServiceLines               []xmlClaimServiceLine `xml:"ServiceLine" json:"serviceLines,omitempty"`
-	Diagnoses                  []xmlClaimDiagnosis   `xml:"Diagnosis" json:"diagnoses,omitempty"`
+	AdventurerID               string                 `xml:"AdventurerId" json:"adventurerId"`
+	ProviderID                 string                 `xml:"ProviderId" json:"providerId"`
+	IncidentSeverity           string                 `xml:"IncidentSeverity" json:"incidentSeverity"`
+	AmountCents                string                 `xml:"AmountCents" json:"amountCents"`
+	AuthorizationTransactionID string                 `xml:"AuthorizationTransactionId" json:"authorizationTransactionId,omitempty"`
+	ServiceLines               []xmlClaimServiceLine  `xml:"ServiceLine" json:"serviceLines,omitempty"`
+	Diagnoses                  []xmlClaimDiagnosis    `xml:"Diagnosis" json:"diagnoses,omitempty"`
+	AttachmentControls         []xmlAttachmentControl `xml:"AttachmentControl" json:"attachmentControls,omitempty"`
+}
+
+type xmlAttachmentControl struct {
+	ReportTypeCode          string `xml:"ReportTypeCode" json:"reportTypeCode,omitempty"`
+	TransmissionCode        string `xml:"TransmissionCode" json:"transmissionCode,omitempty"`
+	AttachmentControlNumber string `xml:"AttachmentControlNumber" json:"attachmentControlNumber"`
 }
 
 type xmlClaimServiceLine struct {
@@ -630,12 +637,13 @@ func raw837Claim(segmentMap map[string][][]string, senderID string) (xmlClaim, e
 		return xmlClaim{}, fmt.Errorf("missing CLM claim segment")
 	}
 	claim := xmlClaim{
-		ProviderID:       firstNonEmpty(rawNM1ID(segmentMap, "85"), rawNM1ID(segmentMap, "41"), senderID),
-		AdventurerID:     rawNM1ID(segmentMap, "IL"),
-		IncidentSeverity: rawSeverity(segmentMap),
-		AmountCents:      rawAmountCents(clm[2]),
-		ServiceLines:     raw837ServiceLines(segmentMap),
-		Diagnoses:        raw837Diagnoses(segmentMap),
+		ProviderID:         firstNonEmpty(rawNM1ID(segmentMap, "85"), rawNM1ID(segmentMap, "41"), senderID),
+		AdventurerID:       rawNM1ID(segmentMap, "IL"),
+		IncidentSeverity:   rawSeverity(segmentMap),
+		AmountCents:        rawAmountCents(clm[2]),
+		ServiceLines:       raw837ServiceLines(segmentMap),
+		Diagnoses:          raw837Diagnoses(segmentMap),
+		AttachmentControls: raw837AttachmentControls(segmentMap),
 	}
 	if claim.AdventurerID == "" {
 		return xmlClaim{}, fmt.Errorf("missing subscriber NM1 segment")
@@ -696,6 +704,44 @@ func raw837Diagnoses(segmentMap map[string][][]string) []xmlClaimDiagnosis {
 		}
 	}
 	return diagnoses
+}
+
+func raw837AttachmentControls(segmentMap map[string][][]string) []xmlAttachmentControl {
+	controls := []xmlAttachmentControl{}
+	for _, pwk := range segmentMap["PWK"] {
+		if len(pwk) < 7 {
+			continue
+		}
+		control := strings.TrimSpace(pwk[6])
+		if control == "" {
+			continue
+		}
+		controls = append(controls, xmlAttachmentControl{
+			ReportTypeCode:          strings.TrimSpace(pwk[1]),
+			TransmissionCode:        strings.TrimSpace(pwk[2]),
+			AttachmentControlNumber: control,
+		})
+	}
+	for _, ref := range segmentMap["REF"] {
+		if len(ref) < 3 || strings.TrimSpace(ref[1]) != "6R" {
+			continue
+		}
+		control := strings.TrimSpace(ref[2])
+		if control == "" || hasXMLAttachmentControl(controls, control) {
+			continue
+		}
+		controls = append(controls, xmlAttachmentControl{AttachmentControlNumber: control})
+	}
+	return controls
+}
+
+func hasXMLAttachmentControl(controls []xmlAttachmentControl, control string) bool {
+	for _, existing := range controls {
+		if strings.EqualFold(existing.AttachmentControlNumber, control) {
+			return true
+		}
+	}
+	return false
 }
 
 func rawProcedureCode(composite string) string {
@@ -1066,6 +1112,7 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 			AuthorizationTransactionID: strings.TrimSpace(t.Claim.AuthorizationTransactionID),
 			ServiceLines:               serviceLines,
 			Diagnoses:                  diagnoses,
+			AttachmentControls:         t.Claim.toAttachmentControls(),
 		}, nil
 	case domain.Tx276:
 		if t.ClaimStatusRequest == nil {
@@ -1184,6 +1231,31 @@ func (claim xmlClaim) toDiagnoses() []domain.ClaimDiagnosis {
 		})
 	}
 	return diagnoses
+}
+
+func (claim xmlClaim) toAttachmentControls() []domain.AttachmentControl {
+	if len(claim.AttachmentControls) == 0 {
+		return nil
+	}
+	controls := make([]domain.AttachmentControl, 0, len(claim.AttachmentControls))
+	seen := map[string]struct{}{}
+	for _, raw := range claim.AttachmentControls {
+		control := domain.AttachmentControl{
+			ReportTypeCode:          strings.TrimSpace(raw.ReportTypeCode),
+			TransmissionCode:        strings.TrimSpace(raw.TransmissionCode),
+			AttachmentControlNumber: strings.TrimSpace(raw.AttachmentControlNumber),
+		}
+		if control.AttachmentControlNumber == "" {
+			continue
+		}
+		key := strings.ToUpper(control.AttachmentControlNumber)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		controls = append(controls, control)
+	}
+	return controls
 }
 
 func (t inboundTransaction) attachmentRequests() ([]domain.AttachmentRequest, string, string, string, error) {

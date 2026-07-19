@@ -814,6 +814,11 @@ func TestInboundXMLMapsDentalClaimDetail(t *testing.T) {
     <ProviderId>provider-vitesse-temple</ProviderId>
     <IncidentSeverity>Normal</IncidentSeverity>
     <AmountCents>85000</AmountCents>
+    <AttachmentControl>
+      <ReportTypeCode>B4</ReportTypeCode>
+      <TransmissionCode>EL</TransmissionCode>
+      <AttachmentControlNumber>PWK-DENTAL-1</AttachmentControlNumber>
+    </AttachmentControl>
     <Diagnosis>
       <Qualifier>ABK</Qualifier>
       <Code>K021</Code>
@@ -849,6 +854,9 @@ func TestInboundXMLMapsDentalClaimDetail(t *testing.T) {
 	assert.Equal(t, "MO", request.ServiceLines[0].Surface)
 	assert.Equal(t, "UR", request.ServiceLines[0].Quadrant)
 	assert.True(t, request.ServiceLines[0].Orthodontic)
+	require.Len(t, request.AttachmentControls, 1)
+	assert.Equal(t, "PWK-DENTAL-1", request.AttachmentControls[0].AttachmentControlNumber)
+	assert.Equal(t, "B4", request.AttachmentControls[0].ReportTypeCode)
 }
 
 func TestInboundXMLRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
@@ -941,6 +949,10 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	assert.Equal(t, "95000", claim.Claim.ServiceLines[0].AmountCents)
 	assert.Equal(t, 2, claim.Claim.ServiceLines[1].LineNumber)
 	assert.Equal(t, "ASHN2", claim.Claim.ServiceLines[1].ProcedureCode)
+	require.Len(t, claim.Claim.AttachmentControls, 2)
+	assert.Equal(t, "PWK-RAW-1", claim.Claim.AttachmentControls[0].AttachmentControlNumber)
+	assert.Equal(t, "B4", claim.Claim.AttachmentControls[0].ReportTypeCode)
+	assert.Equal(t, "PWK-RAW-2", claim.Claim.AttachmentControls[1].AttachmentControlNumber)
 
 	attachment, err := parseInboundRawX12([]byte(raw275Fixture()))
 	require.NoError(t, err)
@@ -1964,6 +1976,8 @@ func raw837Fixture() string {
 		"NM1*IL*1*adv-raw-1****MI*adv-raw-1~",
 		"CLM*claim-raw-1*1250.00***11:B:1*Y*A*Y*I~",
 		"HI*ABK:S062X9A*ABF:T509~",
+		"PWK*B4*EL****PWK-RAW-1~",
+		"REF*6R*PWK-RAW-2~",
 		"SV1*HC:ASHN1*950.00*UN*1***1~",
 		"SV1*HC:ASHN2*300.00*UN*1***2~",
 		"SE*13*000000001~",

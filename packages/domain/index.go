@@ -224,24 +224,31 @@ type BatchIntakeSummary struct {
 }
 
 type Claim struct {
-	ID                         string             `json:"id"`
-	AdventurerID               string             `json:"adventurerId"`
-	ProviderID                 string             `json:"providerId"`
-	IncidentSeverity           IncidentSeverity   `json:"incidentSeverity"`
-	TransactionID              string             `json:"transactionId"`
-	AuthorizationTransactionID string             `json:"authorizationTransactionId,omitempty"`
-	AuthorizationStatus        string             `json:"authorizationStatus,omitempty"`
-	AuthorizationReason        string             `json:"authorizationReason,omitempty"`
-	AmountCents                int64              `json:"amountCents"`
-	AllowedAmountCents         int64              `json:"allowedAmountCents,omitempty"`
-	PaidAmountCents            int64              `json:"paidAmountCents,omitempty"`
-	PatientResponsibilityCents int64              `json:"patientResponsibilityCents,omitempty"`
-	AdjustmentAmountCents      int64              `json:"adjustmentAmountCents,omitempty"`
-	AdjustmentReason           string             `json:"adjustmentReason,omitempty"`
-	DenialReason               string             `json:"denialReason,omitempty"`
-	Status                     ClaimStatus        `json:"status"`
-	ServiceLines               []ClaimServiceLine `json:"serviceLines,omitempty"`
-	Diagnoses                  []ClaimDiagnosis   `json:"diagnoses,omitempty"`
+	ID                         string              `json:"id"`
+	AdventurerID               string              `json:"adventurerId"`
+	ProviderID                 string              `json:"providerId"`
+	IncidentSeverity           IncidentSeverity    `json:"incidentSeverity"`
+	TransactionID              string              `json:"transactionId"`
+	AuthorizationTransactionID string              `json:"authorizationTransactionId,omitempty"`
+	AuthorizationStatus        string              `json:"authorizationStatus,omitempty"`
+	AuthorizationReason        string              `json:"authorizationReason,omitempty"`
+	AmountCents                int64               `json:"amountCents"`
+	AllowedAmountCents         int64               `json:"allowedAmountCents,omitempty"`
+	PaidAmountCents            int64               `json:"paidAmountCents,omitempty"`
+	PatientResponsibilityCents int64               `json:"patientResponsibilityCents,omitempty"`
+	AdjustmentAmountCents      int64               `json:"adjustmentAmountCents,omitempty"`
+	AdjustmentReason           string              `json:"adjustmentReason,omitempty"`
+	DenialReason               string              `json:"denialReason,omitempty"`
+	Status                     ClaimStatus         `json:"status"`
+	ServiceLines               []ClaimServiceLine  `json:"serviceLines,omitempty"`
+	Diagnoses                  []ClaimDiagnosis    `json:"diagnoses,omitempty"`
+	AttachmentControls         []AttachmentControl `json:"attachmentControls,omitempty"`
+}
+
+type AttachmentControl struct {
+	ReportTypeCode          string `json:"reportTypeCode,omitempty"`
+	TransmissionCode        string `json:"transmissionCode,omitempty"`
+	AttachmentControlNumber string `json:"attachmentControlNumber"`
 }
 
 type ClaimServiceLine struct {
@@ -316,13 +323,14 @@ type AuthorizationDecisionRequest struct {
 }
 
 type ClaimRequest struct {
-	AdventurerID               string             `json:"adventurerId"`
-	ProviderID                 string             `json:"providerId"`
-	IncidentSeverity           IncidentSeverity   `json:"incidentSeverity"`
-	AmountCents                int64              `json:"amountCents"`
-	AuthorizationTransactionID string             `json:"authorizationTransactionId,omitempty"`
-	ServiceLines               []ClaimServiceLine `json:"serviceLines,omitempty"`
-	Diagnoses                  []ClaimDiagnosis   `json:"diagnoses,omitempty"`
+	AdventurerID               string              `json:"adventurerId"`
+	ProviderID                 string              `json:"providerId"`
+	IncidentSeverity           IncidentSeverity    `json:"incidentSeverity"`
+	AmountCents                int64               `json:"amountCents"`
+	AuthorizationTransactionID string              `json:"authorizationTransactionId,omitempty"`
+	ServiceLines               []ClaimServiceLine  `json:"serviceLines,omitempty"`
+	Diagnoses                  []ClaimDiagnosis    `json:"diagnoses,omitempty"`
+	AttachmentControls         []AttachmentControl `json:"attachmentControls,omitempty"`
 }
 
 type DocumentationChecklistItem struct {

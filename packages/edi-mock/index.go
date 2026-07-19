@@ -380,6 +380,7 @@ func transactionSegments(tx domain.Transaction) []string {
 			"DTP*472*D8*" + tx.CreatedAt.Format("20060102") + "~",
 		}
 		segments = append(segments, diagnosisSegments(claim)...)
+		segments = append(segments, claimAttachmentControlSegments(claim)...)
 		return append(segments, serviceLineSegments(claim)...)
 	case domain.Tx835:
 		remit := remittanceAmounts(tx)
@@ -555,13 +556,14 @@ type remittance struct {
 }
 
 type x12ClaimInfo struct {
-	ID           string
-	AdventurerID string
-	ProviderID   string
-	Severity     domain.IncidentSeverity
-	AmountCents  int64
-	ServiceLines []domain.ClaimServiceLine
-	Diagnoses    []domain.ClaimDiagnosis
+	ID                 string
+	AdventurerID       string
+	ProviderID         string
+	Severity           domain.IncidentSeverity
+	AmountCents        int64
+	ServiceLines       []domain.ClaimServiceLine
+	Diagnoses          []domain.ClaimDiagnosis
+	AttachmentControls []domain.AttachmentControl
 }
 
 type x12AttachmentInfo struct {
@@ -652,6 +654,7 @@ func claimInfo(tx domain.Transaction) x12ClaimInfo {
 	info.AmountCents = payload.Claim.AmountCents
 	info.ServiceLines = payload.Claim.ServiceLines
 	info.Diagnoses = payload.Claim.Diagnoses
+	info.AttachmentControls = payload.Claim.AttachmentControls
 	return info
 }
 
@@ -744,6 +747,26 @@ func serviceLineSegments(claim x12ClaimInfo) []string {
 			continue
 		}
 		segments = append(segments, "SV1*HC:"+element(procedureCode)+"*"+cents(line.AmountCents)+"*UN*"+strconv.Itoa(units)+"***"+strconv.Itoa(lineNumber)+"~")
+	}
+	return segments
+}
+
+func claimAttachmentControlSegments(claim x12ClaimInfo) []string {
+	segments := []string{}
+	for _, control := range claim.AttachmentControls {
+		controlNumber := strings.TrimSpace(control.AttachmentControlNumber)
+		if controlNumber == "" {
+			continue
+		}
+		reportType := strings.TrimSpace(control.ReportTypeCode)
+		if reportType == "" {
+			reportType = "B4"
+		}
+		transmission := strings.TrimSpace(control.TransmissionCode)
+		if transmission == "" {
+			transmission = "EL"
+		}
+		segments = append(segments, "PWK*"+element(reportType)+"*"+element(transmission)+"****"+element(controlNumber)+"~")
 	}
 	return segments
 }
