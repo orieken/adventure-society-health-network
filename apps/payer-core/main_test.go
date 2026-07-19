@@ -1845,6 +1845,315 @@ func TestPayerFindAndSaveDatabasePaths(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestJobHandlersListAndReplayJobs(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	handler := newPayerTestMux(&store{db: db})
+	now := time.Now().UTC()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at
+		 FROM transaction_jobs
+		 ORDER BY created_at DESC
+		 LIMIT $1`)).
+		WithArgs(2).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "job_type", "entity_id", "status", "attempts", "run_after", "last_error", "created_at", "updated_at"}).
+			AddRow("job-1", "claim_finalization", "claim-1", "failed", 3, now, "adjudication failed", now, now))
+
+	listResponse := serveJSON(t, handler, http.MethodGet, "/jobs?limit=2", nil)
+	assert.Equal(t, http.StatusOK, listResponse.Code)
+	var listEnvelope struct {
+		Data []domain.TransactionJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(listResponse.Body.Bytes(), &listEnvelope))
+	require.Len(t, listEnvelope.Data, 1)
+	assert.True(t, listEnvelope.Data[0].DeadLetter)
+	assert.Equal(t, "adjudication failed", listEnvelope.Data[0].LastError)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE transaction_jobs
+		 SET status = $1, attempts = 0, run_after = now(), last_error = NULL, updated_at = now()
+		 WHERE id = $2 AND status = $3
+		 RETURNING id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at`)).
+		WithArgs("pending", "job-1", "failed").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "job_type", "entity_id", "status", "attempts", "run_after", "last_error", "created_at", "updated_at"}).
+			AddRow("job-1", "claim_finalization", "claim-1", "pending", 0, now, "", now, now))
+
+	replayResponse := serveJSON(t, handler, http.MethodPost, "/jobs/job-1/replay", nil)
+	assert.Equal(t, http.StatusAccepted, replayResponse.Code)
+	var replayEnvelope struct {
+		Data domain.TransactionJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(replayResponse.Body.Bytes(), &replayEnvelope))
+	assert.Equal(t, "pending", replayEnvelope.Data.Status)
+	assert.Equal(t, 0, replayEnvelope.Data.Attempts)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestJobHandlersReturnDatabaseErrors(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	handler := newPayerTestMux(&store{db: db})
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at
+		 FROM transaction_jobs
+		 ORDER BY created_at DESC
+		 LIMIT $1`)).
+		WithArgs(25).
+		WillReturnError(assert.AnError)
+	listResponse := serveJSON(t, handler, http.MethodGet, "/jobs", nil)
+	assert.Equal(t, http.StatusInternalServerError, listResponse.Code)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE transaction_jobs
+		 SET status = $1, attempts = 0, run_after = now(), last_error = NULL, updated_at = now()
+		 WHERE id = $2 AND status = $3
+		 RETURNING id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at`)).
+		WithArgs("pending", "missing", "failed").
+		WillReturnError(sql.ErrNoRows)
+	replayResponse := serveJSON(t, handler, http.MethodPost, "/jobs/missing/replay", nil)
+	assert.Equal(t, http.StatusNotFound, replayResponse.Code)
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateAuthorizationDecisionDatabasePaths(t *testing.T) {
+	now := time.Now().UTC()
+	tx := domain.Transaction{
+		ID: "tx-278", Type: domain.Tx278, Status: domain.TxStatusApproved, SenderID: "provider-1", ReceiverID: societyID,
+		Payload: domain.Payload(map[string]string{"serviceType": "resurrection"}), RawX12: "ST*278~", CreatedAt: now,
+	}
+
+	t.Run("success updates auth transaction and linked claim", func(t *testing.T) {
+		db, mock, cleanup := newPayerMockDB(t)
+		defer cleanup()
+		app := &store{
+			db:           db,
+			transactions: map[string]domain.Transaction{},
+			claims: map[string]domain.Claim{
+				"claim-1": {ID: "claim-1", AuthorizationTransactionID: "tx-278"},
+			},
+		}
+
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
+			WithArgs(string(domain.TxStatusApproved), "tx-278").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1, raw_x12 = $2 WHERE id = $3 AND type = $4`)).
+			WithArgs(string(domain.TxStatusApproved), "ST*278~", "tx-278", string(domain.Tx278)).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET authorization_status = $1, authorization_reason = NULLIF($2, '') WHERE authorization_transaction_id = $3`)).
+			WithArgs(string(domain.TxStatusApproved), "manual approval", "tx-278").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		require.NoError(t, app.updateAuthorizationDecision(tx, "manual approval"))
+		assert.Equal(t, domain.TxStatusApproved, app.transactions["tx-278"].Status)
+		assert.Equal(t, string(domain.TxStatusApproved), app.claims["claim-1"].AuthorizationStatus)
+		assert.Equal(t, "manual approval", app.claims["claim-1"].AuthorizationReason)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("auth request update failure", func(t *testing.T) {
+		db, mock, cleanup := newPayerMockDB(t)
+		defer cleanup()
+		app := &store{db: db, transactions: map[string]domain.Transaction{}, claims: map[string]domain.Claim{}}
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
+			WithArgs(string(domain.TxStatusApproved), "tx-278").
+			WillReturnError(assert.AnError)
+
+		require.Error(t, app.updateAuthorizationDecision(tx, "manual approval"))
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("transaction update failure", func(t *testing.T) {
+		db, mock, cleanup := newPayerMockDB(t)
+		defer cleanup()
+		app := &store{db: db, transactions: map[string]domain.Transaction{}, claims: map[string]domain.Claim{}}
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
+			WithArgs(string(domain.TxStatusApproved), "tx-278").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1, raw_x12 = $2 WHERE id = $3 AND type = $4`)).
+			WithArgs(string(domain.TxStatusApproved), "ST*278~", "tx-278", string(domain.Tx278)).
+			WillReturnError(assert.AnError)
+
+		require.Error(t, app.updateAuthorizationDecision(tx, "manual approval"))
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("linked claim update failure", func(t *testing.T) {
+		db, mock, cleanup := newPayerMockDB(t)
+		defer cleanup()
+		app := &store{db: db, transactions: map[string]domain.Transaction{}, claims: map[string]domain.Claim{}}
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
+			WithArgs(string(domain.TxStatusApproved), "tx-278").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1, raw_x12 = $2 WHERE id = $3 AND type = $4`)).
+			WithArgs(string(domain.TxStatusApproved), "ST*278~", "tx-278", string(domain.Tx278)).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET authorization_status = $1, authorization_reason = NULLIF($2, '') WHERE authorization_transaction_id = $3`)).
+			WithArgs(string(domain.TxStatusApproved), "manual approval", "tx-278").
+			WillReturnError(assert.AnError)
+
+		require.Error(t, app.updateAuthorizationDecision(tx, "manual approval"))
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestPayerAttachmentAndDiagnosisHelperBranches(t *testing.T) {
+	assert.Equal(t, "s3", externalReferenceMode("s3://ashn-vault/doc.pdf"))
+	assert.Equal(t, "gcs", externalReferenceMode("gs://ashn-vault/doc.pdf"))
+	assert.Equal(t, "https", externalReferenceMode("https://docs.example.test/doc.pdf"))
+	assert.Equal(t, "external", externalReferenceMode("vault-doc-1"))
+
+	assert.Equal(t, "S610", diagnosisCodeForSeverity(domain.SeverityNormal))
+	assert.Equal(t, "T509", diagnosisCodeForSeverity(domain.SeverityAwakened))
+	assert.Equal(t, "S062X9A", diagnosisCodeForSeverity(domain.SeverityDiamond))
+	assert.Equal(t, "ASHN", diagnosisCodeForSeverity(domain.IncidentSeverity("cosmic")))
+	assert.Equal(t, "Minor wound encounter", diagnosisDescription(" s610 "))
+	assert.Equal(t, "Awakened injury stabilization", diagnosisDescription("T509"))
+	assert.Equal(t, "Catastrophic injury with loss of consciousness", diagnosisDescription("S062X9A"))
+	assert.Equal(t, "ASHN diagnosis", diagnosisDescription("unknown"))
+	assert.Equal(t, "Catastrophic resurrection encounter", defaultClaimLineDescription(domain.SeverityDiamond))
+	assert.Equal(t, "Awakened injury stabilization", defaultClaimLineDescription(domain.SeverityAwakened))
+	assert.Equal(t, "Guild clinic encounter", defaultClaimLineDescription(domain.SeverityNormal))
+
+	assert.Equal(t, ".pdf", attachmentFileExtension(domain.AttachmentRequest{FileName: "operative-note.PDF"}))
+	assert.Equal(t, ".jpg", attachmentFileExtension(domain.AttachmentRequest{DocumentReferenceURL: "https://docs.example.test/path/xray.jpg?token=1"}))
+	assert.Equal(t, ".txt", attachmentFileExtension(domain.AttachmentRequest{DocumentReferenceID: "vault-note.txt#section"}))
+	assert.Empty(t, attachmentFileExtension(domain.AttachmentRequest{FileName: "no-extension"}))
+	assert.True(t, containsCode([]string{"OZ", "PN"}, "oz"))
+	assert.False(t, containsCode([]string{"OZ"}, "B4"))
+	assert.True(t, hasPrefix("attach-1", []string{"ATTACH-"}))
+	assert.False(t, hasPrefix("WRONG-1", []string{"ATTACH-"}))
+
+	assert.NoError(t, validateAttachmentEncoding(domain.AttachmentRequest{}))
+	assert.EqualError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "ASC"}), "ASC attachment encoding requires embedded content")
+	assert.NoError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "ASC", Content: "plain text"}))
+	assert.EqualError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "ASC", Content: "bad \x01"}), "ASC attachment content contains unsupported control characters")
+	assert.EqualError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "B64"}), "B64 attachment encoding requires embedded content")
+	assert.EqualError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "B64", Content: "%%%"}), "B64 attachment content must be valid base64")
+	assert.NoError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "B64", Content: base64.StdEncoding.EncodeToString([]byte("ok"))}))
+	assert.EqualError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "REF"}), "REF attachment encoding requires documentReferenceUrl")
+	assert.NoError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "REF", DocumentReferenceURL: "https://docs.example.test/doc.pdf"}))
+	assert.EqualError(t, validateAttachmentEncoding(domain.AttachmentRequest{AttachmentEncoding: "BIN"}), "attachment encoding must be ASC, B64, or REF")
+}
+
+func TestPayerAttachmentValidationAndPersistenceBranches(t *testing.T) {
+	validAttachment := domain.AttachmentRequest{
+		AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-1", ReportTypeCode: "B4", TransmissionCode: "EL",
+		ContentType: "text/plain", Description: "notes", Content: "content", AttachmentPurpose: "solicited",
+	}
+	assert.NoError(t, validateAttachmentRequest(validAttachment))
+	assert.EqualError(t, validateAttachmentRequest(domain.AttachmentRequest{}), "The supporting scroll is missing required patient information.")
+	missingContent := validAttachment
+	missingContent.Content = ""
+	assert.EqualError(t, validateAttachmentRequest(missingContent), "The supporting scroll needs embedded content or an external document reference URL.")
+	badReference := validAttachment
+	badReference.Content = ""
+	badReference.DocumentReferenceURL = "ftp://docs.example.test/doc.pdf"
+	assert.EqualError(t, validateAttachmentRequest(badReference), "document reference URL must start with https://, s3://, or gs://")
+	badPurpose := validAttachment
+	badPurpose.AttachmentPurpose = "maybe"
+	assert.EqualError(t, validateAttachmentRequest(badPurpose), "attachment purpose must be solicited or unsolicited")
+
+	tx := domain.Transaction{ID: "tx-820", SenderID: "adv-1", Type: domain.Tx820, Status: domain.TxStatusAccepted, CreatedAt: time.Now().UTC()}
+	storeWithoutDB := &store{transactions: map[string]domain.Transaction{}}
+	assert.NotPanics(t, func() { storeWithoutDB.savePremiumPayment(tx, 1000) })
+	assert.NoError(t, storeWithoutDB.updateTransaction(tx))
+	assert.Equal(t, tx, storeWithoutDB.transactions["tx-820"])
+
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	app := &store{db: db, transactions: map[string]domain.Transaction{}}
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO premium_payments (id, adventurer_id, transaction_id, amount_cents, status, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`)).
+		WithArgs(sqlmock.AnyArg(), "adv-1", "tx-820", int64(1000), string(domain.TxStatusAccepted), tx.CreatedAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	app.savePremiumPayment(tx, 1000)
+
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO premium_payments (id, adventurer_id, transaction_id, amount_cents, status, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`)).
+		WithArgs(sqlmock.AnyArg(), "adv-1", "tx-820", int64(1000), string(domain.TxStatusAccepted), tx.CreatedAt).
+		WillReturnError(assert.AnError)
+	assert.NotPanics(t, func() { app.savePremiumPayment(tx, 1000) })
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1, payload = $2, raw_x12 = $3, related_id = NULLIF($4, '') WHERE id = $5`)).
+		WithArgs(domain.TxStatusAccepted, []byte(tx.Payload), tx.RawX12, tx.RelatedID, tx.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, app.updateTransaction(tx))
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1, payload = $2, raw_x12 = $3, related_id = NULLIF($4, '') WHERE id = $5`)).
+		WithArgs(domain.TxStatusAccepted, []byte(tx.Payload), tx.RawX12, tx.RelatedID, tx.ID).
+		WillReturnError(assert.AnError)
+	require.Error(t, app.updateTransaction(tx))
+
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestClaimNormalizationHelperBranches(t *testing.T) {
+	_, _, err := normalizeClaimServiceLines(domain.ClaimRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "amountCents must be greater than zero")
+
+	lines, total, err := normalizeClaimServiceLines(domain.ClaimRequest{IncidentSeverity: domain.SeverityDiamond, AmountCents: 50000})
+	require.NoError(t, err)
+	require.Len(t, lines, 1)
+	assert.Equal(t, int64(50000), total)
+	assert.Equal(t, "ASHN1", lines[0].ProcedureCode)
+	assert.Equal(t, "Catastrophic resurrection encounter", lines[0].Description)
+
+	lines, total, err = normalizeClaimServiceLines(domain.ClaimRequest{
+		IncidentSeverity: domain.SeverityNormal,
+		ServiceLines: []domain.ClaimServiceLine{
+			{CDTCode: " d7240 ", ToothNumber: "14", Surface: "mo", AmountCents: 85000},
+			{ProcedureCode: "ashn2", Units: 2, AmountCents: 15000},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, lines, 2)
+	assert.Equal(t, int64(100000), total)
+	assert.Equal(t, "D7240", lines[0].ProcedureCode)
+	assert.Equal(t, "D7240", lines[0].CDTCode)
+	assert.Equal(t, "MO", lines[0].Surface)
+	assert.Equal(t, "ASHN2", lines[1].ProcedureCode)
+	assert.Equal(t, 2, lines[1].Units)
+
+	_, _, err = normalizeClaimServiceLines(domain.ClaimRequest{ServiceLines: []domain.ClaimServiceLine{{ProcedureCode: "BAD", AmountCents: 100}}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "procedureCode must start with ASHN")
+
+	_, _, err = normalizeClaimServiceLines(domain.ClaimRequest{ServiceLines: []domain.ClaimServiceLine{{CDTCode: "BAD", ToothNumber: "14", AmountCents: 100}}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cdtCode must start with D")
+
+	_, _, err = normalizeClaimServiceLines(domain.ClaimRequest{ServiceLines: []domain.ClaimServiceLine{{ProcedureCode: "ASHN1"}}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "amountCents must be greater than zero")
+
+	diagnoses := normalizeClaimDiagnoses(domain.ClaimRequest{IncidentSeverity: domain.SeverityAwakened})
+	require.Len(t, diagnoses, 1)
+	assert.Equal(t, "T509", diagnoses[0].Code)
+	assert.True(t, diagnoses[0].Primary)
+
+	diagnoses = normalizeClaimDiagnoses(domain.ClaimRequest{Diagnoses: []domain.ClaimDiagnosis{
+		{Code: " s610 "},
+		{Qualifier: "abf", Code: "m542", Description: "Back pain"},
+		{Qualifier: "ABF"},
+	}})
+	require.Len(t, diagnoses, 2)
+	assert.Equal(t, "ABK", diagnoses[0].Qualifier)
+	assert.True(t, diagnoses[0].Primary)
+	assert.Equal(t, "Minor wound encounter", diagnoses[0].Description)
+	assert.Equal(t, "ABF", diagnoses[1].Qualifier)
+	assert.Equal(t, "Back pain", diagnoses[1].Description)
+
+	controls := normalizeAttachmentControls([]domain.AttachmentControl{
+		{ReportTypeCode: " B4 ", TransmissionCode: " EL ", AttachmentControlNumber: " attach-1 "},
+		{ReportTypeCode: "PN", TransmissionCode: "EL"},
+		{ReportTypeCode: "B4", TransmissionCode: "EL", AttachmentControlNumber: "ATTACH-1"},
+		{ReportTypeCode: "OZ", TransmissionCode: "EL", AttachmentControlNumber: "ATTACH-2"},
+	})
+	require.Len(t, controls, 2)
+	assert.Equal(t, "attach-1", controls[0].AttachmentControlNumber)
+	assert.Equal(t, "B4", controls[0].ReportTypeCode)
+	assert.Equal(t, []string{"attach-1", "ATTACH-2"}, attachmentControlNumbers(controls))
+}
+
 func TestUpdateClaimStatusDatabasePaths(t *testing.T) {
 	db, mock, cleanup := newPayerMockDB(t)
 	defer cleanup()

@@ -41,6 +41,96 @@ func TestEnqueuePersistsPendingJob(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestListReturnsJobsWithDeadLetterFlagAndLimitClamp(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	now := time.Now().UTC()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at
+		 FROM transaction_jobs
+		 ORDER BY created_at DESC
+		 LIMIT $1`)).
+		WithArgs(100).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "job_type", "entity_id", "status", "attempts", "run_after", "last_error", "created_at", "updated_at"}).
+			AddRow("job-1", JobAuthReview, "tx-278", StatusFailed, 3, now, "boom", now, now).
+			AddRow("job-2", JobClaimAdjudication, "claim-1", StatusPending, 0, now, "", now, now))
+
+	jobs, err := List(db, 500)
+
+	require.NoError(t, err)
+	require.Len(t, jobs, 2)
+	assert.Equal(t, "job-1", jobs[0].ID)
+	assert.True(t, jobs[0].DeadLetter)
+	assert.Equal(t, "boom", jobs[0].LastError)
+	assert.False(t, jobs[1].DeadLetter)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestListDefaultsLimitAndReturnsQueryErrors(t *testing.T) {
+	jobs, err := List(nil, -1)
+	require.NoError(t, err)
+	assert.Empty(t, jobs)
+
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at
+		 FROM transaction_jobs
+		 ORDER BY created_at DESC
+		 LIMIT $1`)).
+		WithArgs(25).
+		WillReturnError(errors.New("query failed"))
+
+	jobs, err = List(db, -1)
+
+	require.Error(t, err)
+	assert.Nil(t, jobs)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestReplayResetsDeadLetterJob(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	now := time.Now().UTC()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE transaction_jobs
+		 SET status = $1, attempts = 0, run_after = now(), last_error = NULL, updated_at = now()
+		 WHERE id = $2 AND status = $3
+		 RETURNING id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at`)).
+		WithArgs(StatusPending, "job-1", StatusFailed).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "job_type", "entity_id", "status", "attempts", "run_after", "last_error", "created_at", "updated_at"}).
+			AddRow("job-1", JobClaimFinalization, "claim-1", StatusPending, 0, now, "", now, now))
+
+	job, err := Replay(db, "job-1")
+
+	require.NoError(t, err)
+	assert.Equal(t, "job-1", job.ID)
+	assert.Equal(t, StatusPending, job.Status)
+	assert.Equal(t, 0, job.Attempts)
+	assert.Empty(t, job.LastError)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestReplayRequiresDeadLetterJob(t *testing.T) {
+	_, err := Replay(nil, "job-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database is required")
+
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE transaction_jobs
+		 SET status = $1, attempts = 0, run_after = now(), last_error = NULL, updated_at = now()
+		 WHERE id = $2 AND status = $3
+		 RETURNING id, job_type, entity_id, status, attempts, run_after, COALESCE(last_error, ''), created_at, updated_at`)).
+		WithArgs(StatusPending, "missing", StatusFailed).
+		WillReturnError(sql.ErrNoRows)
+
+	_, err = Replay(db, "missing")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dead-letter job not found")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestProcessDueCompletesClaimedJob(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()

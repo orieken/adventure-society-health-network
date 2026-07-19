@@ -47,6 +47,13 @@ func TestEnvIntParsesConfiguredValue(t *testing.T) {
 	assert.Equal(t, 12, envInt("TX_TEST_INT", 5))
 }
 
+func TestEnvReturnsConfiguredValueOrFallback(t *testing.T) {
+	t.Setenv("TX_TEST_STRING", "configured")
+
+	assert.Equal(t, "configured", env("TX_TEST_STRING", "fallback"))
+	assert.Equal(t, "fallback", env("TX_TEST_STRING_MISSING", "fallback"))
+}
+
 func TestHealthReportsWorkerStatus(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()

@@ -230,6 +230,31 @@ func TestProviderLoadProvidersFallsBackOnDatabaseErrorAndOpenDBNoEnv(t *testing.
 	require.NoError(t, okMock.ExpectationsWereMet())
 }
 
+func TestProviderLoadProvidersSkipsBadRowsAndFallsBackOnRowsError(t *testing.T) {
+	db, mock, cleanup := newProviderMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "provider_type", "tier_rank", "region"}).
+			AddRow("provider-good", "Provider Good", domain.ProviderTypeClinic, domain.RankGold, domain.RegionVitesse).
+			AddRow(nil, "Provider Bad", domain.ProviderTypeClinic, domain.RankIron, domain.RegionGreenstone))
+
+	providers := loadProviders(db)
+
+	require.Len(t, providers, 1)
+	assert.Contains(t, providers, "provider-good")
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	rowsErrDB, rowsErrMock, rowsErrCleanup := newProviderMockDB(t)
+	defer rowsErrCleanup()
+	rows := sqlmock.NewRows([]string{"id", "name", "provider_type", "tier_rank", "region"}).
+		AddRow("provider-1", "Provider One", domain.ProviderTypeClinic, domain.RankGold, domain.RegionVitesse).
+		RowError(0, assert.AnError)
+	rowsErrMock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").WillReturnRows(rows)
+
+	assert.Len(t, loadProviders(rowsErrDB), 6)
+	require.NoError(t, rowsErrMock.ExpectationsWereMet())
+}
+
 func TestProviderHealthEnvAndLogMiddleware(t *testing.T) {
 	t.Setenv("PROVIDER_TEST_ENV", "configured")
 	assert.Equal(t, "configured", env("PROVIDER_TEST_ENV", "fallback"))

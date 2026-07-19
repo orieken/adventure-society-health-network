@@ -79,3 +79,9 @@ func TestPropagateCopiesExistingTraceparentWithoutMiddleware(t *testing.T) {
 
 	assert.Equal(t, inbound.Header.Get(TraceparentHeader), outbound.Header.Get(TraceparentHeader))
 }
+
+func TestFormatTraceparentRequiresTraceAndSpan(t *testing.T) {
+	assert.Empty(t, formatTraceparent("", "00f067aa0ba902b7"))
+	assert.Empty(t, formatTraceparent("4bf92f3577b34da6a3ce929d0e0e4736", ""))
+	assert.Equal(t, "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", formatTraceparent("4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"))
+}

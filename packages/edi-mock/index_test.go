@@ -266,6 +266,20 @@ func TestGenerate275ForAuthorizationUsesAuthReference(t *testing.T) {
 	assert.NotContains(t, tx.RawX12, "REF*1K*tx-278")
 }
 
+func TestWithStatusRegeneratesRawX12(t *testing.T) {
+	tx := Generate278Request(
+		domain.Adventurer{ID: "adv-1", Name: "Farros"},
+		domain.Provider{ID: "provider-vitesse-temple", Name: "Temple"},
+		"resurrection",
+	)
+
+	updated := WithStatus(tx, domain.TxStatusApproved)
+
+	assert.Equal(t, domain.TxStatusApproved, updated.Status)
+	assert.Contains(t, updated.RawX12, "ST*278")
+	assert.NotEqual(t, tx.RawX12, updated.RawX12)
+}
+
 func TestGenerate275CanReferenceExternalDocumentWithoutEmbeddedContent(t *testing.T) {
 	claim := domain.Claim{ID: "claim-1", AdventurerID: "adv-1", ProviderID: "provider-vitesse-temple", TransactionID: "tx-837"}
 

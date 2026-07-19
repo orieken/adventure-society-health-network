@@ -30,6 +30,22 @@ func TestInfoWritesStructuredJSON(t *testing.T) {
 	assert.Equal(t, float64(2), payload["count"])
 }
 
+func TestErrorWritesStructuredJSONWithError(t *testing.T) {
+	var buffer bytes.Buffer
+	previous := logger
+	logger = slog.New(slog.NewJSONHandler(&buffer, nil))
+	defer func() { logger = previous }()
+
+	Error("demo_failed", assert.AnError, "service", "payer-core")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(buffer.Bytes(), &payload))
+	assert.Equal(t, "ERROR", payload["level"])
+	assert.Equal(t, "demo_failed", payload["msg"])
+	assert.Equal(t, "payer-core", payload["service"])
+	assert.Contains(t, payload["error"], "assert.AnError")
+}
+
 func TestRequestIncludesTraceFields(t *testing.T) {
 	var buffer bytes.Buffer
 	previous := logger

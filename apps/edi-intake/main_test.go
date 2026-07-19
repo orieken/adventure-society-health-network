@@ -1960,6 +1960,85 @@ func TestEDIHealthEnvAndLogMiddleware(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, logged.Code)
 }
 
+func TestRawParsingHelperFallbacks(t *testing.T) {
+	assert.Equal(t, "S610", defaultDiagnosisCodeForSeverity(string(domain.SeverityNormal)))
+	assert.Equal(t, "T509", defaultDiagnosisCodeForSeverity(string(domain.SeverityAwakened)))
+	assert.Equal(t, "S062X9A", defaultDiagnosisCodeForSeverity(string(domain.SeverityDiamond)))
+	assert.Empty(t, defaultDiagnosisCodeForSeverity("unknown"))
+
+	assert.Equal(t, []xmlClaimDiagnosis{{Qualifier: "ABK", Code: "T509", Primary: true}}, claimDiagnosesForValidation(xmlClaim{IncidentSeverity: string(domain.SeverityAwakened)}))
+	explicit := []xmlClaimDiagnosis{{Qualifier: "ABF", Code: "M542"}}
+	assert.Equal(t, explicit, claimDiagnosesForValidation(xmlClaim{Diagnoses: explicit}))
+	assert.Nil(t, claimDiagnosesForValidation(xmlClaim{IncidentSeverity: "unknown"}))
+
+	assert.Equal(t, "12345", raw820AmountCents(map[string][][]string{"RMR": {{"RMR", "IK", "member", "", "123.45"}}}))
+	assert.Equal(t, "9900", raw820AmountCents(map[string][][]string{"BPR": {{"BPR", "C", "99.00"}}}))
+	assert.Empty(t, raw820AmountCents(map[string][][]string{}))
+	assert.Equal(t, "1234", raw835BPRAmountCents(map[string][][]string{"BPR": {{"BPR", "I", "12.34"}}}))
+	assert.Empty(t, raw835BPRAmountCents(map[string][][]string{}))
+
+	assert.Equal(t, "resurrection", raw278ServiceType(map[string][][]string{"UM": {{"UM", "", "", "", "", "", "resurrection"}}}))
+	assert.Equal(t, "ASHN1", raw278ServiceType(map[string][][]string{"SV1": {{"SV1", "HC:ASHN1"}}}))
+	assert.Empty(t, raw278ServiceType(map[string][][]string{}))
+
+	attachment := xmlAttachment{}
+	applyRawK3(&attachment, "Document-Reference: https://docs.example.test/doc.pdf")
+	assert.Equal(t, "https://docs.example.test/doc.pdf", attachment.DocumentReferenceURL)
+	applyRawK3(&attachment, "Document-Reference: vault-doc-1")
+	assert.Equal(t, "vault-doc-1", attachment.DocumentReferenceID)
+	applyRawK3(&attachment, "Content-Type: application/pdf")
+	assert.Equal(t, "application/pdf", attachment.ContentType)
+
+	assert.Equal(t, "invalid xml", invalidPayloadError("application/xml"))
+	assert.Equal(t, "invalid json", invalidPayloadError("application/json"))
+	assert.Equal(t, "invalid raw x12", invalidPayloadError("application/edi-x12"))
+	assert.Equal(t, "invalid payload", invalidPayloadError("application/octet-stream"))
+}
+
+func TestIntakeClassificationHelpersCoverRejectionBranches(t *testing.T) {
+	assert.Equal(t, "application/json", inferBatchContentType("payload.bin", " Application/JSON; charset=utf-8 "))
+	assert.Equal(t, "application/xml", inferBatchContentType("claim.xml", "application/octet-stream"))
+	assert.Equal(t, "application/json", inferBatchContentType("claim.json", ""))
+	assert.Equal(t, "application/edi-x12", inferBatchContentType("claim.x12", ""))
+	assert.Equal(t, "application/edi-x12", inferBatchContentType("claim.edi", ""))
+	assert.Equal(t, "application/edi-x12", inferBatchContentType("claim.txt", ""))
+	assert.Equal(t, "application/octet-stream", inferBatchContentType("claim.bin", ""))
+
+	assert.Equal(t, "solicited", attachmentPurposeFromBGN01("11"))
+	assert.Equal(t, "unsolicited", attachmentPurposeFromBGN01("02"))
+	assert.Equal(t, "99", attachmentPurposeFromBGN01("99"))
+
+	assert.Equal(t, "Awakened", rawSeverity(map[string][][]string{"HI": {{"HI", "ABK:T509"}}}))
+	assert.Equal(t, "Diamond", rawSeverity(map[string][][]string{"HI": {{"HI", "ABK:S062X9A"}}}))
+	assert.Equal(t, "Normal", rawSeverity(map[string][][]string{"HI": {{"HI", "ABK:UNKNOWN"}}}))
+
+	rejectionCases := []struct {
+		errorText string
+		label     string
+		query     string
+	}{
+		{"diagnosis qualifier ABJ is not allowed", "Diagnosis qualifier profile", "diagnosis qualifier"},
+		{"procedure code X is not allowed", "Procedure profile", "procedure code"},
+		{"attachment purpose must be solicited", "Attachment purpose profile", "attachment purpose"},
+		{"attachment format BIN is not allowed", "Attachment format profile", "attachment format"},
+		{"report type ZZ is not allowed", "Report type profile", "report type"},
+		{"invalid MIME payload", "Attachment payload encoding", "base64"},
+		{"packet contains 99 LX loops", "Attachment packet limit", "packet contains"},
+		{"solicited attachment must include trace", "Solicited trace matching", "solicited attachment"},
+		{"claim not found", "Missing related claim", "claim not found"},
+		{"must be submitted on the same day", "Late unsolicited attachment", "unsolicited"},
+		{"trading partner is inactive", "Trading partner routing", "trading partner"},
+		{"transaction type 999 not implemented", "Transaction set profile", "transaction type"},
+		{"", "Unknown rejection", "Unknown rejection"},
+		{"custom partner error", "custom partner error", "custom partner error"},
+	}
+	for _, tt := range rejectionCases {
+		label, query := rejectionReason(tt.errorText)
+		assert.Equal(t, tt.label, label)
+		assert.Equal(t, tt.query, query)
+	}
+}
+
 func TestEDIOpenAPIIncludesIntakeRoutes(t *testing.T) {
 	spec := ediOpenAPI()
 
