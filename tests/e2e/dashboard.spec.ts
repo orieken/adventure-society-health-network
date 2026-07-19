@@ -555,9 +555,13 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(vitesseCard.getByLabel("Temple of the Healer, Vitesse companion guide")).toBeVisible();
     await expect(vitesseCard.getByText("275 Attachments")).toBeVisible();
     await expect(vitesseCard.getByText("278 Auth")).toBeVisible();
-    await expect(vitesseCard.getByText("resurrection/restoration/curse-removal services")).toBeVisible();
+    await expect(vitesseCard.getByText(/resurrection\/restoration\/curse-removal.*services/)).toBeVisible();
     await expect(vitesseCard.getByText("837 Claims")).toBeVisible();
-    await expect(vitesseCard.getByText("S610/T509 diagnoses")).toBeVisible();
+    await expect(vitesseCard.getByText(/S610\/T509.*diagnoses/)).toBeVisible();
+    await expect(vitesseCard.getByText("Dental Rules")).toBeVisible();
+    await expect(vitesseCard.getByText(/D7000-D7999 CDT/)).toBeVisible();
+    await expect(vitesseCard.getByText(/tooth required/)).toBeVisible();
+    await expect(vitesseCard.getByText(/XRAY\/PERIO\/NARR\/PLAN docs/)).toBeVisible();
 
     await page.getByLabel("Partner name").fill("Crystal Tower Partner");
     await page.getByLabel("Sender ID").fill("provider-crystal-tower");
@@ -802,7 +806,13 @@ async function mockDashboardApi(page: Page) {
         serviceTypes: ["resurrection", "restoration", "curse-removal", "dental-predetermination"],
         incidentSeverities: ["Normal", "Awakened"],
         diagnosisCodes: ["S610", "T509", "K021"],
-        procedureCodePrefixes: ["ASHN", "D"]
+        procedureCodePrefixes: ["ASHN", "D"],
+        dentalCdtRanges: ["D7000-D7999"],
+        dentalRequiredAttachmentCodes: ["XRAY", "PERIO", "NARR", "PLAN"],
+        dentalRequiresToothNumber: true,
+        dentalAllowedSurfaces: ["O", "M", "D", "B", "L", "MO", "DO", "MOD"],
+        dentalAllowedQuadrants: ["UR", "UL", "LR", "LL"],
+        dentalPredeterminationRules: ["oral-surgery-only", "accepted-275-evidence-required"]
       }
     }
   ];

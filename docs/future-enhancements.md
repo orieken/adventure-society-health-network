@@ -172,7 +172,7 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [x] Add partner-specific companion-guide validation rules.
 - [x] Validate partner-specific `837` diagnosis and procedure profiles before forwarding intake.
 - [x] Show partner companion-guide matrices for `275`, `278`, and `837` rules in the dashboard.
-- [ ] Add dental trading partner profiles with allowed CDT ranges, attachment requirements, tooth/surface validation, and payer-specific predetermination rules.
+- [x] Add dental trading partner profiles with allowed CDT ranges, attachment requirements, tooth/surface validation, and payer-specific predetermination rules.
 
 ### P2 — Cross-Industry EDI Exploration
 

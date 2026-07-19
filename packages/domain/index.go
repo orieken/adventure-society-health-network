@@ -140,6 +140,12 @@ type PartnerValidationProfile struct {
 	DiagnosisCodes                  []string `json:"diagnosisCodes,omitempty"`
 	ProcedureCodePrefixes           []string `json:"procedureCodePrefixes,omitempty"`
 	ProcedureCodes                  []string `json:"procedureCodes,omitempty"`
+	DentalCDTRanges                 []string `json:"dentalCdtRanges,omitempty"`
+	DentalRequiredAttachmentCodes   []string `json:"dentalRequiredAttachmentCodes,omitempty"`
+	DentalRequiresToothNumber       bool     `json:"dentalRequiresToothNumber,omitempty"`
+	DentalAllowedSurfaces           []string `json:"dentalAllowedSurfaces,omitempty"`
+	DentalAllowedQuadrants          []string `json:"dentalAllowedQuadrants,omitempty"`
+	DentalPredeterminationRules     []string `json:"dentalPredeterminationRules,omitempty"`
 }
 
 type Transaction struct {

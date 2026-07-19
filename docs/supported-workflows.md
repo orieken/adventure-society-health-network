@@ -268,8 +268,8 @@ flowchart TD
 - Attachments can embed content or reference external documents through `documentReferenceId` and `documentReferenceUrl`.
 - `GET /v1/transactions/{id}/document-reference` exposes a safe 275 vault receipt; embedded content can be downloaded from `/document-reference/content`.
 - Multi-attachment packets can submit repeated supporting documents as separate `275` transactions sharing `packetId`, `packetSequence`, and `packetCount`.
-- `edi-intake` rejects partner profile violations before forwarding, including unsupported attachment/report/content codes, bad control-number prefixes, oversized embedded content, and unsupported `278` service/severity values.
-- The dashboard Partners tab shows each profile as a compact companion-guide matrix for `275` attachment rules, `278` authorization service/severity rules, and `837` diagnosis/procedure rules.
+- `edi-intake` rejects partner profile violations before forwarding, including unsupported attachment/report/content codes, bad control-number prefixes, oversized embedded content, unsupported `278` service/severity values, and dental CDT/tooth/surface/quadrant violations.
+- The dashboard Partners tab shows each profile as a compact companion-guide matrix for `275` attachment rules, `278` authorization service/severity rules, `837` diagnosis/procedure rules, and dental predetermination rules.
 - Raw X12 includes claim `REF*1K` or authorization `REF*G1`, packet `REF*F8`, plus `REF*6R`, `PWK`, `LQ*AT`, `K3`, and optional `BIN`.
 - The timeline labels 275 steps using attachment/report metadata and review status, and transaction detail exposes request/response links plus JSON, XML, and X12 payload tabs for demos and debugging.
 

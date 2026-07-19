@@ -1209,6 +1209,25 @@ func TestValidateTradingPartnerProfileAppliesAttachmentRules(t *testing.T) {
 
 	require.NoError(t, validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound))
 
+	inbound.Attachment = &xmlAttachment{
+		AttachmentType:          "OZ",
+		AttachmentControlNumber: "TEMPLE-275-1",
+		ReportTypeCode:          "B4",
+		TransmissionCode:        "EL",
+		ContentType:             "image/jpeg",
+		FileName:                "panoramic-xray.jpg",
+		Content:                 "jpeg-bytes",
+	}
+	require.NoError(t, validateTradingPartnerProfile(partners["tp-vitesse-temple"], inbound))
+
+	inbound.Attachment = &xmlAttachment{
+		AttachmentType:          "PN",
+		AttachmentControlNumber: "RIM-275-1",
+		ReportTypeCode:          "03",
+		TransmissionCode:        "EL",
+		ContentType:             "application/pdf",
+		Content:                 "%PDF-1.7",
+	}
 	inbound.Attachment.FileName = "operative-note.exe"
 	err = validateTradingPartnerProfile(partners["tp-rimaros-hospital"], inbound)
 	require.Error(t, err)
@@ -1249,6 +1268,39 @@ func TestValidateTradingPartnerProfileRejectsPriorAuthOutsideProfile(t *testing.
 	assert.Equal(t, "service type dragon-riding is not allowed for trading partner tp-vitesse-temple; allowed: resurrection, restoration, curse-removal, trauma-care, dental-predetermination", err.Error())
 }
 
+func TestValidateTradingPartnerProfileAppliesDentalPredeterminationRules(t *testing.T) {
+	partner := seedTradingPartners()["tp-vitesse-temple"]
+	valid := inboundTransaction{
+		Type: string(domain.Tx278),
+		PriorAuthorization: &xmlPriorAuth{
+			ServiceType:      "dental-predetermination",
+			IncidentSeverity: "Normal",
+			DentalService:    xmlDentalService{CDTCode: "D7240", ToothNumber: "14", Surface: "MO", Quadrant: "UR"},
+		},
+	}
+	require.NoError(t, validateTradingPartnerProfile(partner, valid))
+
+	invalidCDT := valid
+	invalidCDT.PriorAuthorization = &xmlPriorAuth{
+		ServiceType:      "dental-predetermination",
+		IncidentSeverity: "Normal",
+		DentalService:    xmlDentalService{CDTCode: "D1110", ToothNumber: "14", Surface: "MO", Quadrant: "UR"},
+	}
+	err := validateTradingPartnerProfile(partner, invalidCDT)
+	require.Error(t, err)
+	assert.Equal(t, "dental CDT code D1110 is not allowed for trading partner tp-vitesse-temple; allowed ranges: D7000-D7999", err.Error())
+
+	missingTooth := valid
+	missingTooth.PriorAuthorization = &xmlPriorAuth{
+		ServiceType:      "dental-predetermination",
+		IncidentSeverity: "Normal",
+		DentalService:    xmlDentalService{CDTCode: "D7240", Surface: "MO", Quadrant: "UR"},
+	}
+	err = validateTradingPartnerProfile(partner, missingTooth)
+	require.Error(t, err)
+	assert.Equal(t, "dental predetermination for trading partner tp-vitesse-temple requires tooth number", err.Error())
+}
+
 func TestValidateTradingPartnerProfileAppliesClaimRules(t *testing.T) {
 	partners := seedTradingPartners()
 	inbound := inboundTransaction{
@@ -1287,6 +1339,23 @@ func TestValidateTradingPartnerProfileRejectsClaimProcedureOutsideProfile(t *tes
 	err := validateTradingPartnerProfile(partner, inbound)
 	require.Error(t, err)
 	assert.Equal(t, "procedure code RIM100 is not allowed for trading partner tp-vitesse-temple; allowed: ASHN, D", err.Error())
+}
+
+func TestValidateTradingPartnerProfileAppliesDentalClaimLineRules(t *testing.T) {
+	partner := seedTradingPartners()["tp-vitesse-temple"]
+	inbound := inboundTransaction{
+		Type: string(domain.Tx837D),
+		Claim: &xmlClaim{
+			Diagnoses: []xmlClaimDiagnosis{{Qualifier: "ABK", Code: "K021", Primary: true}},
+			ServiceLines: []xmlClaimServiceLine{
+				{ProcedureCode: "D7240", CDTCode: "D7240", AmountCents: "85000", ToothNumber: "14", Surface: "XX", Quadrant: "UR"},
+			},
+		},
+	}
+
+	err := validateTradingPartnerProfile(partner, inbound)
+	require.Error(t, err)
+	assert.Equal(t, "dental surface XX is not allowed for trading partner tp-vitesse-temple; allowed: O, M, D, B, L, MO, DO, MOD", err.Error())
 }
 
 func TestAcceptXMLRejectsPartnerProfileViolationBeforeForwarding(t *testing.T) {
@@ -1450,6 +1519,9 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	assert.Equal(t, 5, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.MaxAttachmentsPerPacket)
 	assert.Equal(t, 0, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.UnsolicitedAttachmentWindowDays)
 	assert.Equal(t, []string{"S610", "T509", "S062X9A", "K021"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DiagnosisCodes)
+	assert.Equal(t, []string{"D7000-D7999"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DentalCDTRanges)
+	assert.Equal(t, []string{"XRAY", "PERIO", "NARR", "PLAN"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DentalRequiredAttachmentCodes)
+	assert.True(t, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DentalRequiresToothNumber)
 	assert.Equal(t, []string{"ASHN", "RIM", "D"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }
 

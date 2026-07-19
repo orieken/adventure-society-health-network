@@ -1507,6 +1507,9 @@ func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboun
 		if err := validateProfileCode(partner.ID, "incident severity", inbound.PriorAuthorization.IncidentSeverity, profile.IncidentSeverities); err != nil {
 			return err
 		}
+		if err := validateDentalServiceProfile(partner.ID, inbound.PriorAuthorization.ServiceType, inbound.PriorAuthorization.DentalService, profile); err != nil {
+			return err
+		}
 	case domain.Tx837, domain.Tx837D:
 		if inbound.Claim == nil {
 			return nil
@@ -1521,6 +1524,9 @@ func validateTradingPartnerProfile(partner domain.TradingPartner, inbound inboun
 		}
 		for _, serviceLine := range inbound.Claim.ServiceLines {
 			if err := validateProcedureProfile(partner.ID, serviceLine.ProcedureCode, profile); err != nil {
+				return err
+			}
+			if err := validateDentalClaimLineProfile(partner.ID, serviceLine, profile); err != nil {
 				return err
 			}
 		}
@@ -1601,6 +1607,8 @@ func contentTypeForExtension(extension string) string {
 		return "text/plain"
 	case ".pdf":
 		return "application/pdf"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
 	default:
 		return ""
 	}
@@ -1645,6 +1653,108 @@ func validateProcedureProfile(partnerID, procedureCode string, profile domain.Pa
 	allowed := append([]string{}, profile.ProcedureCodes...)
 	allowed = append(allowed, profile.ProcedureCodePrefixes...)
 	return fmt.Errorf("procedure code %s is not allowed for trading partner %s; allowed: %s", procedureCode, partnerID, strings.Join(allowed, ", "))
+}
+
+func validateDentalServiceProfile(partnerID string, serviceType string, dentalService xmlDentalService, profile domain.PartnerValidationProfile) error {
+	if !strings.EqualFold(strings.TrimSpace(serviceType), "dental-predetermination") {
+		return nil
+	}
+	if err := validateDentalCDTProfile(partnerID, dentalService.CDTCode, profile); err != nil {
+		return err
+	}
+	if profile.DentalRequiresToothNumber && strings.TrimSpace(dentalService.ToothNumber) == "" {
+		return fmt.Errorf("dental predetermination for trading partner %s requires tooth number", partnerID)
+	}
+	if err := validateDentalSurfaceProfile(partnerID, dentalService.Surface, profile); err != nil {
+		return err
+	}
+	if err := validateDentalQuadrantProfile(partnerID, dentalService.Quadrant, profile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateDentalClaimLineProfile(partnerID string, line xmlClaimServiceLine, profile domain.PartnerValidationProfile) error {
+	if !xmlServiceLineIsDental(line) {
+		return nil
+	}
+	code := strings.TrimSpace(line.CDTCode)
+	if code == "" {
+		code = strings.TrimSpace(line.ProcedureCode)
+	}
+	if err := validateDentalCDTProfile(partnerID, code, profile); err != nil {
+		return err
+	}
+	if profile.DentalRequiresToothNumber && strings.TrimSpace(line.ToothNumber) == "" {
+		return fmt.Errorf("dental claim line for trading partner %s requires tooth number", partnerID)
+	}
+	if err := validateDentalSurfaceProfile(partnerID, line.Surface, profile); err != nil {
+		return err
+	}
+	if err := validateDentalQuadrantProfile(partnerID, line.Quadrant, profile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func xmlServiceLineIsDental(line xmlClaimServiceLine) bool {
+	return strings.TrimSpace(line.CDTCode) != "" || strings.TrimSpace(line.ToothNumber) != "" || strings.TrimSpace(line.Surface) != "" || strings.TrimSpace(line.Quadrant) != "" || line.Orthodontic
+}
+
+func validateDentalCDTProfile(partnerID, code string, profile domain.PartnerValidationProfile) error {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if code == "" || len(profile.DentalCDTRanges) == 0 {
+		return nil
+	}
+	for _, allowedRange := range profile.DentalCDTRanges {
+		if dentalCDTInRange(code, allowedRange) {
+			return nil
+		}
+	}
+	return fmt.Errorf("dental CDT code %s is not allowed for trading partner %s; allowed ranges: %s", code, partnerID, strings.Join(profile.DentalCDTRanges, ", "))
+}
+
+func validateDentalSurfaceProfile(partnerID, surface string, profile domain.PartnerValidationProfile) error {
+	surface = strings.TrimSpace(surface)
+	if surface == "" || len(profile.DentalAllowedSurfaces) == 0 || containsProfileCode(profile.DentalAllowedSurfaces, surface) {
+		return nil
+	}
+	return fmt.Errorf("dental surface %s is not allowed for trading partner %s; allowed: %s", surface, partnerID, strings.Join(profile.DentalAllowedSurfaces, ", "))
+}
+
+func validateDentalQuadrantProfile(partnerID, quadrant string, profile domain.PartnerValidationProfile) error {
+	quadrant = strings.TrimSpace(quadrant)
+	if quadrant == "" || len(profile.DentalAllowedQuadrants) == 0 || containsProfileCode(profile.DentalAllowedQuadrants, quadrant) {
+		return nil
+	}
+	return fmt.Errorf("dental quadrant %s is not allowed for trading partner %s; allowed: %s", quadrant, partnerID, strings.Join(profile.DentalAllowedQuadrants, ", "))
+}
+
+func dentalCDTInRange(code, allowedRange string) bool {
+	codeNumber, ok := dentalCDTNumber(code)
+	if !ok {
+		return false
+	}
+	parts := strings.Split(strings.ToUpper(strings.TrimSpace(allowedRange)), "-")
+	if len(parts) == 1 {
+		value, ok := dentalCDTNumber(parts[0])
+		return ok && codeNumber == value
+	}
+	start, startOK := dentalCDTNumber(parts[0])
+	end, endOK := dentalCDTNumber(parts[1])
+	return startOK && endOK && codeNumber >= start && codeNumber <= end
+}
+
+func dentalCDTNumber(code string) (int, bool) {
+	code = strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(code)), "D")
+	if len(code) != 4 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(code)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
 }
 
 func containsProfileCode(values []string, candidate string) bool {
@@ -2289,6 +2399,12 @@ func vitesseValidationProfile() domain.PartnerValidationProfile {
 		DiagnosisQualifiers:             []string{"ABK", "ABF"},
 		DiagnosisCodes:                  []string{"S610", "T509", "S062X9A", "K021"},
 		ProcedureCodePrefixes:           []string{"ASHN", "D"},
+		DentalCDTRanges:                 []string{"D7000-D7999"},
+		DentalRequiredAttachmentCodes:   []string{"XRAY", "PERIO", "NARR", "PLAN"},
+		DentalRequiresToothNumber:       true,
+		DentalAllowedSurfaces:           []string{"O", "M", "D", "B", "L", "MO", "DO", "MOD"},
+		DentalAllowedQuadrants:          []string{"UR", "UL", "LR", "LL"},
+		DentalPredeterminationRules:     []string{"oral-surgery-only", "accepted-275-evidence-required", "same-day-unsolicited-attachments"},
 	}
 }
 
@@ -2308,6 +2424,12 @@ func rimarosValidationProfile() domain.PartnerValidationProfile {
 		DiagnosisQualifiers:             []string{"ABK", "ABF"},
 		DiagnosisCodes:                  []string{"S610", "T509", "S062X9A", "M542", "K021"},
 		ProcedureCodePrefixes:           []string{"ASHN", "RIM", "D"},
+		DentalCDTRanges:                 []string{"D0000-D9999"},
+		DentalRequiredAttachmentCodes:   []string{"XRAY", "NARR"},
+		DentalRequiresToothNumber:       false,
+		DentalAllowedSurfaces:           []string{"O", "M", "D", "B", "L", "MO", "DO", "MOD"},
+		DentalAllowedQuadrants:          []string{"UR", "UL", "LR", "LL"},
+		DentalPredeterminationRules:     []string{"broad-dental-review", "seven-day-unsolicited-window"},
 	}
 }
 

@@ -69,7 +69,7 @@ sequenceDiagram
 ## Transaction Map
 
 | X12 | Real-world purpose | ASHN story version | Current status behavior |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | `834` | Benefit enrollment and maintenance | Adventurer joins the Adventure Society plan | `Accepted` |
 | `820` | Premium payment | Adventurer or sponsor pays premium dues | `Accepted`; available in the mock generator |
 | `270` | Eligibility inquiry | Provider asks whether the adventurer has active coverage | `Dispatched` |
@@ -193,16 +193,16 @@ ASHN also models partner-specific companion-guide rules. These are stored on eac
 
 These rules are intentionally small but teach the real-world shape of partner-specific validation:
 
-| Provider | `275` attachment profile | `837` diagnosis profile | `837` procedure profile |
+| Provider | `275` attachment profile | `837` diagnosis profile | `837` procedure profile | Dental profile |
 | --- | --- | --- | --- |
-| `provider-vitesse-temple` | `OZ`/`B4`, text only, `TEMPLE-`/`ATTACH-`/`XML-`, 4 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A` | `ASHN` prefix |
-| `provider-rimaros-hospital` | `OZ`/`PN`, `03`/`B4`, text/PDF, `RIM-`/`ATTACH-`/`XML-`, 8 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `M542` | `ASHN` or `RIM` prefix |
+| `provider-vitesse-temple` | `OZ`/`B4`, text/PDF/JPEG, `TEMPLE-`/`ATTACH-`/`XML-`, 4 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `K021` | `ASHN` or `D` prefix | `D7000-D7999`, tooth required, surfaces/quadrants constrained, `XRAY`/`PERIO`/`NARR`/`PLAN` docs |
+| `provider-rimaros-hospital` | `OZ`/`PN`, `03`/`B4`, text/PDF, `RIM-`/`ATTACH-`/`XML-`, 8 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `M542` | `ASHN`, `RIM`, or `D` prefix | `D0000-D9999`, tooth optional, surfaces/quadrants constrained, `XRAY`/`NARR` docs |
 
 Generated raw X12 includes `REF*1K` or `REF*G1` for correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type or external document reference, and `BIN` when embedded content is present.
 
-The same profile can also constrain `278` prior authorization service types and incident severities, which gives demos a single place to explain sender IDs, allowed transaction sets, routing, companion-guide validation, and partner-specific claim rules.
+The same profile can also constrain `278` prior authorization service types, incident severities, and dental predetermination payloads. For dental workflows, `edi-intake` now checks allowed CDT ranges, tooth requirements, valid surfaces, valid quadrants, and payer-specific predetermination notes before routing the request.
 
-The dashboard Partners tab surfaces those constraints as a compact companion-guide matrix: `275` attachment/report/content rules, `278` service/severity rules, and `837` diagnosis/procedure rules. This makes partner configuration readable before intentionally sending accepted or rejected intake examples.
+The dashboard Partners tab surfaces those constraints as a compact companion-guide matrix: `275` attachment/report/content rules, `278` service/severity rules, `837` diagnosis/procedure rules, and dental CDT/tooth/surface attachment rules. This makes partner configuration readable before intentionally sending accepted or rejected intake examples.
 
 ### 6. Claim Status: `276 → 277`
 

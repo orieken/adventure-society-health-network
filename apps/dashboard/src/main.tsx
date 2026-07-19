@@ -30,6 +30,12 @@ type TradingPartner = {
     diagnosisCodes?: string[];
     procedureCodePrefixes?: string[];
     procedureCodes?: string[];
+    dentalCdtRanges?: string[];
+    dentalRequiredAttachmentCodes?: string[];
+    dentalRequiresToothNumber?: boolean;
+    dentalAllowedSurfaces?: string[];
+    dentalAllowedQuadrants?: string[];
+    dentalPredeterminationRules?: string[];
     serviceTypes?: string[];
     incidentSeverities?: string[];
   };
@@ -2892,6 +2898,7 @@ function TradingPartnerCard({
           <GuideRule title="275 Attachments" value={attachmentGuide(profile)} />
           <GuideRule title="278 Auth" value={authorizationGuide(profile)} />
           <GuideRule title="837 Claims" value={claimGuide(profile)} />
+          <GuideRule title="Dental Rules" value={dentalGuide(profile)} />
         </div>
       )}
       <div className="actions compact-actions">
@@ -2939,6 +2946,18 @@ function claimGuide(profile: NonNullable<TradingPartner["validationProfile"]>) {
     profile.procedureCodes?.length ? `${profile.procedureCodes.join("/")} procedures` : ""
   ].filter(Boolean);
   return pieces.join(" · ");
+}
+
+function dentalGuide(profile: NonNullable<TradingPartner["validationProfile"]>) {
+  const pieces = [
+    profile.dentalCdtRanges?.length ? `${profile.dentalCdtRanges.join("/")} CDT` : "",
+    profile.dentalRequiresToothNumber ? "tooth required" : "",
+    profile.dentalAllowedSurfaces?.length ? `${profile.dentalAllowedSurfaces.join("/")} surfaces` : "",
+    profile.dentalAllowedQuadrants?.length ? `${profile.dentalAllowedQuadrants.join("/")} quadrants` : "",
+    profile.dentalRequiredAttachmentCodes?.length ? `${profile.dentalRequiredAttachmentCodes.join("/")} docs` : "",
+    profile.dentalPredeterminationRules?.length ? profile.dentalPredeterminationRules.join(", ") : ""
+  ].filter(Boolean);
+  return pieces.length > 0 ? pieces.join(" · ") : "standard dental rules";
 }
 
 function Pager({ page, onPrevious, onNext }: { page: PageInfo; onPrevious: () => void; onNext: () => void }) {
