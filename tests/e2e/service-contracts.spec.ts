@@ -148,7 +148,7 @@ test.describe("ASHN mutating demo contracts", () => {
         description: "Prior authorization medical necessity notes",
         content: "Authorization includes encounter notes and healer attestation.",
         documentReferenceId: `doc-auth-${Date.now()}`,
-        documentReferenceUrl: "https://docs.example.test/ashn/auth-notes.pdf"
+        documentReferenceUrl: "https://docs.example.test/ashn/auth-notes.txt"
       }
     });
     expect(authAttachment.status()).toBe(201);
