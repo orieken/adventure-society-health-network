@@ -634,6 +634,22 @@ func TestAttachClaimInformationValidatesBDSAttachmentEncoding(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, decodeEnvelope(t, response).Lore, "single-part MIME packaging")
 
+	malformedMimeBase64 := baseRequest
+	malformedMimeBase64.AttachmentEncoding = "B64"
+	malformedMimeBase64.FileName = "dragonfire-notes.txt"
+	malformedMimeBase64.Content = base64.StdEncoding.EncodeToString([]byte("Content-Type text/plain\r\n\r\nPatient notes"))
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", malformedMimeBase64)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "MIME package is malformed")
+
+	emptyMimeBodyBase64 := baseRequest
+	emptyMimeBodyBase64.AttachmentEncoding = "B64"
+	emptyMimeBodyBase64.FileName = "dragonfire-notes.txt"
+	emptyMimeBodyBase64.Content = base64.StdEncoding.EncodeToString([]byte("Content-Type: text/plain\r\n\r\n"))
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", emptyMimeBodyBase64)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "MIME package requires a body")
+
 	validBase64 := baseRequest
 	validBase64.AttachmentEncoding = "B64"
 	validBase64.FileName = "dragonfire-notes.txt"
@@ -644,6 +660,14 @@ func TestAttachClaimInformationValidatesBDSAttachmentEncoding(t *testing.T) {
 	require.NotNil(t, envelope.Transaction)
 	assert.Contains(t, envelope.Transaction.RawX12, "BDS*B64**Content-Type: text/plain")
 	assert.Contains(t, string(envelope.Transaction.Payload), `"fileName":"dragonfire-notes.txt"`)
+
+	validMimeBase64 := baseRequest
+	validMimeBase64.AttachmentEncoding = "B64"
+	validMimeBase64.FileName = "dragonfire-notes.txt"
+	validMimeBase64.AttachmentControlNumber = "ATTACH-BDS-2"
+	validMimeBase64.Content = base64.StdEncoding.EncodeToString([]byte("Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: binary\r\n\r\nPatient survived a dragonfire incident."))
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", validMimeBase64)
+	assert.Equal(t, http.StatusCreated, response.Code)
 }
 
 func TestTransactionDocumentReferenceResolvesExternalVaultPointer(t *testing.T) {

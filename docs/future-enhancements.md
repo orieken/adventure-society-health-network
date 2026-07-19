@@ -148,10 +148,10 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [x] Generate and parse core `275` structures from the companion guides: `BGN`, `1000A/B/C/D`, `LX`, `TRN`, `DTP`, `CAT`, `OOI`, and `BDS`.
 - [x] Support `BDS01` encoding mode validation for `ASC`, `B64`, and `REF` attachment payloads.
 - [x] Reject multipart Base64 attachment payloads until full single-part MIME packaging support exists.
-- [ ] Add full single-part MIME packaging validation for Base64 attachment payloads.
+- [x] Add full single-part MIME packaging validation for Base64 attachment payloads.
 - [x] Validate partner-configured attachment file extensions.
 - [x] Validate declared content type against attachment file extension.
-- [ ] Validate MIME sniffing and full single-part MIME requirements.
+- [x] Validate MIME sniffing and full single-part MIME requirements.
 - [x] Add duplicate attachment-control-number detection by claim/request context.
 - [x] Add configurable attachment size limits and packet/LX limits.
 - [x] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.

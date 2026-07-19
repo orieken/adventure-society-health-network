@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/textproto"
 	"os"
 	"sort"
 	"strconv"
@@ -996,19 +999,67 @@ func validateAttachmentContentTypeMatch(req domain.AttachmentRequest) error {
 	if err != nil {
 		return nil
 	}
-	mimeText := strings.TrimSpace(string(decoded))
-	if mimeText == "" || !strings.Contains(strings.ToLower(mimeText), "content-type:") {
+	return validateBase64MIMEPackage(req, decoded)
+}
+
+func validateBase64MIMEPackage(req domain.AttachmentRequest, decoded []byte) error {
+	mimeText := string(decoded)
+	if strings.TrimSpace(mimeText) == "" || !looksLikeMIMEPackage(mimeText) {
 		return nil
 	}
-	lowerMimeText := strings.ToLower(mimeText)
-	lowerContentType := strings.ToLower(req.ContentType)
-	if strings.Contains(lowerMimeText, "multipart/") || strings.Contains(lowerMimeText, "boundary=") {
+	if strings.Contains(strings.ToLower(mimeText), "multipart/") {
 		return fmt.Errorf("single-part MIME packaging is required for B64 attachments")
 	}
-	if !strings.Contains(lowerMimeText, "content-type: "+lowerContentType) && !strings.Contains(lowerMimeText, "content-type:"+lowerContentType) {
+	headers, body, err := readSinglePartMIME(mimeText)
+	if err != nil {
+		return fmt.Errorf("B64 MIME package is malformed")
+	}
+	mediaType := strings.TrimSpace(headers.Get("Content-Type"))
+	if mediaType == "" {
+		return fmt.Errorf("B64 MIME package requires Content-Type header")
+	}
+	parsedMediaType, params, err := mime.ParseMediaType(mediaType)
+	if err != nil {
+		return fmt.Errorf("B64 MIME Content-Type is malformed")
+	}
+	if _, ok := params["boundary"]; ok {
+		return fmt.Errorf("single-part MIME packaging is required for B64 attachments")
+	}
+	if !strings.EqualFold(parsedMediaType, req.ContentType) {
 		return fmt.Errorf("B64 MIME content type does not match declared content type %s", req.ContentType)
 	}
+	if strings.TrimSpace(body) == "" {
+		return fmt.Errorf("B64 MIME package requires a body")
+	}
 	return nil
+}
+
+func looksLikeMIMEPackage(value string) bool {
+	firstLine := value
+	if index := strings.IndexAny(value, "\r\n"); index >= 0 {
+		firstLine = value[:index]
+	}
+	lowerFirstLine := strings.ToLower(strings.TrimSpace(firstLine))
+	return strings.Contains(firstLine, ":") ||
+		strings.HasPrefix(lowerFirstLine, "content-type") ||
+		strings.HasPrefix(lowerFirstLine, "mime-version") ||
+		strings.Contains(strings.ToLower(value), "content-type:")
+}
+
+func readSinglePartMIME(value string) (textproto.MIMEHeader, string, error) {
+	reader := bufio.NewReader(strings.NewReader(value))
+	headers, err := textproto.NewReader(reader).ReadMIMEHeader()
+	if err != nil {
+		return nil, "", err
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, "", err
+	}
+	if strings.Contains(strings.ToLower(headers.Get("Content-Type")), "multipart/") || strings.Contains(strings.ToLower(string(body)), "\r\n--") {
+		return nil, "", fmt.Errorf("multipart MIME is not supported")
+	}
+	return headers, string(body), nil
 }
 
 func contentTypeForExtension(extension string) string {
