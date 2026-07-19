@@ -316,7 +316,7 @@ This gives the demo a realistic EDI boundary: not every external sender can subm
 
 ## What Is Real vs. Simplified
 
-ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `834` enrollment, `820` premium payment, `270` eligibility, `276` claim status, `278` prior authorization, `837` claim, `835` remittance/payment, and `275` attachment messages into canonical ASHN requests.
+ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `834` enrollment, `820` premium payment, `270` eligibility, `276` claim status, `278` prior authorization, `837` claim, `835` remittance/payment, and `275` attachment messages into canonical ASHN requests. The parser build-vs-integrate recommendation is captured in [X12 Parser Strategy](x12-parser-strategy.md).
 
 What it models well:
 
