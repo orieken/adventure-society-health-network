@@ -1968,8 +1968,22 @@ func rejectionReason(errorText string) (string, string) {
 		return "Procedure profile", "procedure code"
 	case strings.Contains(text, "attachment type"):
 		return "Attachment type profile", "attachment type"
+	case strings.Contains(text, "attachment purpose"):
+		return "Attachment purpose profile", "attachment purpose"
+	case strings.Contains(text, "attachment format"):
+		return "Attachment format profile", "attachment format"
 	case strings.Contains(text, "report type"):
 		return "Report type profile", "report type"
+	case strings.Contains(text, "base64") || strings.Contains(text, "mime"):
+		return "Attachment payload encoding", "base64"
+	case strings.Contains(text, "lx loops") || strings.Contains(text, "packet contains"):
+		return "Attachment packet limit", "packet contains"
+	case strings.Contains(text, "solicited attachment") || strings.Contains(text, "trace"):
+		return "Solicited trace matching", "solicited attachment"
+	case strings.Contains(text, "claim not found"):
+		return "Missing related claim", "claim not found"
+	case strings.Contains(text, "same day") || strings.Contains(text, "within") && strings.Contains(text, "unsolicited"):
+		return "Late unsolicited attachment", "unsolicited"
 	case strings.Contains(text, "trading partner"):
 		return "Trading partner routing", "trading partner"
 	case strings.Contains(text, "transaction type"):

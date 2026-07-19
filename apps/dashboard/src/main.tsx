@@ -265,6 +265,13 @@ type DemoScenario = {
   exports: string[];
 };
 
+type RejectionFixture = {
+  id: string;
+  label: string;
+  reason: string;
+  payload: string;
+};
+
 type ScenarioRunState = {
   running: boolean;
   completedSteps: number;
@@ -464,6 +471,100 @@ const sampleRaw835 = [
   "GE*1*000000835~",
   "IEA*1*000000835~"
 ].join("\n");
+const raw275RejectionFixtures: RejectionFixture[] = [
+  {
+    id: "invalid-bgn01",
+    label: "275 Invalid BGN01",
+    reason: "Invalid purpose indicator should reject before business review.",
+    payload: raw275Fixture({
+      control: "000275901",
+      bgn01: "99",
+      trace: "trace-bad-bgn",
+      claimId: "claim-e2e-dashboard",
+      attachmentControl: "ATTACH-BAD-BGN",
+      cat02: "TXT",
+      bds01: "ASC",
+      content: "Invalid purpose fixture."
+    })
+  },
+  {
+    id: "invalid-cat02",
+    label: "275 Invalid CAT02",
+    reason: "Attachment format outside partner profile should emit 824 advice.",
+    payload: raw275Fixture({
+      control: "000275902",
+      bgn01: "02",
+      trace: "trace-bad-cat",
+      claimId: "claim-e2e-dashboard",
+      attachmentControl: "ATTACH-BAD-CAT",
+      cat02: "BIN",
+      bds01: "ASC",
+      content: "Invalid format fixture."
+    })
+  },
+  {
+    id: "oversized-packet",
+    label: "275 Oversized Packet",
+    reason: "More LX loops than the partner allows should reject the packet.",
+    payload: raw275Fixture({
+      control: "000275903",
+      bgn01: "02",
+      trace: "trace-oversized",
+      claimId: "claim-e2e-dashboard",
+      attachmentControl: "ATTACH-TOO-MANY",
+      cat02: "TXT",
+      bds01: "ASC",
+      content: "Oversized packet fixture.",
+      attachmentCount: 4
+    })
+  },
+  {
+    id: "corrupt-base64",
+    label: "275 Corrupt Base64",
+    reason: "B64 content that cannot decode should reject with a clear payload error.",
+    payload: raw275Fixture({
+      control: "000275904",
+      bgn01: "02",
+      trace: "trace-bad-b64",
+      claimId: "claim-e2e-dashboard",
+      attachmentControl: "ATTACH-BAD-B64",
+      cat02: "TXT",
+      bds01: "B64",
+      content: "not-valid-base64"
+    })
+  },
+  {
+    id: "missing-trace",
+    label: "275 Missing Trace",
+    reason: "Solicited attachments need the documentation request trace.",
+    payload: raw275Fixture({
+      control: "000275905",
+      bgn01: "11",
+      trace: "",
+      claimId: "claim-e2e-dashboard",
+      attachmentControl: "ATTACH-MISSING-TRACE",
+      cat02: "TXT",
+      bds01: "ASC",
+      content: "Missing trace fixture."
+    })
+  },
+  {
+    id: "late-attachment",
+    label: "275 Late Attachment",
+    reason: "Unsolicited attachments outside the partner timing window should reject.",
+    payload: raw275Fixture({
+      control: "000275906",
+      bgn01: "02",
+      trace: "trace-late-attachment",
+      claimId: "claim-e2e-dashboard",
+      attachmentControl: "ATTACH-LATE",
+      cat02: "TXT",
+      bds01: "ASC",
+      serviceDate: "20200101",
+      content: "Late attachment fixture."
+    })
+  }
+];
 const savedFiltersStorageKey = "ashn.savedFilters.v1";
 const scenarioRunsStorageKey = "ashn.scenarioRuns.v1";
 const initialPartnerForm: PartnerFormState = {
@@ -531,6 +632,21 @@ const demoScenarios: DemoScenario[] = [
       { label: "Replay", action: "Replay Intake", expected: "The same payload re-enters validation and audit flow." }
     ],
     exports: ["Inbound audit JSON/XML", "999 JSON/XML/X12", "Rejection drilldown filters"]
+  },
+  {
+    id: "275-rejection-fixtures",
+    title: "275 Rejection Fixture Tour",
+    outcome: "Submits companion-guide-inspired 275 failures and shows the audit/824 trail operators can inspect.",
+    audience: "EDI analyst / QA demo",
+    duration: "4–6 minutes",
+    story: "A partner tests bad attachment payloads so analysts can see exactly how ASHN maps each failure into audit evidence.",
+    highlights: ["invalid BGN01", "invalid CAT02", "oversized LX packet", "corrupt B64", "missing trace", "late attachment"],
+    steps: [
+      { label: "Submit fixtures", action: "Run all six 275 rejection samples", expected: "Each payload is rejected and recorded in intake audit." },
+      { label: "Open metrics", action: "Load XML rejection metrics for 275", expected: "Dashboard groups the failures by reason." },
+      { label: "Drilldown", action: "Switch XML Intake filters to rejected 275s", expected: "Operators can inspect and replay the failed payloads." }
+    ],
+    exports: ["275 raw X12 rejection samples", "824 JSON/XML/X12", "Inbound audit JSON/XML"]
   }
 ];
 
@@ -1097,6 +1213,8 @@ function App() {
       await runDeficiencyScenarioStep(scenario, stepIndex);
     } else if (scenario.id === "partner-rejection-ops") {
       await runPartnerRejectionScenarioStep(scenario, stepIndex);
+    } else if (scenario.id === "275-rejection-fixtures") {
+      await run275RejectionFixtureScenarioStep(scenario, stepIndex);
     }
   }
 
@@ -1258,6 +1376,36 @@ function App() {
       setAuditStatusFilter("rejected");
       setAuditTypeFilter("837");
     }
+  }
+
+  async function run275RejectionFixtureScenarioStep(scenario: DemoScenario, stepIndex: number) {
+    if (stepIndex === 0) {
+      await scenarioStep(scenario, 0, submit275RejectionFixtures);
+    } else if (stepIndex === 1) {
+      await scenarioStep(scenario, 1, () => request<IntakeRejectionMetrics>("/v1/x12/messages/rejections?type=275"));
+    } else if (stepIndex === 2) {
+      await scenarioStep(scenario, 2, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=275&limit=10"));
+      setActiveTab("xml");
+      setAuditStatusFilter("rejected");
+      setAuditTypeFilter("275");
+      setSearchTerm("");
+    }
+  }
+
+  async function submit275RejectionFixtures(): Promise<Envelope<{ submitted: number; fixtures: Array<{ id: string; reason: string; error?: string }> }>> {
+    const results = [];
+    for (const fixture of raw275RejectionFixtures) {
+      const result = await request(`/v1/x12/raw`, {
+        method: "POST",
+        headers: { "Content-Type": "application/edi-x12" },
+        body: fixture.payload
+      });
+      results.push({ id: fixture.id, reason: fixture.reason, error: result.error });
+    }
+    return {
+      data: { submitted: results.length, fixtures: results },
+      lore: `Submitted ${results.length} intentionally invalid 275 fixtures for audit review.`
+    };
   }
 
   async function downloadFromPath(path: string) {
@@ -2225,6 +2373,9 @@ function App() {
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw278)}>Load Sample 278</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw835)}>Load Sample 835</button>
+              {raw275RejectionFixtures.map((fixture) => (
+                <button type="button" className="secondary" key={fixture.id} onClick={() => setRawX12Draft(fixture.payload)}>{fixture.label}</button>
+              ))}
             </div>
           </div>
           <label>
@@ -3041,7 +3192,14 @@ function rejectionReasonLabel(error?: string) {
   if (text.includes("diagnosis qualifier")) return "Diagnosis qualifier profile";
   if (text.includes("procedure code")) return "Procedure profile";
   if (text.includes("attachment type")) return "Attachment type profile";
+  if (text.includes("attachment purpose")) return "Attachment purpose profile";
+  if (text.includes("attachment format")) return "Attachment format profile";
   if (text.includes("report type")) return "Report type profile";
+  if (text.includes("base64") || text.includes("mime")) return "Attachment payload encoding";
+  if (text.includes("lx loops") || text.includes("packet contains")) return "Attachment packet limit";
+  if (text.includes("solicited attachment") || text.includes("trace")) return "Solicited trace matching";
+  if (text.includes("claim not found")) return "Missing related claim";
+  if (text.includes("same day") || (text.includes("within") && text.includes("unsolicited"))) return "Late unsolicited attachment";
   if (text.includes("trading partner")) return "Trading partner routing";
   if (text.includes("transaction type")) return "Transaction set profile";
   return text;
@@ -3503,6 +3661,52 @@ function authorizationReviewSummary(transaction: Transaction) {
     return `Manual council review can approve or deny this dental predetermination${parts ? ` for ${parts}` : ""} before the worker decides.`;
   }
   return "Manual council review can approve or deny the pending resurrection authorization before the worker decides.";
+}
+
+function raw275Fixture(options: {
+  control: string;
+  bgn01: string;
+  trace: string;
+  claimId: string;
+  attachmentControl: string;
+  cat02: string;
+  bds01: string;
+  content: string;
+  serviceDate?: string;
+  attachmentCount?: number;
+}) {
+  const attachmentCount = options.attachmentCount ?? 1;
+  const attachmentLoops = Array.from({ length: attachmentCount }, (_, index) => {
+    const sequence = index + 1;
+    const suffix = attachmentCount > 1 ? `-${sequence}` : "";
+    return [
+      `LX*${sequence}~`,
+      `TRN*1*${options.trace || `missing-trace-${sequence}`}*provider-vitesse-temple~`,
+      `REF*1K*${options.claimId}~`,
+      `REF*6R*${options.attachmentControl}${suffix}~`,
+      `DTP*472*D8*${options.serviceDate ?? "20260708"}~`,
+      "LQ*AT*OZ~",
+      `CAT*B4*${options.cat02}~`,
+      "OOI*DOC~",
+      `BDS*${options.bds01}**Content-Type: text/plain~`,
+      "NTE*ADD*275 rejection fixture~",
+      `BIN*${options.content.length}*${options.content}~`
+    ].join("\n");
+  }).join("\n");
+
+  return [
+    `ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*${options.control}*0*T*:~`,
+    `GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*${options.control}*X*005010X275A1~`,
+    `ST*275*${options.control}~`,
+    `BGN*${options.bgn01}*${options.trace}*20260708~`,
+    "NM1*41*2*provider-vitesse-temple*****46*provider-vitesse-temple~",
+    "NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+    "NM1*PR*2*Adventure Society*****PI*adventure-society~",
+    attachmentLoops,
+    `SE*${8 + attachmentCount * 11}*${options.control}~`,
+    `GE*1*${options.control}~`,
+    `IEA*1*${options.control}~`
+  ].join("\n");
 }
 
 function payloadString(transaction: Transaction, key: string) {

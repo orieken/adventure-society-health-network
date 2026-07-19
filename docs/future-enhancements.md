@@ -155,7 +155,7 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 - [x] Add duplicate attachment-control-number detection by claim/request context.
 - [x] Add configurable attachment size limits and packet/LX limits.
 - [x] Enforce timing rules such as same-day claim/attachment submission and late-attachment rejection windows where configured.
-- [ ] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.
+- [x] Add explicit rejection mappings for common UHC/esMD-style scenarios, including missing related request, claim not found, invalid file type, corrupted MIME/Base64, and too many LX loops.
 - [x] Add `824` application reporting for attachment validation failures while keeping `999` for syntax acknowledgment.
 - [x] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
 - [x] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.

@@ -369,6 +369,30 @@ test.describe("ASHN dashboard smoke", () => {
     });
   });
 
+  test("runs 275 rejection fixture tour", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.goto(dashboardUrl);
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "275 Invalid BGN01" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("BGN*99");
+    await page.getByRole("button", { name: "275 Invalid CAT02" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("CAT*B4*BIN");
+
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const scenario = page.locator(".scenario-card", { hasText: "275 Rejection Fixture Tour" });
+    await expect(scenario).toBeVisible();
+    await scenario.getByRole("button", { name: "Run Scenario" }).click();
+    await expect(page.getByLabel("XML type")).toHaveValue("275");
+    await expect(page.getByLabel("XML status")).toHaveValue("rejected");
+    const rejections = page.getByLabel("intake rejections");
+    await expect(rejections.getByRole("button", { name: /Attachment purpose profile/ })).toBeVisible();
+    await expect(rejections.getByRole("button", { name: /Attachment format profile/ })).toBeVisible();
+    await expect(rejections.getByRole("button", { name: /Attachment payload encoding/ })).toBeVisible();
+    await expect(rejections.getByRole("button", { name: /Solicited trace matching/ })).toBeVisible();
+    await expect(rejections.getByRole("button", { name: /Late unsolicited attachment/ })).toBeVisible();
+  });
+
   test("exports the loaded transaction ledger to CSV", async ({ page }) => {
     await mockDashboardApi(page);
     await page.goto(dashboardUrl);
@@ -733,6 +757,7 @@ test.describe("ASHN dashboard smoke", () => {
 async function mockDashboardApi(page: Page) {
   let claimStatus = "Submitted";
   const workbenchTransactions: DemoTransaction[] = [];
+  const rejected275Messages: DemoInboundMessage[] = [];
   const partnerProfiles = [
     {
       id: "tp-vitesse-temple",
@@ -1352,6 +1377,30 @@ async function mockDashboardApi(page: Page) {
     if (path === "/v1/x12/raw") {
       expect(route.request().headers()["content-type"]).toContain("application/edi-x12");
       const rawPayload = route.request().postData() ?? "";
+      const rejectionError = raw275RejectionError(rawPayload);
+      if (rejectionError) {
+        const message: DemoInboundMessage = {
+          id: `msg-e2e-275-${rejected275Messages.length + 1}`,
+          partnerId: "provider-vitesse-temple",
+          contentType: "application/edi-x12",
+          transactionType: "275",
+          rawPayload,
+          status: "rejected",
+          error: rejectionError,
+          downstreamStatus: 400,
+          createdAt: new Date(Date.UTC(2026, 6, 8, 14, rejected275Messages.length, 0)).toISOString()
+        };
+        rejected275Messages.unshift(message);
+        await route.fulfill({
+          status: 400,
+          json: {
+            error: rejectionError,
+            lore: "The 275 fixture was rejected and preserved in intake audit.",
+            data: { messageId: message.id, transactionType: "275" }
+          }
+        });
+        return;
+      }
       if (rawPayload.includes("ST*834")) {
         await route.fulfill({
           status: 201,
@@ -1491,7 +1540,8 @@ async function mockDashboardApi(page: Page) {
     if (path === "/v1/x12/messages/rejections") {
       const type = url.searchParams.get("type");
       const q = url.searchParams.get("q")?.toLowerCase() ?? "";
-      const rejected = demoInboundMessages.filter((message) => {
+      const allMessages = [...rejected275Messages, ...demoInboundMessages];
+      const rejected = allMessages.filter((message) => {
         const searchable = `${message.id} ${message.partnerId ?? ""} ${message.transactionType ?? ""} ${message.rawPayload} ${message.status} ${message.error ?? ""}`.toLowerCase();
         return message.status === "rejected" && (!type || message.transactionType === type) && (!q || searchable.includes(q));
       });
@@ -1510,7 +1560,8 @@ async function mockDashboardApi(page: Page) {
       const status = url.searchParams.get("status");
       const type = url.searchParams.get("type");
       const q = url.searchParams.get("q")?.toLowerCase() ?? "";
-      const data = demoInboundMessages.filter((message) => {
+      const allMessages = [...rejected275Messages, ...demoInboundMessages];
+      const data = allMessages.filter((message) => {
         const searchable = `${message.id} ${message.partnerId ?? ""} ${message.transactionType ?? ""} ${message.rawPayload} ${message.status} ${message.error ?? ""}`.toLowerCase();
         const matchesStatus = !status || status === "All" || message.status === status;
         const matchesType = !type || type === "All" || message.transactionType === type;
@@ -1548,7 +1599,26 @@ function topCounts(items: Array<{ label: string; query?: string; type?: string; 
 }
 
 function rejectionReason(error?: string) {
-  return error?.includes("diagnosis code") ? "Diagnosis code profile" : "Unknown rejection";
+  const text = (error ?? "").toLowerCase();
+  if (text.includes("diagnosis code")) return "Diagnosis code profile";
+  if (text.includes("attachment purpose")) return "Attachment purpose profile";
+  if (text.includes("attachment format")) return "Attachment format profile";
+  if (text.includes("base64") || text.includes("mime")) return "Attachment payload encoding";
+  if (text.includes("lx loops") || text.includes("packet contains")) return "Attachment packet limit";
+  if (text.includes("solicited attachment") || text.includes("trace")) return "Solicited trace matching";
+  if (text.includes("same day") || (text.includes("within") && text.includes("unsolicited"))) return "Late unsolicited attachment";
+  return "Unknown rejection";
+}
+
+function raw275RejectionError(rawPayload: string) {
+  if (!rawPayload.includes("ST*275")) return "";
+  if (rawPayload.includes("BGN*99")) return "attachment purpose must be solicited or unsolicited";
+  if (rawPayload.includes("CAT*B4*BIN")) return "attachment format BIN is not allowed for provider provider-vitesse-temple; allowed: TXT";
+  if (rawPayload.includes("ATTACH-TOO-MANY")) return "attachment packet contains 4 LX loops; provider provider-vitesse-temple allows 3";
+  if (rawPayload.includes("ATTACH-BAD-B64")) return "B64 attachment content must be valid base64";
+  if (rawPayload.includes("ATTACH-MISSING-TRACE")) return "solicited attachment must include attachmentTraceId tx-doc-request";
+  if (rawPayload.includes("ATTACH-LATE")) return "unsolicited 275 attachments for provider provider-vitesse-temple must be submitted on the same day as the originating 837 claim";
+  return "";
 }
 
 function pageInfo(count: number, limit: number) {

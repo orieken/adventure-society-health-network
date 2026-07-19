@@ -1534,16 +1534,20 @@ func TestRejectionMetricsSummarizePartnerTrends(t *testing.T) {
 		WillReturnRows(messageRows().
 			AddRow("msg-1", "tp-vitesse-temple", "application/xml", "837", "<xml />", "rejected", "diagnosis code M542 is not allowed", 400, second).
 			AddRow("msg-2", "tp-vitesse-temple", "application/xml", "837", "<xml />", "rejected", "diagnosis code BAD is not allowed", 400, first).
-			AddRow("msg-3", "tp-rimaros", "application/xml", "275", "<xml />", "rejected", "attachment type ZZ is not allowed", 400, first))
+			AddRow("msg-3", "tp-rimaros", "application/xml", "275", "<xml />", "rejected", "attachment type ZZ is not allowed", 400, first).
+			AddRow("msg-4", "tp-vitesse-temple", "application/edi-x12", "275", "ST*275~", "rejected", "attachment format BIN is not allowed", 400, first).
+			AddRow("msg-5", "tp-vitesse-temple", "application/edi-x12", "275", "ST*275~", "rejected", "B64 attachment content must be valid base64", 400, first).
+			AddRow("msg-6", "tp-vitesse-temple", "application/edi-x12", "275", "ST*275~", "rejected", "solicited attachment must include attachmentTraceId tx-doc-request", 400, first).
+			AddRow("msg-7", "tp-vitesse-temple", "application/edi-x12", "275", "ST*275~", "rejected", "unsolicited 275 attachments for provider provider-vitesse-temple must be submitted on the same day as the originating 837 claim", 400, first))
 
 	metrics, err := app.queryRejectionMetrics(messageFilters{})
 
 	require.NoError(t, err)
-	assert.Equal(t, 3, metrics.Total)
-	assert.Equal(t, []domain.InboundRejectionCount{{Label: "tp-vitesse-temple", Count: 2, Query: "tp-vitesse-temple", PartnerID: "tp-vitesse-temple"}, {Label: "tp-rimaros", Count: 1, Query: "tp-rimaros", PartnerID: "tp-rimaros"}}, metrics.ByPartner)
-	assert.Equal(t, []domain.InboundRejectionCount{{Label: "837", Count: 2, Type: "837"}, {Label: "275", Count: 1, Type: "275"}}, metrics.ByType)
-	assert.Equal(t, []domain.InboundRejectionCount{{Label: "Diagnosis code profile", Count: 2, Query: "diagnosis code"}, {Label: "Attachment type profile", Count: 1, Query: "attachment type"}}, metrics.ByReason)
-	assert.Equal(t, []domain.InboundRejectionTrend{{Date: "2026-07-08", Count: 2}, {Date: "2026-07-09", Count: 1}}, metrics.Trend)
+	assert.Equal(t, 7, metrics.Total)
+	assert.Equal(t, []domain.InboundRejectionCount{{Label: "tp-vitesse-temple", Count: 6, Query: "tp-vitesse-temple", PartnerID: "tp-vitesse-temple"}, {Label: "tp-rimaros", Count: 1, Query: "tp-rimaros", PartnerID: "tp-rimaros"}}, metrics.ByPartner)
+	assert.Equal(t, []domain.InboundRejectionCount{{Label: "275", Count: 5, Type: "275"}, {Label: "837", Count: 2, Type: "837"}}, metrics.ByType)
+	assert.Equal(t, []domain.InboundRejectionCount{{Label: "Diagnosis code profile", Count: 2, Query: "diagnosis code"}, {Label: "Attachment format profile", Count: 1, Query: "attachment format"}, {Label: "Attachment payload encoding", Count: 1, Query: "base64"}, {Label: "Attachment type profile", Count: 1, Query: "attachment type"}, {Label: "Late unsolicited attachment", Count: 1, Query: "unsolicited"}}, metrics.ByReason)
+	assert.Equal(t, []domain.InboundRejectionTrend{{Date: "2026-07-08", Count: 6}, {Date: "2026-07-09", Count: 1}}, metrics.Trend)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

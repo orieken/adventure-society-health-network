@@ -99,7 +99,7 @@ ASHN already implements a teaching-focused 275 workflow:
 - [x] Emit or simulate `824` application reporting for attachment validation failures.
 - [x] Add `TA1` pre-screen outcomes for envelope/interchange rejection examples.
 - [x] Add dashboard drilldowns that separate `TA1`, `999`, `824`, and business review statuses.
-- [ ] Add demo fixtures for invalid `BGN01`, invalid `CAT02`, oversized packet, corrupt Base64, missing trace, and late attachment.
+- [x] Add demo fixtures for invalid `BGN01`, invalid `CAT02`, oversized packet, corrupt Base64, missing trace, and late attachment.
 
 ## Design Guardrails
 

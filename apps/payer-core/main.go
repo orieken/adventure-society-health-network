@@ -865,6 +865,7 @@ type attachmentCompanionRule struct {
 	AllowedReportTypes    []string
 	AllowedTransmissions  []string
 	AllowedContentTypes   []string
+	AllowedFormatCodes    []string
 	AllowedExtensions     []string
 	ControlPrefixes       []string
 	MaxContentBytes       int
@@ -924,6 +925,9 @@ func validateAttachmentForProvider(providerID string, req domain.AttachmentReque
 	if !containsCode(rule.AllowedContentTypes, req.ContentType) {
 		return fmt.Errorf("content type %s is not allowed for provider %s; allowed: %s", req.ContentType, providerID, strings.Join(rule.AllowedContentTypes, ", "))
 	}
+	if req.AttachmentFormatCode != "" && !containsCode(rule.AllowedFormatCodes, req.AttachmentFormatCode) {
+		return fmt.Errorf("attachment format %s is not allowed for provider %s; allowed: %s", req.AttachmentFormatCode, providerID, strings.Join(rule.AllowedFormatCodes, ", "))
+	}
 	if err := validateAttachmentFileExtension(rule, req); err != nil {
 		return err
 	}
@@ -948,6 +952,7 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 			AllowedReportTypes:    []string{"03", "B4"},
 			AllowedTransmissions:  []string{"EL"},
 			AllowedContentTypes:   []string{"text/plain", "application/pdf"},
+			AllowedFormatCodes:    []string{"TXT", "PDF"},
 			AllowedExtensions:     []string{".txt", ".pdf"},
 			ControlPrefixes:       []string{"RIM-", "ATTACH-", "XML-"},
 			MaxContentBytes:       8192,
@@ -961,6 +966,7 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 			AllowedReportTypes:    []string{"B4"},
 			AllowedTransmissions:  []string{"EL"},
 			AllowedContentTypes:   []string{"text/plain"},
+			AllowedFormatCodes:    []string{"TXT"},
 			AllowedExtensions:     []string{".txt"},
 			ControlPrefixes:       []string{"TEMPLE-", "ATTACH-", "XML-"},
 			MaxContentBytes:       4096,

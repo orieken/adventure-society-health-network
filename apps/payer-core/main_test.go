@@ -626,6 +626,12 @@ func TestAttachClaimInformationValidatesBDSAttachmentEncoding(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, decodeEnvelope(t, response).Lore, "does not match file extension .txt")
 
+	invalidFormat := baseRequest
+	invalidFormat.AttachmentFormatCode = "BIN"
+	response = serveJSON(t, mux, http.MethodPost, "/claims/claim-1/attachments", invalidFormat)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "attachment format BIN is not allowed")
+
 	multipartBase64 := baseRequest
 	multipartBase64.AttachmentEncoding = "B64"
 	multipartBase64.FileName = "dragonfire-notes.txt"
