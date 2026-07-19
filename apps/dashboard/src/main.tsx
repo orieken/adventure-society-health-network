@@ -1663,17 +1663,19 @@ function App() {
 
   async function attachAuthorizationDocumentation() {
     if (!authorizationTransaction) return;
+    const checklist = checklistForAuthorization(authorizationTransaction);
+    const item = checklist[0];
     setBusy(true);
     const result = await request<Record<string, string>>(`/v1/auth-requests/${authorizationTransaction.id}/attachments`, {
       method: "POST",
       body: JSON.stringify({
-        attachmentType: "OZ",
-        attachmentControlNumber: `ATTACH-${authorizationTransaction.id.slice(0, 8).toUpperCase()}`,
-        reportTypeCode: "B4",
+        attachmentType: item.attachmentType,
+        attachmentControlNumber: `ATTACH-${item.code}-${authorizationTransaction.id.slice(0, 8).toUpperCase()}`,
+        reportTypeCode: item.reportTypeCode,
         transmissionCode: "EL",
-        contentType: "text/plain",
-        description: "Prior authorization medical necessity notes",
-        content: "Resurrection authorization includes encounter notes, severity evidence, and healer attestation."
+        contentType: item.contentType,
+        description: `${item.label} for authorization`,
+        content: `${item.label} supporting document for authorization ${authorizationTransaction.id}.`
       })
     });
     pushEvent(result);
@@ -1685,11 +1687,12 @@ function App() {
     if (!authorizationTransaction) return;
     setBusy(true);
     const packetId = `auth-packet-${authorizationTransaction.id.slice(0, 8)}`;
+    const checklist = checklistForAuthorization(authorizationTransaction);
     const result = await request<Record<string, string>>(`/v1/auth-requests/${authorizationTransaction.id}/attachments`, {
       method: "POST",
       body: JSON.stringify({
         packetId,
-        attachments: documentationChecklist.slice(0, 2).map((item, index) => buildAuthorizationAttachmentDraft(authorizationTransaction, item, packetId, index + 1, 2))
+        attachments: checklist.map((item, index) => buildAuthorizationAttachmentDraft(authorizationTransaction, item, packetId, index + 1, checklist.length))
       })
     });
     pushEvent(result);
@@ -2105,7 +2108,7 @@ function App() {
               </div>
               <AuthorizationDocumentationWorkbench
                 authorizationTransaction={authorizationTransaction}
-                checklist={documentationChecklist.slice(0, 2)}
+                checklist={checklistForAuthorization(authorizationTransaction)}
                 attachmentTransactions={authorizationAttachmentTransactions}
                 busy={busy}
                 onReview={reviewAttachmentTransaction}
@@ -3134,6 +3137,14 @@ function AuthorizationDocumentationWorkbench({
           </article>
         ))}
       </div>
+      {authorizationReviewPrompts(authorizationTransaction).length > 0 && (
+        <div className="review-prompt-list">
+          <h4>Manual Review Prompts</h4>
+          {authorizationReviewPrompts(authorizationTransaction).map((prompt) => (
+            <p key={prompt}>{prompt}</p>
+          ))}
+        </div>
+      )}
       {attachmentTransactions.length === 0 ? (
         <p className="muted">No 275 support is linked to {authorizationTransaction.id} yet.</p>
       ) : (
@@ -3593,7 +3604,7 @@ function buildAuthorizationAttachmentDraft(transaction: Transaction, item: Docum
     packetSequence: sequence,
     packetCount: count,
     attachmentType: item.attachmentType,
-    attachmentControlNumber: `AUTH-${item.code}-${token.toUpperCase()}`,
+    attachmentControlNumber: `ATTACH-AUTH-${item.code}-${token.toUpperCase()}`,
     reportTypeCode: item.reportTypeCode,
     transmissionCode: "EL",
     contentType: item.contentType,
@@ -3602,6 +3613,33 @@ function buildAuthorizationAttachmentDraft(transaction: Transaction, item: Docum
     documentReferenceUrl: `https://docs.example.test/auth/${transaction.id}/${item.code.toLowerCase()}.txt`,
     content: `${item.label} supporting document ${sequence} of ${count} for authorization ${transaction.id}.`
   };
+}
+
+function checklistForAuthorization(transaction: Transaction): DocumentationChecklistItem[] {
+  const payload = payloadRecord(transaction.payload);
+  const rawChecklist = Array.isArray(payload?.requiredDocuments) ? payload.requiredDocuments : undefined;
+  const checklist = rawChecklist
+    ?.map((item) => documentationChecklistItemFromPayload(item))
+    .filter((item): item is DocumentationChecklistItem => Boolean(item));
+  return checklist && checklist.length > 0 ? checklist : documentationChecklist.slice(0, 2);
+}
+
+function documentationChecklistItemFromPayload(value: unknown): DocumentationChecklistItem | undefined {
+  const item = payloadRecord(value);
+  if (!item) return undefined;
+  const code = stringFromUnknown(item.code);
+  const label = stringFromUnknown(item.label);
+  const attachmentType = stringFromUnknown(item.attachmentType);
+  const reportTypeCode = stringFromUnknown(item.reportTypeCode);
+  const contentType = stringFromUnknown(item.contentType);
+  if (!code || !label || !attachmentType || !reportTypeCode || !contentType) return undefined;
+  return { code, label, attachmentType, reportTypeCode, contentType, required: item.required !== false };
+}
+
+function authorizationReviewPrompts(transaction: Transaction): string[] {
+  const payload = payloadRecord(transaction.payload);
+  const prompts = Array.isArray(payload?.manualReviewPrompts) ? payload.manualReviewPrompts : [];
+  return prompts.map((prompt) => stringFromUnknown(prompt)).filter((prompt): prompt is string => Boolean(prompt));
 }
 
 function timelineTitle(transaction: Transaction, claimId?: string, adventurerId?: string) {
@@ -3733,6 +3771,10 @@ function payloadNestedString(transaction: Transaction, parentKey: string, childK
 function payloadRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
+}
+
+function stringFromUnknown(value: unknown) {
+  return typeof value === "string" && value ? value : undefined;
 }
 
 function valueString(value: unknown) {

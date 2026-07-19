@@ -125,6 +125,8 @@ The `278 Prior Authorization Request` payload includes:
 
 The request is initially `Pending`. A dashboard reviewer can manually approve or deny it through the `POST /auth-requests/{transactionId}/decision` endpoint, which updates the stored authorization row and visible `278` transaction. If nobody reviews it manually, `payer-core` enqueues an `auth_review` job and `tx-worker` later updates the authorization and visible `278` transaction status to `Approved` or `Denied`.
 
+Dental predeterminations add a payer review checklist for diagnostic x-rays, periodontal charting, clinical narrative, treatment plan, and optional orthodontic records. The dashboard renders those prompts in the authorization workbench and submits the evidence as linked `275` packet documents. Manual approval is blocked until every required dental document has an accepted attachment review; the async worker auto-denies dental predeterminations with a reason that points the reviewer back to the dental evidence checklist.
+
 Raw delimiter-based `278` intake is available at `POST /v1/x12/raw`. The parser reads the provider and subscriber from `NM1`, extracts the requested service type from `UM`, derives incident severity from companion `HI` diagnosis codes, validates partner-specific service/severity rules, emits a `999`, and forwards the canonical prior authorization request to `payer-core`.
 
 The dashboard shows this as a small prior-auth review widget after the `278` is created:

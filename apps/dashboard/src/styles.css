@@ -1352,6 +1352,25 @@ pre {
   color: #91d7ff;
 }
 
+.review-prompt-list {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(145, 215, 255, 0.18);
+  border-radius: 18px;
+  background: rgba(145, 215, 255, 0.07);
+  padding: 12px;
+}
+
+.review-prompt-list h4,
+.review-prompt-list p {
+  margin: 0;
+}
+
+.review-prompt-list p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .document-review-list {
   display: grid;
   gap: 10px;

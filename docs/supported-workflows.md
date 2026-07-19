@@ -62,7 +62,7 @@ These stay inside ASHN's payer/provider learning mission and are good candidates
 | Expansion | X12 transactions | Why it belongs |
 | --- | --- | --- |
 | Dental eligibility detail | `270 → 271` | Returns dental service-type benefits with annual maximum, remaining maximum, coverage percentages, waiting period, and frequency limits. |
-| Dental prior authorization / predetermination | `278` | Supports a first dental predetermination slice with CDT/tooth/surface/quadrant fields; richer dental review rules remain future work. |
+| Dental prior authorization / predetermination | `278 → 275` | Supports CDT/tooth/surface/quadrant fields plus manual-review prompts and required x-ray, perio chart, narrative, and treatment-plan evidence before approval. |
 | Dental claim submission | `837D → 277CA` | Submits CDT-coded dental claims with tooth, surface, quadrant, and orthodontic indicators while preserving acknowledgment flow. |
 | Dental attachments | `275` | Models x-rays, perio charts, narratives, orthodontic records, tooth/quadrant support, and solicited attachment traceability. |
 | Dental remittance | `835` | Shows CDT/service-line payment, patient responsibility, adjustments, and denial reasons for dental procedures. |
@@ -165,6 +165,7 @@ sequenceDiagram
 
 - The dashboard shows a prior-auth review widget after a `278` is created.
 - `Send 275 Auth Docs` emits a related `275` for supporting medical necessity documentation.
+- Dental predeterminations expand the auth documentation checklist to diagnostic x-rays, periodontal charting, clinical narrative, treatment plan, and optional orthodontic records. Manual approval requires the required dental evidence documents to be linked as accepted `275` reviews; otherwise the API returns an evidence-incomplete response.
 - `Approve Auth` and `Deny Auth` update the visible transaction status.
 - The async worker auto-approves Diamond resurrection requests and auto-denies requests outside the configured severity/service-type rule.
 - The worker skips already-reviewed authorizations so manual decisions are not overwritten.

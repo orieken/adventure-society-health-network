@@ -107,7 +107,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Link authorization decisions to downstream claims.
 - [x] Show authorization history in claim detail views.
 - [x] Add dental `278` prior authorization / predetermination workflows with CDT procedure codes, tooth numbers, surfaces, quadrants, and orthodontic indicators.
-- [ ] Add dental-specific `278` approval rules and manual-review prompts for x-rays, perio charts, narratives, and treatment plans.
+- [x] Add dental-specific `278` approval rules and manual-review prompts for x-rays, perio charts, narratives, and treatment plans.
 
 ### P2 — Claim Adjudication
 
@@ -134,7 +134,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add dental data model fields for CDT code, tooth number, surface, quadrant, and orthodontic indicators on claim service lines plus optional prior-auth dental service detail.
 - [x] Add dental eligibility detail to `270 → 271`, including dental benefit/service-type coverage, frequency limits, waiting periods, and annual maximum examples.
 - [x] Add `837D` dental claim support with CDT procedure codes, tooth/surface/quadrant fields, oral-cavity indicators, and dental-specific diagnosis/procedure validation.
-- [ ] Add dental `275` attachment packets for x-rays, perio charts, narratives, orthodontic records, and treatment-plan documents.
+- [x] Add dental `275` attachment packets for x-rays, perio charts, narratives, orthodontic records, and treatment-plan documents.
 - [ ] Add dental `835` remittance examples with CDT line-level allowed, paid, patient responsibility, adjustments, and denial reasons.
 - [ ] Add dashboard workflow cards and E2E tests for dental eligibility, predetermination, claim, attachment, and remittance scenarios.
 

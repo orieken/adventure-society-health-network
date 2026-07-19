@@ -205,12 +205,24 @@ func (s *store) authRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx := edimock.Generate278RequestWithDental(adventurer, provider, req.ServiceType, req.DentalService)
+	if isDentalPredeterminationService(req.ServiceType) {
+		checklist := dentalAuthorizationChecklist()
+		tx.Payload = mergePayload(tx.Payload, map[string]any{
+			"requiredDocuments":       checklist,
+			"manualReviewPrompts":     dentalAuthorizationReviewPrompts(req.DentalService),
+			"authorizationReviewRule": "Dental predeterminations require accepted x-ray/perio/narrative/treatment-plan 275 evidence before manual approval.",
+		})
+	}
 	s.saveTransaction(tx)
 	s.saveAuthRequest(adventurer.ID, provider.ID, tx.ID, req.ServiceType, req.IncidentSeverity, string(domain.TxStatusPending))
 	s.enqueueJob(asyncjobs.JobAuthReview, tx.ID, 2*time.Second)
 	data := map[string]any{"authorizationStatus": domain.TxStatusPending, "serviceType": req.ServiceType, "incidentSeverity": req.IncidentSeverity, "review": "queued"}
 	if req.DentalService != nil {
 		data["dentalService"] = req.DentalService
+	}
+	if isDentalPredeterminationService(req.ServiceType) {
+		data["requiredDocuments"] = dentalAuthorizationChecklist()
+		data["manualReviewPrompts"] = dentalAuthorizationReviewPrompts(req.DentalService)
 	}
 	respond(w, http.StatusAccepted, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx278, adventurer.Name, provider.Name), Transaction: &tx})
 }
@@ -234,6 +246,12 @@ func (s *store) decideAuthorization(w http.ResponseWriter, r *http.Request) {
 	if tx.Type != domain.Tx278 {
 		fail(w, http.StatusBadRequest, "invalid authorization transaction", "Only 278 prior authorization runes can be reviewed here.")
 		return
+	}
+	if decision == domain.TxStatusApproved {
+		if err := s.validateAuthorizationApprovalEvidence(tx); err != nil {
+			fail(w, http.StatusBadRequest, "authorization evidence incomplete", err.Error())
+			return
+		}
 	}
 	tx = edimock.WithStatus(tx, decision)
 	if err := s.updateAuthorizationDecision(tx, strings.TrimSpace(req.Reason)); err != nil {
@@ -310,6 +328,90 @@ func parseAuthorizationDecision(value string) (domain.TransactionStatus, bool) {
 	default:
 		return "", false
 	}
+}
+
+func isDentalPredeterminationService(serviceType string) bool {
+	return strings.EqualFold(strings.TrimSpace(serviceType), "dental-predetermination")
+}
+
+func isDentalPredeterminationTransaction(tx domain.Transaction) bool {
+	return isDentalPredeterminationService(transactionPayloadString(tx, "serviceType"))
+}
+
+func dentalAuthorizationChecklist() []domain.DocumentationChecklistItem {
+	return []domain.DocumentationChecklistItem{
+		{Code: "XRAY", Label: "Diagnostic x-rays", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "image/jpeg", Required: true},
+		{Code: "PERIO", Label: "Periodontal chart", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "text/plain", Required: true},
+		{Code: "NARR", Label: "Clinical narrative", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "text/plain", Required: true},
+		{Code: "PLAN", Label: "Treatment plan", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "application/pdf", Required: true},
+		{Code: "ORTHO", Label: "Orthodontic records", AttachmentType: "OZ", ReportTypeCode: "B4", ContentType: "application/pdf", Required: false},
+	}
+}
+
+func dentalAuthorizationReviewPrompts(service *domain.DentalServiceDetail) []string {
+	prompts := []string{
+		"Confirm diagnostic x-rays support the requested CDT procedure.",
+		"Review periodontal charting for clinical necessity and supporting tooth/quadrant context.",
+		"Read the clinical narrative for symptoms, failed conservative care, and planned outcome.",
+		"Compare the treatment plan with CDT, tooth, surface, quadrant, and benefit limits.",
+	}
+	if service != nil && service.Orthodontic {
+		prompts = append(prompts, "Confirm orthodontic records include appliance plan, duration, and medical necessity.")
+	}
+	return prompts
+}
+
+func (s *store) validateAuthorizationApprovalEvidence(tx domain.Transaction) error {
+	if !isDentalPredeterminationTransaction(tx) {
+		return nil
+	}
+	required := dentalAuthorizationChecklist()
+	accepted := map[string]bool{}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, attachment := range s.transactions {
+		if attachment.Type != domain.Tx275 {
+			continue
+		}
+		if attachment.RelatedID != tx.ID && transactionPayloadString(attachment, "authorizationTransactionId") != tx.ID {
+			continue
+		}
+		if !strings.EqualFold(transactionPayloadString(attachment, "attachmentReviewStatus"), "Accepted") {
+			continue
+		}
+		for _, item := range required {
+			if item.Required && transactionMatchesDocumentationItem(attachment, item) {
+				accepted[item.Code] = true
+			}
+		}
+	}
+	missing := []string{}
+	for _, item := range required {
+		if item.Required && !accepted[item.Code] {
+			missing = append(missing, item.Label)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("dental predetermination approval requires accepted 275 evidence for: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func transactionMatchesDocumentationItem(tx domain.Transaction, item domain.DocumentationChecklistItem) bool {
+	code := strings.ToUpper(strings.TrimSpace(item.Code))
+	label := strings.ToUpper(strings.TrimSpace(item.Label))
+	values := []string{
+		transactionPayloadString(tx, "description"),
+		transactionPayloadString(tx, "documentReferenceId"),
+		transactionPayloadString(tx, "attachmentControlNumber"),
+	}
+	for _, value := range values {
+		normalized := strings.ToUpper(value)
+		if strings.Contains(normalized, code) || (label != "" && strings.Contains(normalized, label)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *store) submitClaim(w http.ResponseWriter, r *http.Request) {
@@ -969,12 +1071,12 @@ func companionRuleForProvider(providerID string) attachmentCompanionRule {
 			AllowedTypes:          []string{"OZ"},
 			AllowedReportTypes:    []string{"B4"},
 			AllowedTransmissions:  []string{"EL"},
-			AllowedContentTypes:   []string{"text/plain"},
-			AllowedFormatCodes:    []string{"TXT"},
-			AllowedExtensions:     []string{".txt"},
+			AllowedContentTypes:   []string{"text/plain", "application/pdf", "image/jpeg"},
+			AllowedFormatCodes:    []string{"TXT", "PDF", "JPG"},
+			AllowedExtensions:     []string{".txt", ".pdf", ".jpg", ".jpeg"},
 			ControlPrefixes:       []string{"TEMPLE-", "ATTACH-", "XML-"},
 			MaxContentBytes:       4096,
-			MaxAttachments:        3,
+			MaxAttachments:        5,
 			UnsolicitedWindowDays: 0,
 		}
 	}

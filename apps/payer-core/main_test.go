@@ -188,6 +188,39 @@ func TestAuthRequestQueuesPending278(t *testing.T) {
 	assert.Equal(t, true, dentalService["orthodontic"])
 }
 
+func TestDentalAuthRequestIncludesEvidenceChecklist(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", CoverageStatus: domain.CoverageActive}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/auth-requests", domain.PriorAuthRequest{
+		AdventurerID:     "adv-1",
+		ProviderID:       "provider-vitesse-temple",
+		ServiceType:      "dental-predetermination",
+		IncidentSeverity: domain.SeverityNormal,
+		DentalService: &domain.DentalServiceDetail{
+			CDTCode:     "D7240",
+			ToothNumber: "14",
+			Surface:     "MO",
+			Quadrant:    "UR",
+		},
+	})
+
+	assert.Equal(t, http.StatusAccepted, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Contains(t, string(envelope.Transaction.Payload), "Diagnostic x-rays")
+	assert.Contains(t, string(envelope.Transaction.Payload), "Periodontal chart")
+	assert.Contains(t, string(envelope.Transaction.Payload), "Clinical narrative")
+	assert.Contains(t, string(envelope.Transaction.Payload), "Treatment plan")
+	assert.Contains(t, string(envelope.Transaction.Payload), "manualReviewPrompts")
+	var data map[string]any
+	require.NoError(t, json.Unmarshal(envelope.Data, &data))
+	requiredDocuments, ok := data["requiredDocuments"].([]any)
+	require.True(t, ok)
+	assert.Len(t, requiredDocuments, 5)
+}
+
 func TestDecideAuthorizationUpdates278Status(t *testing.T) {
 	app := newTestStore()
 	tx := edimock.Generate278Request(
@@ -218,6 +251,45 @@ func TestDecideAuthorizationUpdates278Status(t *testing.T) {
 	app.transactions["tx-837"] = domain.Transaction{ID: "tx-837", Type: domain.Tx837, Status: domain.TxStatusAccepted}
 	wrongType := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-837/decision", domain.AuthorizationDecisionRequest{Decision: "Denied"})
 	assert.Equal(t, http.StatusBadRequest, wrongType.Code)
+}
+
+func TestDecideDentalAuthorizationRequiresAcceptedEvidence(t *testing.T) {
+	app := newTestStore()
+	tx := edimock.Generate278RequestWithDental(
+		domain.Adventurer{ID: "adv-1", Name: "Farros"},
+		domain.Provider{ID: "provider-vitesse-temple", Name: "Temple"},
+		"dental-predetermination",
+		&domain.DentalServiceDetail{CDTCode: "D7240", ToothNumber: "14"},
+	)
+	tx.ID = "tx-278-dental"
+	tx.Payload = mergePayload(tx.Payload, map[string]any{"requiredDocuments": dentalAuthorizationChecklist(), "manualReviewPrompts": dentalAuthorizationReviewPrompts(nil)})
+	app.transactions[tx.ID] = tx
+	mux := newPayerTestMux(app)
+
+	missing := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-278-dental/decision", domain.AuthorizationDecisionRequest{Decision: "Approved"})
+	assert.Equal(t, http.StatusBadRequest, missing.Code)
+	assert.Contains(t, decodeEnvelope(t, missing).Lore, "dental predetermination approval requires accepted 275 evidence")
+
+	for _, item := range dentalAuthorizationChecklist() {
+		if !item.Required {
+			continue
+		}
+		app.transactions["tx-275-"+item.Code] = domain.Transaction{
+			ID:        "tx-275-" + item.Code,
+			Type:      domain.Tx275,
+			Status:    domain.TxStatusAccepted,
+			RelatedID: "tx-278-dental",
+			Payload: domain.Payload(map[string]any{
+				"authorizationTransactionId": "tx-278-dental",
+				"description":                item.Label,
+				"attachmentReviewStatus":     "Accepted",
+			}),
+		}
+	}
+
+	approved := serveJSON(t, mux, http.MethodPost, "/auth-requests/tx-278-dental/decision", domain.AuthorizationDecisionRequest{Decision: "Approved", Reason: "Dental evidence complete."})
+	assert.Equal(t, http.StatusOK, approved.Code)
+	assert.Equal(t, domain.TxStatusApproved, app.transactions["tx-278-dental"].Status)
 }
 
 func TestAttachAuthorizationInformationEmitsRelated275(t *testing.T) {
@@ -863,18 +935,20 @@ func TestAttachClaimInformationRejectsPacketOverProviderLimit(t *testing.T) {
 			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-2", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Second note", Content: "second"},
 			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-3", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Third note", Content: "third"},
 			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-4", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Fourth note", Content: "fourth"},
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-5", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Fifth note", Content: "fifth"},
+			{AttachmentType: "OZ", AttachmentControlNumber: "ATTACH-LX-6", ReportTypeCode: "B4", TransmissionCode: "EL", ContentType: "text/plain", Description: "Sixth note", Content: "sixth"},
 		},
 	})
 
 	assert.Equal(t, http.StatusBadRequest, response.Code)
-	assert.Contains(t, decodeEnvelope(t, response).Lore, "attachment packet contains 4 LX loops; provider provider-vitesse-temple allows 3")
+	assert.Contains(t, decodeEnvelope(t, response).Lore, "attachment packet contains 6 LX loops; provider provider-vitesse-temple allows 5")
 	require.Len(t, app.transactions, 1)
 	for _, tx := range app.transactions {
 		assert.Equal(t, domain.Tx824, tx.Type)
 		assert.Equal(t, domain.TxStatusFailed, tx.Status)
 		assert.Equal(t, "tx-837", tx.RelatedID)
 		assert.Contains(t, tx.RawX12, "ST*824")
-		assert.Contains(t, string(tx.Payload), "attachment packet contains 4 LX loops")
+		assert.Contains(t, string(tx.Payload), "attachment packet contains 6 LX loops")
 	}
 }
 

@@ -196,18 +196,22 @@ func processAuthReview(db *sql.DB, transactionID string) error {
 	if severity == domain.SeverityDiamond && strings.Contains(strings.ToLower(serviceType), "resurrection") {
 		decision = domain.TxStatusApproved
 	}
+	reason := autoReviewReason(decision, serviceType)
 
 	if _, err := db.Exec(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`, string(decision), transactionID); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE claims SET authorization_status = $1, authorization_reason = $2 WHERE authorization_transaction_id = $3`, string(decision), autoReviewReason(decision), transactionID); err != nil {
+	if _, err := db.Exec(`UPDATE claims SET authorization_status = $1, authorization_reason = $2 WHERE authorization_transaction_id = $3`, string(decision), reason, transactionID); err != nil {
 		return err
 	}
 	_, err = db.Exec(`UPDATE transactions SET status = $1 WHERE id = $2 AND type = $3`, string(decision), transactionID, string(domain.Tx278))
 	return err
 }
 
-func autoReviewReason(decision domain.TransactionStatus) string {
+func autoReviewReason(decision domain.TransactionStatus, serviceType string) string {
+	if strings.EqualFold(strings.TrimSpace(serviceType), "dental-predetermination") {
+		return "Auto-denied pending manual dental review of x-rays, perio chart, narrative, and treatment plan."
+	}
 	if decision == domain.TxStatusApproved {
 		return "Auto-approved by severity and service-type rule."
 	}

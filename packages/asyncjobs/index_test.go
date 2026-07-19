@@ -166,6 +166,26 @@ func TestProcessAuthReviewDeniesNonResurrection(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestProcessAuthReviewDeniesDentalPredeterminationForManualReview(t *testing.T) {
+	db, mock, cleanup := newMockDB(t)
+	defer cleanup()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT service_type, incident_severity, status FROM auth_requests WHERE transaction_id = $1`)).
+		WithArgs("tx-278-dental").
+		WillReturnRows(sqlmock.NewRows([]string{"service_type", "incident_severity", "status"}).AddRow("dental-predetermination", domain.SeverityNormal, domain.TxStatusPending))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE auth_requests SET status = $1 WHERE transaction_id = $2`)).
+		WithArgs(string(domain.TxStatusDenied), "tx-278-dental").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE claims SET authorization_status = $1, authorization_reason = $2 WHERE authorization_transaction_id = $3`)).
+		WithArgs(string(domain.TxStatusDenied), "Auto-denied pending manual dental review of x-rays, perio chart, narrative, and treatment plan.", "tx-278-dental").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE transactions SET status = $1 WHERE id = $2 AND type = $3`)).
+		WithArgs(string(domain.TxStatusDenied), "tx-278-dental", string(domain.Tx278)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, processAuthReview(db, "tx-278-dental"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestProcessAuthReviewSkipsManualDecision(t *testing.T) {
 	db, mock, cleanup := newMockDB(t)
 	defer cleanup()

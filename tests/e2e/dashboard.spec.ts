@@ -959,22 +959,44 @@ async function mockDashboardApi(page: Page) {
           orthodontic?: boolean;
         };
       };
+      const isDentalPredetermination = body.serviceType === "dental-predetermination";
+      const dentalRequiredDocuments = [
+        { code: "XRAY", label: "Diagnostic x-rays", attachmentType: "OZ", reportTypeCode: "B4", contentType: "image/jpeg", required: true },
+        { code: "PERIO", label: "Periodontal chart", attachmentType: "OZ", reportTypeCode: "B4", contentType: "text/plain", required: true },
+        { code: "NARR", label: "Clinical narrative", attachmentType: "OZ", reportTypeCode: "B4", contentType: "text/plain", required: true },
+        { code: "PLAN", label: "Treatment plan", attachmentType: "OZ", reportTypeCode: "B4", contentType: "application/pdf", required: true },
+        { code: "ORTHO", label: "Orthodontic records", attachmentType: "OZ", reportTypeCode: "B4", contentType: "application/pdf", required: false }
+      ];
+      const dentalManualReviewPrompts = [
+        "Confirm diagnostic x-rays support the requested CDT procedure.",
+        "Review periodontal charting for clinical necessity and supporting tooth/quadrant context.",
+        "Read the clinical narrative for symptoms, failed conservative care, and planned outcome.",
+        "Compare the treatment plan with CDT, tooth, surface, quadrant, and benefit limits."
+      ];
       await route.fulfill({
         status: 202,
         json: {
-          data: { authorizationStatus: "Pending", serviceType: body.serviceType, incidentSeverity: body.incidentSeverity, dentalService: body.dentalService, review: "queued" },
+          data: {
+            authorizationStatus: "Pending",
+            serviceType: body.serviceType,
+            incidentSeverity: body.incidentSeverity,
+            dentalService: body.dentalService,
+            review: "queued",
+            ...(isDentalPredetermination ? { requiredDocuments: dentalRequiredDocuments, manualReviewPrompts: dentalManualReviewPrompts } : {})
+          },
           transaction: {
             ...demoTransactions.find((transaction) => transaction.type === "278"),
             id: "tx-e2e-auth-review",
             status: "Pending",
             payload: {
-              x12: body.serviceType === "dental-predetermination" ? "278 dental predetermination fixture" : "278 resurrection auth fixture",
+              x12: isDentalPredetermination ? "278 dental predetermination fixture" : "278 resurrection auth fixture",
               adventurerId: body.adventurerId,
               providerId: body.providerId,
               serviceType: body.serviceType,
-              dentalService: body.dentalService
+              dentalService: body.dentalService,
+              ...(isDentalPredetermination ? { requiredDocuments: dentalRequiredDocuments, manualReviewPrompts: dentalManualReviewPrompts } : {})
             },
-            rawX12: body.serviceType === "dental-predetermination"
+            rawX12: isDentalPredetermination
               ? "ST*278*dental~UM*AR*I*2***dental-predetermination~SV1*AD:D7240*0.00*UN*1~TOO*JP*14~SE*5*dental~"
               : demoTransactions.find((transaction) => transaction.type === "278")!.rawX12
           }
@@ -1614,7 +1636,7 @@ function raw275RejectionError(rawPayload: string) {
   if (!rawPayload.includes("ST*275")) return "";
   if (rawPayload.includes("BGN*99")) return "attachment purpose must be solicited or unsolicited";
   if (rawPayload.includes("CAT*B4*BIN")) return "attachment format BIN is not allowed for provider provider-vitesse-temple; allowed: TXT";
-  if (rawPayload.includes("ATTACH-TOO-MANY")) return "attachment packet contains 4 LX loops; provider provider-vitesse-temple allows 3";
+  if (rawPayload.includes("ATTACH-TOO-MANY")) return "attachment packet contains 6 LX loops; provider provider-vitesse-temple allows 5";
   if (rawPayload.includes("ATTACH-BAD-B64")) return "B64 attachment content must be valid base64";
   if (rawPayload.includes("ATTACH-MISSING-TRACE")) return "solicited attachment must include attachmentTraceId tx-doc-request";
   if (rawPayload.includes("ATTACH-LATE")) return "unsolicited 275 attachments for provider provider-vitesse-temple must be submitted on the same day as the originating 837 claim";
