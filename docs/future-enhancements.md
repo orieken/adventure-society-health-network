@@ -176,9 +176,11 @@ Extracted companion-guide notes live in [275 Companion Guide Notes](275-companio
 
 ### P2 — Cross-Industry EDI Exploration
 
-- [ ] Keep `101` Name and Address Lists out of the healthcare workflow, but document what a separate supply-chain/general-business module would require.
-- [ ] Keep `110` Air Freight Details and Invoice out of the healthcare workflow, but document what a separate transportation module would require.
-- [ ] If ASHN becomes a broader EDI lab, isolate non-healthcare sets behind separate modules, partner profiles, raw samples, validation rules, and dashboard views.
+Cross-industry expansion notes live in [Cross-Industry EDI Module Notes](cross-industry-edi-modules.md).
+
+- [x] Keep `101` Name and Address Lists out of the healthcare workflow, but document what a separate supply-chain/general-business module would require.
+- [x] Keep `110` Air Freight Details and Invoice out of the healthcare workflow, but document what a separate transportation module would require.
+- [x] If ASHN becomes a broader EDI lab, isolate non-healthcare sets behind separate modules, partner profiles, raw samples, validation rules, and dashboard views.
 
 ### P2 — Dashboard Enhancements
 

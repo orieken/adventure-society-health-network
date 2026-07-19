@@ -343,7 +343,7 @@ That distinction is important: ASHN is a teaching and architecture simulator. It
 
 ### Explicitly Out of Scope
 
-ASHN does not currently model every valid X12 transaction set. Non-healthcare sets such as `101` Name and Address Lists, `110` Air Freight Details and Invoice, `201` Residential Loan Application, `210` Motor Carrier Freight Details and Invoice, and `215` Motor Carrier Pickup Manifest are outside the current payer/provider simulator. They are useful examples of X12's cross-industry reach, but they would require separate supply-chain, finance, or transportation workflows rather than being folded into the ASHN healthcare ledger.
+ASHN does not currently model every valid X12 transaction set. Non-healthcare sets such as `101` Name and Address Lists, `110` Air Freight Details and Invoice, `201` Residential Loan Application, `210` Motor Carrier Freight Details and Invoice, and `215` Motor Carrier Pickup Manifest are outside the current payer/provider simulator. They are useful examples of X12's cross-industry reach, but they would require separate supply-chain, finance, or transportation workflows rather than being folded into the ASHN healthcare ledger. The proposed isolation model for `101`, `110`, and future non-healthcare modules is captured in [Cross-Industry EDI Module Notes](cross-industry-edi-modules.md).
 
 ## Demo Talk Track
 

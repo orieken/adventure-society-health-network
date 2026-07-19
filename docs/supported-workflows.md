@@ -43,7 +43,7 @@ ASHN supports both **business-state APIs** and an **EDI-style transaction ledger
 
 ## Out-of-Scope X12 Sets
 
-ASHN intentionally focuses on healthcare payer/provider workflows, primarily the X12N-style transactions shown in the coverage matrix. Some valid X12 transaction sets are outside that scope and are not currently parsed, generated, routed, or shown in the dashboard.
+ASHN intentionally focuses on healthcare payer/provider workflows, primarily the X12N-style transactions shown in the coverage matrix. Some valid X12 transaction sets are outside that scope and are not currently parsed, generated, routed, or shown in the dashboard. The broader module boundary is documented in [Cross-Industry EDI Module Notes](cross-industry-edi-modules.md).
 
 | Transaction set | Common domain | Meaning | ASHN status |
 | --- | --- | --- | --- |
