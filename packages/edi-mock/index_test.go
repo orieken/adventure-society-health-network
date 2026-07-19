@@ -222,6 +222,8 @@ func TestGenerate275IncludesAttachmentSegmentsAndRelationship(t *testing.T) {
 	assert.Equal(t, domain.TxStatusAccepted, tx.Status)
 	assert.Equal(t, "tx-837", tx.RelatedID)
 	assert.Contains(t, tx.RawX12, "ST*275")
+	assert.Contains(t, tx.RawX12, "GS*HC*provider-vitesse-temple*Adventure Society*")
+	assert.Contains(t, tx.RawX12, "*X*006020X314")
 	assert.Contains(t, tx.RawX12, "BGN*02*tx-837")
 	assert.Contains(t, tx.RawX12, "REF*1K*claim-1")
 	assert.Contains(t, tx.RawX12, "REF*6R*ATTACH-1")

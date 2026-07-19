@@ -266,7 +266,7 @@ func rawX12(tx domain.Transaction) string {
 	segments := []string{
 		fmt.Sprintf("ISA*00*          *00*          *ZZ*%-15s*ZZ*%-15s*%s*%s*^*00501*%09s*0*T*:~",
 			fixed(tx.SenderID, 15), fixed(tx.ReceiverID, 15), tx.CreatedAt.Format("060102"), tx.CreatedAt.Format("1504"), control),
-		fmt.Sprintf("GS*HC*%s*%s*%s*%s*%s*X*005010X%s~", element(tx.SenderID), element(tx.ReceiverID), tx.CreatedAt.Format("20060102"), tx.CreatedAt.Format("1504"), control, implementationGuide(tx.Type)),
+		fmt.Sprintf("GS*HC*%s*%s*%s*%s*%s*X*%s~", element(tx.SenderID), element(tx.ReceiverID), tx.CreatedAt.Format("20060102"), tx.CreatedAt.Format("1504"), control, implementationVersion(tx.Type)),
 		fmt.Sprintf("ST*%s*%s~", tx.Type, control),
 		fmt.Sprintf("BHT*0019*00*%s*%s*%s*CH~", control, tx.CreatedAt.Format("20060102"), tx.CreatedAt.Format("1504")),
 	}
@@ -516,6 +516,13 @@ func implementationGuide(txType domain.TransactionType) string {
 	default:
 		return "837P"
 	}
+}
+
+func implementationVersion(txType domain.TransactionType) string {
+	if txType == domain.Tx275 {
+		return "006020X314"
+	}
+	return "005010X" + implementationGuide(txType)
 }
 
 func acknowledgedTransactionType(tx domain.Transaction) domain.TransactionType {

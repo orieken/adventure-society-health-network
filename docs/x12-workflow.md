@@ -198,7 +198,7 @@ These rules are intentionally small but teach the real-world shape of partner-sp
 | `provider-vitesse-temple` | `OZ`/`B4`, text/PDF/JPEG, `TEMPLE-`/`ATTACH-`/`XML-`, 4 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `K021` | `ASHN` or `D` prefix | `D7000-D7999`, tooth required, surfaces/quadrants constrained, `XRAY`/`PERIO`/`NARR`/`PLAN` docs |
 | `provider-rimaros-hospital` | `OZ`/`PN`, `03`/`B4`, text/PDF, `RIM-`/`ATTACH-`/`XML-`, 8 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `M542` | `ASHN`, `RIM`, or `D` prefix | `D0000-D9999`, tooth optional, surfaces/quadrants constrained, `XRAY`/`NARR` docs |
 
-Generated raw X12 includes `REF*1K` or `REF*G1` for correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type or external document reference, and `BIN` when embedded content is present.
+Generated raw `275` X12 now keeps the existing claim/auth attachment path while emitting a `GS08` implementation version of `006020X314`. It includes `REF*1K` or `REF*G1` for correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type or external document reference, and `BIN` when embedded content is present.
 
 The same profile can also constrain `278` prior authorization service types, incident severities, and dental predetermination payloads. For dental workflows, `edi-intake` now checks allowed CDT ranges, tooth requirements, valid surfaces, valid quadrants, and payer-specific predetermination notes before routing the request.
 
