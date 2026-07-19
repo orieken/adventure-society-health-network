@@ -460,6 +460,30 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(reloadedRuns.getByText("4 tx")).toBeVisible();
   });
 
+  test("runs the dental predetermination to remittance scenario", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.addInitScript(() => {
+      window.localStorage.removeItem("ashn.scenarioRuns.v1");
+    });
+    await page.goto(dashboardUrl);
+
+    const scenario = page.locator(".scenario-card").filter({ hasText: "Dental Predetermination to Remittance" });
+    await expect(scenario).toBeVisible();
+    await expect(scenario.getByText("270 dental eligibility")).toBeVisible();
+    await expect(scenario.getByText("835 CDT remittance")).toBeVisible();
+
+    await scenario.getByRole("button", { name: "Run Scenario" }).click();
+
+    await expect(scenario.getByText("Complete")).toBeVisible();
+    await expect(scenario.getByText("6/6 steps")).toBeVisible();
+    await expect(page.locator(".event p").filter({ hasText: "Dental claim paid." })).toBeVisible();
+    await page.getByRole("button", { name: "Close" }).click();
+    const remittanceEvent = page.locator(".event").filter({ hasText: "835" }).first();
+    await remittanceEvent.getByText("Raw payload").click();
+    await expect(remittanceEvent.getByText("D7240")).toBeVisible();
+    await expect(page.getByLabel("Recent scenario runs").getByText("Dental Predetermination to Remittance")).toBeVisible();
+  });
+
   test("plays a demo scenario one step at a time", async ({ page }) => {
     await mockDashboardApi(page);
     await page.addInitScript(() => {
@@ -1132,6 +1156,57 @@ async function mockDashboardApi(page: Page) {
             claimTransaction,
             demoTransactions.find((transaction) => transaction.type === "277CA")
           ].filter(Boolean)
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/claims/claim-e2e-dashboard/payment") {
+      claimStatus = "Paid";
+      await route.fulfill({
+        status: 200,
+        json: {
+          data: {
+            id: "claim-e2e-dashboard",
+            adventurerId: "adv-e2e-dashboard",
+            providerId: "provider-vitesse-temple",
+            incidentSeverity: "Normal",
+            transactionId: "tx-e2e-837d",
+            amountCents: 85000,
+            allowedAmountCents: 76500,
+            paidAmountCents: 68850,
+            patientResponsibilityCents: 7650,
+            adjustmentAmountCents: 8500,
+            adjustmentReason: "Dental plan allowance",
+            status: claimStatus,
+            serviceLines: [
+              {
+                lineNumber: 1,
+                procedureCode: "D7240",
+                cdtCode: "D7240",
+                amountCents: 85000,
+                allowedAmountCents: 76500,
+                paidAmountCents: 68850,
+                patientResponsibilityCents: 7650,
+                adjustmentAmountCents: 8500,
+                toothNumber: "14",
+                surface: "MO",
+                quadrant: "UR"
+              }
+            ]
+          },
+          lore: "Dental claim paid.",
+          transaction: {
+            ...demoTransactions.find((transaction) => transaction.type === "835"),
+            id: "tx-e2e-835-dental",
+            status: "Paid",
+            payload: {
+              x12: "835 Dental Claim Payment / Remittance Advice",
+              claimId: "claim-e2e-dashboard",
+              serviceLines: [{ cdtCode: "D7240", toothNumber: "14", allowedAmountCents: 76500, paidAmountCents: 68850 }]
+            },
+            rawX12: "ST*835*dental~CLP*claim-e2e-dashboard*1*850.00*688.50*76.50~SVC*AD:D7240*850.00*688.50~AMT*AU*765.00~AMT*PR*76.50~REF*XZ*TOOTH-14~SE*7*dental~"
+          }
         }
       });
       return;

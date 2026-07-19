@@ -286,6 +286,7 @@ type ScenarioRunState = {
 
 type ScenarioPlaybackContext = {
   adventurer?: Adventurer;
+  authorization?: Transaction;
   claim?: Claim;
   packet?: Envelope<Record<string, string>>;
 };
@@ -616,6 +617,24 @@ const demoScenarios: DemoScenario[] = [
       { label: "Reject one", action: "Reject Encounter notes, then Request + Resubmit", expected: "A follow-up request and single replacement 275 are added." }
     ],
     exports: ["277 request JSON/XML/X12", "275 packet JSON/XML/X12", "Ledger CSV"]
+  },
+  {
+    id: "dental-predetermination-to-remittance",
+    title: "Dental Predetermination to Remittance",
+    outcome: "Walks the dental-specific 270, 278, 275, 837D, and 835 path with CDT, tooth, attachment, and remittance detail.",
+    audience: "Dental benefits / payer operations demo",
+    duration: "6–8 minutes",
+    story: "A temple checks dental benefits, requests predetermination, submits evidence, files an 837D claim, and receives CDT line-level remittance.",
+    highlights: ["270 dental eligibility", "278 predetermination", "275 dental evidence packet", "837D dental claim", "835 CDT remittance"],
+    steps: [
+      { label: "Enroll", action: "Send 834 Enrollment", expected: "Dental scenario member has active coverage." },
+      { label: "Benefits", action: "Check 270 → 271 Dental Eligibility", expected: "Annual max, remaining max, coverage percentages, waiting period, and frequency limits are visible." },
+      { label: "Predetermine", action: "Request 278 Dental Predetermination", expected: "Manual review prompts request x-rays, perio chart, narrative, and treatment plan." },
+      { label: "Evidence", action: "Submit Auth 275 Packet and accept required docs", expected: "Required dental evidence documents are linked and reviewed as Accepted." },
+      { label: "Claim", action: "Submit 837D Dental Claim", expected: "CDT, tooth, surface, and quadrant detail appears in the claim transaction." },
+      { label: "Remit", action: "Pay claim with 835", expected: "Dental remittance shows CDT service line, allowed amount, paid amount, patient responsibility, and references." }
+    ],
+    exports: ["270/271 JSON/XML/X12", "278 + 275 evidence JSON/XML/X12", "837D + 835 JSON/XML/X12"]
   },
   {
     id: "partner-rejection-ops",
@@ -1211,6 +1230,8 @@ function App() {
       await runPremiumCurrentScenarioStep(scenario, stepIndex);
     } else if (scenario.id === "275-deficiency-resubmission") {
       await runDeficiencyScenarioStep(scenario, stepIndex);
+    } else if (scenario.id === "dental-predetermination-to-remittance") {
+      await runDentalScenarioStep(scenario, stepIndex);
     } else if (scenario.id === "partner-rejection-ops") {
       await runPartnerRejectionScenarioStep(scenario, stepIndex);
     } else if (scenario.id === "275-rejection-fixtures") {
@@ -1343,6 +1364,94 @@ function App() {
           })
         }).then(pushEvent);
       }
+    }
+  }
+
+  async function runDentalScenarioStep(scenario: DemoScenario, stepIndex: number) {
+    const context = scenarioPlaybackContextRef.current[scenario.id] ?? {};
+    scenarioPlaybackContextRef.current[scenario.id] = context;
+    if (stepIndex === 0) {
+      const enrolled = await scenarioStep(scenario, 0, () => request<Adventurer>("/v1/adventurers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `Scenario Dental ${new Date().toISOString().slice(11, 19)}`,
+          rank: "Gold",
+          guild: "Molar Moon Guild",
+          region: "Vitesse"
+        })
+      }));
+      context.adventurer = requireScenarioData(enrolled.data, "Enrollment did not return an adventurer.");
+      setAdventurer(context.adventurer);
+      return;
+    }
+    const adventurerRecord = context.adventurer ?? adventurer;
+    if (!adventurerRecord) throw new Error("Run enrollment before this scenario step.");
+    if (stepIndex === 1) {
+      await scenarioStep(scenario, 1, () => request<Record<string, string | number>>("/v1/eligibility/query", {
+        method: "POST",
+        body: JSON.stringify({ adventurerId: adventurerRecord.id, providerId: "provider-vitesse-temple", serviceType: "dental" })
+      }));
+    } else if (stepIndex === 2) {
+      const authResult = await scenarioStep(scenario, 2, () => request<Record<string, string>>("/v1/auth-requests", {
+        method: "POST",
+        body: JSON.stringify({
+          adventurerId: adventurerRecord.id,
+          providerId: "provider-vitesse-temple",
+          serviceType: "dental-predetermination",
+          incidentSeverity: "Normal",
+          dentalService: { cdtCode: "D7240", toothNumber: "14", surface: "MO", quadrant: "UR", orthodontic: false }
+        })
+      }));
+      context.authorization = authResult.transaction ?? undefined;
+      setAuthorizationTransaction(context.authorization ?? null);
+    } else if (stepIndex === 3) {
+      const authorization = context.authorization ?? authorizationTransaction;
+      if (!authorization) throw new Error("Run dental predetermination before this scenario step.");
+      const checklist = checklistForAuthorization(authorization);
+      const packetId = `dental-auth-${authorization.id.slice(0, 8)}`;
+      const packet = await scenarioStep(scenario, 3, () => request<Record<string, string>>(`/v1/auth-requests/${authorization.id}/attachments`, {
+        method: "POST",
+        body: JSON.stringify({
+          packetId,
+          attachments: checklist.map((item, index) => buildAuthorizationAttachmentDraft(authorization, item, packetId, index + 1, checklist.length))
+        })
+      }));
+      context.packet = packet;
+      const requiredDocuments = checklist.filter((item) => item.required);
+      const packetTransactions = packet.transactions ?? [];
+      for (let index = 0; index < requiredDocuments.length; index += 1) {
+        const transaction = packetTransactions[index];
+        if (!transaction) continue;
+        await request<Record<string, string>>(`/v1/transactions/${transaction.id}/attachment-review`, {
+          method: "POST",
+          body: JSON.stringify({ status: "Accepted", reason: `${requiredDocuments[index].label} supports dental predetermination.` })
+        }).then(pushEvent);
+      }
+    } else if (stepIndex === 4) {
+      const claimResult = await scenarioStep(scenario, 4, () => request<Claim>("/v1/claims", {
+        method: "POST",
+        body: JSON.stringify({
+          adventurerId: adventurerRecord.id,
+          providerId: "provider-vitesse-temple",
+          incidentSeverity: "Normal",
+          amountCents: 85000,
+          serviceLines: [
+            { lineNumber: 1, procedureCode: "D7240", cdtCode: "D7240", description: "Surgical extraction of impacted tooth", units: 1, amountCents: 85000, toothNumber: "14", surface: "MO", quadrant: "UR" }
+          ]
+        })
+      }));
+      context.claim = requireScenarioData(claimResult.data, "Dental claim submission did not return a claim.");
+      setClaim(context.claim);
+      setSelectedClaim(context.claim);
+    } else if (stepIndex === 5) {
+      const claimRecord = context.claim ?? claim;
+      if (!claimRecord) throw new Error("Run dental claim before this scenario step.");
+      const payment = await scenarioStep(scenario, 5, () => request<Claim>(`/v1/claims/${claimRecord.id}/payment`, {
+        method: "POST",
+        body: JSON.stringify({ paymentAmountCents: claimRecord.paidAmountCents ?? 85000 })
+      }));
+      context.claim = payment.data ?? claimRecord;
+      setClaim(context.claim);
     }
   }
 

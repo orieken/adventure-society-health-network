@@ -67,6 +67,8 @@ These stay inside ASHN's payer/provider learning mission and are good candidates
 | Dental attachments | `275` | Models x-rays, perio charts, narratives, orthodontic records, tooth/quadrant support, and solicited attachment traceability. |
 | Dental remittance | `835` | Shows CDT/service-line payment, patient responsibility, adjustments, and denial reasons for dental procedures. |
 
+The dashboard scenario library includes **Dental Predetermination to Remittance**, a six-step runbook that chains dental eligibility, predetermination, dental 275 evidence, 837D claim submission, and CDT line-level 835 remittance into one repeatable demo with exportable evidence.
+
 ## 1. Enrollment Lifecycle
 
 ```mermaid
