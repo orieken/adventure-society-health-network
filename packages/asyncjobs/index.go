@@ -459,7 +459,7 @@ func adjudicateClaimServiceLines(claim *domain.Claim, allowedPercent, paidPercen
 
 func serviceLineBenefitRule(line domain.ClaimServiceLine, allowedPercent, paidPercent int64, adjustmentReason string, context adjudicationContext) (int64, int64, string) {
 	if !claimServiceLineIsDental(line) {
-		return allowedPercent, paidPercent, adjustmentReason
+		return ashnServiceLineBenefitRule(line, allowedPercent, paidPercent, adjustmentReason)
 	}
 	category := dentalBenefitCategory(line)
 	switch category {
@@ -495,6 +495,38 @@ func serviceLineBenefitRule(line domain.ClaimServiceLine, allowedPercent, paidPe
 		paidPercent = 0
 	}
 	return allowedPercent, paidPercent, adjustmentReason
+}
+
+func ashnServiceLineBenefitRule(line domain.ClaimServiceLine, allowedPercent, paidPercent int64, adjustmentReason string) (int64, int64, string) {
+	switch ashnBenefitCategory(line) {
+	case "supplies":
+		allowedPercent -= 5
+		paidPercent -= 15
+		adjustmentReason = "ASHN supplies benefit"
+	case "resurrection":
+		allowedPercent -= 10
+		paidPercent -= 20
+		adjustmentReason = "ASHN resurrection benefit"
+	}
+	if allowedPercent < 0 {
+		allowedPercent = 0
+	}
+	if paidPercent < 0 {
+		paidPercent = 0
+	}
+	return allowedPercent, paidPercent, adjustmentReason
+}
+
+func ashnBenefitCategory(line domain.ClaimServiceLine) string {
+	code := strings.ToUpper(strings.TrimSpace(line.ProcedureCode))
+	switch {
+	case strings.HasPrefix(code, "ASHN2"):
+		return "supplies"
+	case strings.HasPrefix(code, "ASHN3"):
+		return "resurrection"
+	default:
+		return "clinical"
+	}
 }
 
 func dentalBenefitCategory(line domain.ClaimServiceLine) string {

@@ -126,6 +126,8 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add a 275 Documentation Workbench for checklist requests and packet submission.
 - [x] Add per-document review controls for 275 checklist packets.
 - [x] Use recent accepted `820` premium payments as a benefit-plan signal during async adjudication.
+- [x] Expose DB-backed `820` premium payment history with reconciliation and benefit-current signals.
+- [x] Add ASHN professional service-line benefit categories for clinical, supplies, and resurrection procedures.
 - [x] Add document deficiency requests with single-document 275 resubmission.
 - [x] Allow `275` attachments to link to pending `278` prior authorization reviews.
 - [x] Add attachment review outcomes distinct from transaction acceptance.

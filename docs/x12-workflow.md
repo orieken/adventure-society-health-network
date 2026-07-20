@@ -150,7 +150,7 @@ In ASHN, the claim includes:
 - claim status
 - linked transaction ID
 
-The mock payload also adds a severity description so the fantasy event maps back to the claim type: normal wounds, awakened-tier injuries, or diamond-tier catastrophic cases. Claims can now carry diagnosis details plus service-line procedure code, description, units, and billed amount. Dental claims use `837D`, CDT-style `D` procedure codes, `SV3` dental service lines, tooth/surface/quadrant references, and optional orthodontic indicators. Payer-core defaults diagnoses from severity when none are supplied, validates ASHN-style or dental procedure codes, adjudicates service lines individually, rolls totals up to the claim, and emits diagnosis-aware `837`/`837D` plus line-level `835` remittance detail.
+The mock payload also adds a severity description so the fantasy event maps back to the claim type: normal wounds, awakened-tier injuries, or diamond-tier catastrophic cases. Claims can now carry diagnosis details plus service-line procedure code, description, units, and billed amount. Dental claims use `837D`, CDT-style `D` procedure codes, `SV3` dental service lines, tooth/surface/quadrant references, and optional orthodontic indicators. Payer-core defaults diagnoses from severity when none are supplied, validates ASHN-style or dental procedure codes, adjudicates service lines individually, rolls totals up to the claim, and emits diagnosis-aware `837`/`837D` plus line-level `835` remittance detail. ASHN professional service lines now distinguish clinical (`ASHN1`), supplies (`ASHN2`), and resurrection (`ASHN3`) benefit categories so line-level adjustments are easier to explain.
 
 Raw delimiter-based `837` intake is available at `POST /v1/x12/raw` with `Content-Type: application/edi-x12` or `text/plain`. The first parser pass reads ASHN-style envelope segments (`ISA`, `GS`, `ST`, `SE`, `GE`, `IEA`), detects the transaction type from `ST01`, extracts claim data from `NM1`, `CLM`, `HI`, and all `SV1` service-line segments, audits the original raw payload, emits a `999`, and forwards the canonical claim request to `payer-core`. The same raw endpoint also maps `276` claim-status requests by reading the `REF*1K` payer claim reference and routing the request through the existing `276 → 277` claim-status workflow.
 
@@ -361,7 +361,7 @@ For the completed foundation and remaining implementation backlog, see [ASHN Fut
 
 Good next expansions include:
 
-- add richer `820` premium payment history and reconciliation views
+- add richer `820` premium payment history and reconciliation views ✅
 - expand raw X12 parsing beyond the current demo transaction subset
-- add richer service-line and diagnosis mappings for claims
+- add richer service-line and diagnosis mappings for claims ✅
 - add dental-specific eligibility, `278` predetermination, `837D` claim, `275` attachment, and `835` remittance workflows
