@@ -85,6 +85,34 @@ After both are deployed:
 6. Test export as JSON/XML/X12.
 7. Test replay transaction or XML intake replay.
 
+## Synthetic Monitoring
+
+ASHN includes a scheduled GitHub Actions monitor in `.github/workflows/synthetic-monitor.yml`.
+
+It runs every six hours and checks the deployed service surface:
+
+- OpenAPI roots
+- Service health endpoints
+- Gateway pagination
+- Request ID, correlation ID, and trace header propagation
+
+To enable dashboard smoke checks on the schedule, add this repository variable:
+
+```text
+ASHN_DASHBOARD_URL=https://your-netlify-site.netlify.app
+```
+
+The Render URLs default to the public demo services, but you can override them with repository variables:
+
+```text
+ASHN_API_URL=https://ashn-api-gateway.onrender.com
+ASHN_PAYER_CORE_URL=https://ashn-payer-core.onrender.com
+ASHN_PROVIDER_SERVICE_URL=https://ashn-provider-service.onrender.com
+ASHN_EDI_INTAKE_URL=https://ashn-edi-intake.onrender.com
+```
+
+Use **Actions → Synthetic Monitor → Run workflow** to trigger an on-demand smoke check. Set `run_mutating=true` only for release validation or demo environments because it creates ledger, intake, and partner-management records.
+
 ## Notes
 
 - This is still a demo/learning deployment, not a HIPAA-ready production deployment.

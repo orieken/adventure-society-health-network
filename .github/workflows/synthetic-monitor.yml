@@ -1,0 +1,104 @@
+name: Synthetic Monitor
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      run_mutating:
+        description: "Run mutating deployed E2E workflows"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      dashboard_url:
+        description: "Optional dashboard URL for browser smoke checks"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: synthetic-monitor
+  cancel-in-progress: false
+
+jobs:
+  services:
+    name: Deployed service smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASHN_API_URL: ${{ vars.ASHN_API_URL || 'https://ashn-api-gateway.onrender.com' }}
+      ASHN_PAYER_CORE_URL: ${{ vars.ASHN_PAYER_CORE_URL || 'https://ashn-payer-core.onrender.com' }}
+      ASHN_PROVIDER_SERVICE_URL: ${{ vars.ASHN_PROVIDER_SERVICE_URL || 'https://ashn-provider-service.onrender.com' }}
+      ASHN_EDI_INTAKE_URL: ${{ vars.ASHN_EDI_INTAKE_URL || 'https://ashn-edi-intake.onrender.com' }}
+      ASHN_RUN_MUTATING_E2E: ${{ github.event_name == 'workflow_dispatch' && inputs.run_mutating == 'true' && '1' || '0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck monitor tests
+        run: npm run typecheck:e2e
+
+      - name: Run deployed service monitor
+        run: npm run test:e2e:services
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: synthetic-monitor-services-playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+
+  dashboard:
+    name: Dashboard smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dashboard_url != '' || github.event_name == 'schedule' && vars.ASHN_DASHBOARD_URL != '' }}
+    env:
+      ASHN_DASHBOARD_URL: ${{ inputs.dashboard_url || vars.ASHN_DASHBOARD_URL }}
+      ASHN_API_URL: ${{ vars.ASHN_API_URL || 'https://ashn-api-gateway.onrender.com' }}
+      ASHN_PAYER_CORE_URL: ${{ vars.ASHN_PAYER_CORE_URL || 'https://ashn-payer-core.onrender.com' }}
+      ASHN_PROVIDER_SERVICE_URL: ${{ vars.ASHN_PROVIDER_SERVICE_URL || 'https://ashn-provider-service.onrender.com' }}
+      ASHN_EDI_INTAKE_URL: ${{ vars.ASHN_EDI_INTAKE_URL || 'https://ashn-edi-intake.onrender.com' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck monitor tests
+        run: npm run typecheck:e2e
+
+      - name: Run dashboard smoke monitor
+        run: npm run test:e2e:ui
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: synthetic-monitor-dashboard-playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14

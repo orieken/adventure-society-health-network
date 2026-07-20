@@ -9,9 +9,12 @@ npm run typecheck:e2e
 npm run test:e2e
 npm run test:e2e:services
 npm run test:e2e:ui
+npm run monitor:synthetic
 ```
 
 `test:e2e:services` is safe by default: it checks OpenAPI docs, service health, gateway pagination, and request/correlation header propagation.
+
+`monitor:synthetic` runs the same safe deployed service contract suite after TypeScript checking. It is the local equivalent of the scheduled GitHub synthetic monitor.
 
 ## Environment
 
@@ -39,6 +42,32 @@ ASHN_RUN_MUTATING_E2E=1 npm run test:e2e:services
 ```
 
 Use the mutating flow for demos, release checks, and seeded integration environments. Keep it disabled for passive production smoke checks.
+
+## Synthetic Monitoring
+
+GitHub Actions runs `.github/workflows/synthetic-monitor.yml` every six hours against the deployed Render service URLs.
+
+Default scheduled behavior:
+
+- Typecheck E2E tests.
+- Verify OpenAPI roots and service health for `api-gateway`, `payer-core`, `provider-service`, and `edi-intake`.
+- Verify gateway transaction pagination and request/correlation/trace headers.
+- Upload Playwright reports and traces when the monitor fails.
+
+Manual `workflow_dispatch` behavior:
+
+- Set `run_mutating=true` to run the full deployed transaction workflow suite.
+- Set `dashboard_url` to run dashboard browser smoke checks against Netlify or another deployed dashboard.
+
+Recommended GitHub repository variables:
+
+```text
+ASHN_API_URL=https://ashn-api-gateway.onrender.com
+ASHN_PAYER_CORE_URL=https://ashn-payer-core.onrender.com
+ASHN_PROVIDER_SERVICE_URL=https://ashn-provider-service.onrender.com
+ASHN_EDI_INTAKE_URL=https://ashn-edi-intake.onrender.com
+ASHN_DASHBOARD_URL=https://your-netlify-site.netlify.app
+```
 
 ## Current Coverage Map
 
