@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -353,7 +354,7 @@ func adjudicateClaimWithContext(claim *domain.Claim, context adjudicationContext
 
 	claim.AdjustmentReason = adjustmentReason
 	claim.DenialReason = ""
-	adjudicateClaimServiceLines(claim, allowedPercent, paidPercent, adjustmentReason)
+	adjudicateClaimServiceLines(claim, allowedPercent, paidPercent, adjustmentReason, context)
 
 	hasApprovedAuthorization := strings.EqualFold(claim.AuthorizationStatus, string(domain.TxStatusApproved))
 	hasInactiveCoverage := context.CoverageStatus == domain.CoverageInactive || context.CoverageStatus == domain.CoverageSuspended
@@ -421,24 +422,139 @@ func ensureClaimServiceLines(claim *domain.Claim) {
 	}
 }
 
-func adjudicateClaimServiceLines(claim *domain.Claim, allowedPercent, paidPercent int64, adjustmentReason string) {
+func adjudicateClaimServiceLines(claim *domain.Claim, allowedPercent, paidPercent int64, adjustmentReason string, context adjudicationContext) {
 	claim.AllowedAmountCents = 0
 	claim.PaidAmountCents = 0
 	claim.PatientResponsibilityCents = 0
 	claim.AdjustmentAmountCents = 0
+	dentalRemaining := dentalAnnualRemainingCents(context)
+	benefitPlanApplied := false
 	for index := range claim.ServiceLines {
 		line := &claim.ServiceLines[index]
-		line.AllowedAmountCents = percentage(line.AmountCents, allowedPercent)
-		line.PaidAmountCents = percentage(line.AllowedAmountCents, paidPercent)
+		lineAllowedPercent, linePaidPercent, lineAdjustmentReason := serviceLineBenefitRule(*line, allowedPercent, paidPercent, adjustmentReason, context)
+		if lineAdjustmentReason != adjustmentReason {
+			benefitPlanApplied = true
+		}
+		line.AllowedAmountCents = percentage(line.AmountCents, lineAllowedPercent)
+		line.PaidAmountCents = percentage(line.AllowedAmountCents, linePaidPercent)
+		if claimServiceLineIsDental(*line) {
+			line.PaidAmountCents, dentalRemaining, lineAdjustmentReason = applyDentalAnnualMaximum(line.PaidAmountCents, dentalRemaining, lineAdjustmentReason)
+			if strings.Contains(lineAdjustmentReason, "annual maximum") {
+				benefitPlanApplied = true
+			}
+		}
 		line.PatientResponsibilityCents = line.AllowedAmountCents - line.PaidAmountCents
 		line.AdjustmentAmountCents = line.AmountCents - line.AllowedAmountCents
-		line.AdjustmentReason = adjustmentReason
+		line.AdjustmentReason = lineAdjustmentReason
 		line.DenialReason = ""
 		claim.AllowedAmountCents += line.AllowedAmountCents
 		claim.PaidAmountCents += line.PaidAmountCents
 		claim.PatientResponsibilityCents += line.PatientResponsibilityCents
 		claim.AdjustmentAmountCents += line.AdjustmentAmountCents
 	}
+	if benefitPlanApplied {
+		claim.AdjustmentReason = "Benefit-plan line rules applied"
+	}
+}
+
+func serviceLineBenefitRule(line domain.ClaimServiceLine, allowedPercent, paidPercent int64, adjustmentReason string, context adjudicationContext) (int64, int64, string) {
+	if !claimServiceLineIsDental(line) {
+		return allowedPercent, paidPercent, adjustmentReason
+	}
+	category := dentalBenefitCategory(line)
+	switch category {
+	case "preventive":
+		allowedPercent = 100
+		paidPercent = 100
+		adjustmentReason = "ASHN dental preventive benefit"
+	case "basic":
+		allowedPercent = 90
+		paidPercent = 80
+		adjustmentReason = "ASHN dental basic benefit"
+	case "orthodontic":
+		allowedPercent = 85
+		paidPercent = 50
+		adjustmentReason = "ASHN dental orthodontic benefit"
+	default:
+		allowedPercent = 90
+		paidPercent = 50
+		adjustmentReason = "ASHN dental major benefit"
+	}
+	if context.CoverageStatus == domain.CoveragePending {
+		paidPercent -= 15
+		adjustmentReason += " with pending benefits review"
+	}
+	if context.PremiumCurrent {
+		paidPercent += 3
+		adjustmentReason += " with current premium"
+	}
+	if paidPercent > 100 {
+		paidPercent = 100
+	}
+	if paidPercent < 0 {
+		paidPercent = 0
+	}
+	return allowedPercent, paidPercent, adjustmentReason
+}
+
+func dentalBenefitCategory(line domain.ClaimServiceLine) string {
+	if line.Orthodontic {
+		return "orthodontic"
+	}
+	code := strings.ToUpper(strings.TrimSpace(firstNonEmptyString(line.CDTCode, line.ProcedureCode)))
+	if len(code) < 2 || code[0] != 'D' {
+		return "major"
+	}
+	codeNumber, err := strconv.Atoi(code[1:])
+	if err != nil {
+		return "major"
+	}
+	switch {
+	case codeNumber >= 1000 && codeNumber <= 1999:
+		return "preventive"
+	case codeNumber >= 2000 && codeNumber <= 4999:
+		return "basic"
+	case codeNumber >= 8000 && codeNumber <= 8999:
+		return "orthodontic"
+	default:
+		return "major"
+	}
+}
+
+func claimServiceLineIsDental(line domain.ClaimServiceLine) bool {
+	return strings.TrimSpace(line.CDTCode) != "" || strings.HasPrefix(strings.ToUpper(strings.TrimSpace(line.ProcedureCode)), "D") || strings.TrimSpace(line.ToothNumber) != "" || strings.TrimSpace(line.Surface) != "" || strings.TrimSpace(line.Quadrant) != "" || line.Orthodontic
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func dentalAnnualRemainingCents(context adjudicationContext) int64 {
+	if context.CoverageStatus == domain.CoveragePending {
+		return 100000
+	}
+	if context.AdventurerRank == domain.RankGold || context.AdventurerRank == domain.RankDiamond {
+		return 150000
+	}
+	return 125000
+}
+
+func applyDentalAnnualMaximum(paidAmountCents, remainingCents int64, adjustmentReason string) (int64, int64, string) {
+	if paidAmountCents <= 0 {
+		return 0, remainingCents, adjustmentReason
+	}
+	if remainingCents <= 0 {
+		return 0, 0, "Dental annual maximum exhausted"
+	}
+	if paidAmountCents > remainingCents {
+		return remainingCents, 0, adjustmentReason + "; dental annual maximum applied"
+	}
+	return paidAmountCents, remainingCents - paidAmountCents, adjustmentReason
 }
 
 func claimServiceLinesJSON(lines []domain.ClaimServiceLine) string {

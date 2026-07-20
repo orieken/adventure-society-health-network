@@ -228,7 +228,7 @@ Before payment, `tx-worker` adjudicates the claim and calculates:
 
 The adjudication rules are intentionally explainable: severity and billed amount set the baseline, approved prior authorization can unlock catastrophic encounters, provider tier can improve allowance/payment, adventurer rank can reduce responsibility, recent accepted `820` premiums can improve paid amount, and inactive/suspended coverage denies the claim.
 
-Dental claims keep that same `835` remittance flow, but service lines use dental `AD` procedure composites such as `SVC*AD:D7240`. Generated X12 also includes line-level `AMT*AU` allowed amount, `AMT*PR` patient responsibility, CDT/tooth/surface/quadrant references, orthodontic indicators, and denial reason segments when a dental line is not payable.
+Dental claims keep that same `835` remittance flow, but service lines use dental `AD` procedure composites such as `SVC*AD:D7240`. Generated X12 also includes line-level `AMT*AU` allowed amount, `AMT*PR` patient responsibility, CDT/tooth/surface/quadrant references, orthodontic indicators, and denial reason segments when a dental line is not payable. The async adjudicator now applies dental benefit-plan categories by CDT range: preventive services pay at 100%, basic services at 80%, major services at 50%, and orthodontic services at 50%, with annual maximum caps based on rank and coverage context.
 
 The `835` represents the payer saying: “Here is what we paid, what we allowed, what was adjusted, and why.” In the dashboard, this is the final satisfying ledger event: the healer gets paid and the claim reaches `Paid`.
 

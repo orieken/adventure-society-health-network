@@ -133,7 +133,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add safe document-vault receipt endpoints for external `275` references and embedded content downloads.
 - [x] Support multi-attachment packets grouped under a claim or authorization.
 - [x] Move payer-specific `275` validation rules into trading partner profile data.
-- [x] Add richer rules based on provider tier, adventurer rank, benefits, and coverage status.
+- [x] Add richer rules based on provider tier, adventurer rank, benefits, coverage status, dental CDT categories, and annual maximum caps.
 - [x] Add more tests for denied and partially paid claim variants.
 - [x] Add dental data model fields for CDT code, tooth number, surface, quadrant, and orthodontic indicators on claim service lines plus optional prior-auth dental service detail.
 - [x] Add dental eligibility detail to `270 → 271`, including dental benefit/service-type coverage, frequency limits, waiting periods, and annual maximum examples.

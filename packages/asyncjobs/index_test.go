@@ -395,6 +395,88 @@ func TestAdjudicateClaimRollsUpServiceLines(t *testing.T) {
 	assert.Equal(t, int64(20400), claim.ServiceLines[1].PaidAmountCents)
 }
 
+func TestAdjudicateClaimAppliesDentalBenefitPlanRules(t *testing.T) {
+	claim := domain.Claim{
+		IncidentSeverity: domain.SeverityNormal,
+		AmountCents:      310000,
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "D1110", CDTCode: "D1110", Description: "Dental cleaning", Units: 1, AmountCents: 10000},
+			{LineNumber: 2, ProcedureCode: "D7240", CDTCode: "D7240", Description: "Impacted tooth removal", Units: 1, AmountCents: 300000, ToothNumber: "14", Surface: "MO", Quadrant: "UR"},
+		},
+	}
+
+	adjudicateClaimWithContext(&claim, adjudicationContext{
+		AdventurerRank: domain.RankIron,
+		CoverageStatus: domain.CoverageActive,
+	})
+
+	assert.Equal(t, domain.ClaimDenied, claim.Status)
+	assert.Equal(t, "Non-covered catastrophic encounter", claim.AdjustmentReason)
+	assert.Equal(t, "Prior authorization or benefit exception required", claim.DenialReason)
+	require.Len(t, claim.ServiceLines, 2)
+	assert.Equal(t, int64(0), claim.ServiceLines[0].PaidAmountCents)
+	assert.Equal(t, int64(0), claim.ServiceLines[1].PaidAmountCents)
+}
+
+func TestAdjudicateClaimAppliesDentalMaximumWithAuthorization(t *testing.T) {
+	claim := domain.Claim{
+		IncidentSeverity:           domain.SeverityNormal,
+		AmountCents:                310000,
+		AuthorizationTransactionID: "tx-278-dental",
+		AuthorizationStatus:        string(domain.TxStatusApproved),
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "D1110", CDTCode: "D1110", Description: "Dental cleaning", Units: 1, AmountCents: 10000},
+			{LineNumber: 2, ProcedureCode: "D7240", CDTCode: "D7240", Description: "Impacted tooth removal", Units: 1, AmountCents: 300000, ToothNumber: "14", Surface: "MO", Quadrant: "UR"},
+		},
+	}
+
+	adjudicateClaimWithContext(&claim, adjudicationContext{
+		AdventurerRank: domain.RankIron,
+		CoverageStatus: domain.CoverageActive,
+	})
+
+	assert.Equal(t, domain.ClaimApproved, claim.Status)
+	assert.Equal(t, int64(280000), claim.AllowedAmountCents)
+	assert.Equal(t, int64(125000), claim.PaidAmountCents)
+	assert.Equal(t, int64(155000), claim.PatientResponsibilityCents)
+	assert.Equal(t, int64(30000), claim.AdjustmentAmountCents)
+	assert.Equal(t, "Benefit-plan line rules applied", claim.AdjustmentReason)
+	require.Len(t, claim.ServiceLines, 2)
+	assert.Equal(t, int64(10000), claim.ServiceLines[0].PaidAmountCents)
+	assert.Equal(t, int64(115000), claim.ServiceLines[1].PaidAmountCents)
+	assert.Contains(t, claim.ServiceLines[1].AdjustmentReason, "dental annual maximum applied")
+}
+
+func TestAdjudicateClaimAppliesDentalMaximumBelowCatastrophicThreshold(t *testing.T) {
+	claim := domain.Claim{
+		IncidentSeverity: domain.SeverityNormal,
+		AmountCents:      190000,
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "D1110", CDTCode: "D1110", Description: "Dental cleaning", Units: 1, AmountCents: 10000},
+			{LineNumber: 2, ProcedureCode: "D7240", CDTCode: "D7240", Description: "Impacted tooth removal", Units: 1, AmountCents: 180000, ToothNumber: "14", Surface: "MO", Quadrant: "UR"},
+		},
+	}
+
+	adjudicateClaimWithContext(&claim, adjudicationContext{
+		AdventurerRank: domain.RankIron,
+		CoverageStatus: domain.CoverageActive,
+	})
+
+	assert.Equal(t, domain.ClaimApproved, claim.Status)
+	assert.Equal(t, int64(172000), claim.AllowedAmountCents)
+	assert.Equal(t, int64(91000), claim.PaidAmountCents)
+	assert.Equal(t, int64(81000), claim.PatientResponsibilityCents)
+	assert.Equal(t, int64(18000), claim.AdjustmentAmountCents)
+	assert.Equal(t, "Benefit-plan line rules applied", claim.AdjustmentReason)
+	require.Len(t, claim.ServiceLines, 2)
+	assert.Equal(t, int64(10000), claim.ServiceLines[0].AllowedAmountCents)
+	assert.Equal(t, int64(10000), claim.ServiceLines[0].PaidAmountCents)
+	assert.Equal(t, "ASHN dental preventive benefit", claim.ServiceLines[0].AdjustmentReason)
+	assert.Equal(t, int64(162000), claim.ServiceLines[1].AllowedAmountCents)
+	assert.Equal(t, int64(81000), claim.ServiceLines[1].PaidAmountCents)
+	assert.Equal(t, "ASHN dental major benefit", claim.ServiceLines[1].AdjustmentReason)
+}
+
 func TestAdjudicateClaimDeniesCatastrophicClaims(t *testing.T) {
 	for _, claim := range []domain.Claim{
 		{IncidentSeverity: domain.SeverityDiamond, AmountCents: 100000},
