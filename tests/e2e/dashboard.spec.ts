@@ -535,6 +535,8 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByText("Claim claim-e2e-275")).toBeVisible();
     await expect(page.getByRole("button", { name: /275 OZ\/B4 attachment/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /packet-e2e-275 \(1\/2\)/i })).toBeVisible();
+    await expect(page.getByLabel("Attachment packet summary").getByText("275 Packet Summary")).toBeVisible();
+    await expect(page.getByLabel("Attachment packet summary").getByRole("button", { name: /packet-e2e-275.*1\/2 docs observed.*Received/i })).toBeVisible();
   });
 
   test("shows visual request response links in transaction detail", async ({ page }) => {

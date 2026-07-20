@@ -212,6 +212,16 @@ type TimelineGroup = {
   latestAt: number;
 };
 
+type AttachmentPacketSummary = {
+  packetId: string;
+  observedCount: number;
+  declaredCount?: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  reviewStatuses: string[];
+  labels: string[];
+};
+
 type TransactionRelationshipMap = {
   parent?: Transaction;
   current: Transaction;
@@ -3657,6 +3667,8 @@ function shortDate(value: string) {
 }
 
 function TimelineGroupCard({ group, onSelect }: { group: TimelineGroup; onSelect: (transactionId: string) => void }) {
+  const packetSummaries = attachmentPacketSummaries(group.transactions);
+
   return (
     <article className="timeline-card">
       <div className="timeline-heading">
@@ -3676,6 +3688,18 @@ function TimelineGroupCard({ group, onSelect }: { group: TimelineGroup; onSelect
           </button>
         ))}
       </div>
+      {packetSummaries.length > 0 && (
+        <div className="timeline-packets" aria-label="Attachment packet summary">
+          <strong>275 Packet Summary</strong>
+          {packetSummaries.map((packet) => (
+            <button type="button" key={packet.packetId} onClick={() => onSelect(firstPacketTransactionID(group.transactions, packet.packetId))}>
+              <span>{packet.packetId}</span>
+              <small>{packet.observedCount}/{packet.declaredCount ?? packet.observedCount} docs observed · {packet.reviewStatuses.join(", ")}</small>
+              <em>{packet.labels.join(" · ")}</em>
+            </button>
+          ))}
+        </div>
+      )}
     </article>
   );
 }
@@ -3996,11 +4020,51 @@ function timelineStepDetail(transaction: Transaction) {
 
 function attachmentPacketLabel(transaction: Transaction) {
   const packetId = payloadString(transaction, "packetId");
-  const packetSequence = payloadString(transaction, "packetSequence");
-  const packetCount = payloadString(transaction, "packetCount");
+  const packetSequence = payloadScalarString(transaction, "packetSequence");
+  const packetCount = payloadScalarString(transaction, "packetCount");
   if (!packetId) return undefined;
   if (packetSequence && packetCount) return `${packetId} (${packetSequence}/${packetCount})`;
   return packetId;
+}
+
+function attachmentPacketSummaries(transactions: Transaction[]): AttachmentPacketSummary[] {
+  const packets = new Map<string, AttachmentPacketSummary>();
+
+  transactions
+    .filter((transaction) => transaction.type === "275")
+    .forEach((transaction) => {
+      const packetId = payloadString(transaction, "packetId");
+      if (!packetId) return;
+
+      const declaredCount = payloadNumber(transaction, "packetCount");
+      const reviewStatus = payloadString(transaction, "attachmentReviewStatus") ?? "Received";
+      const attachmentType = payloadString(transaction, "attachmentType");
+      const reportTypeCode = payloadString(transaction, "reportTypeCode");
+      const label = [attachmentType, reportTypeCode].filter(Boolean).join("/") || "Attachment";
+      const packet = packets.get(packetId) ?? {
+        packetId,
+        observedCount: 0,
+        declaredCount,
+        acceptedCount: 0,
+        rejectedCount: 0,
+        reviewStatuses: [],
+        labels: []
+      };
+
+      packet.observedCount += 1;
+      packet.declaredCount = Math.max(packet.declaredCount ?? 0, declaredCount ?? 0) || packet.declaredCount;
+      if (transaction.status === "Accepted") packet.acceptedCount += 1;
+      if (reviewStatus === "Rejected") packet.rejectedCount += 1;
+      if (!packet.reviewStatuses.includes(reviewStatus)) packet.reviewStatuses.push(reviewStatus);
+      if (!packet.labels.includes(label)) packet.labels.push(label);
+      packets.set(packetId, packet);
+    });
+
+  return Array.from(packets.values()).sort((left, right) => left.packetId.localeCompare(right.packetId));
+}
+
+function firstPacketTransactionID(transactions: Transaction[], packetId: string) {
+  return transactions.find((transaction) => transaction.type === "275" && payloadString(transaction, "packetId") === packetId)?.id ?? transactions[0]?.id;
 }
 
 function transactionClaimId(transaction: Transaction) {
@@ -4072,6 +4136,21 @@ function payloadString(transaction: Transaction, key: string) {
   const payload = payloadRecord(transaction.payload);
   const value = payload?.[key];
   return typeof value === "string" && value ? value : undefined;
+}
+
+function payloadScalarString(transaction: Transaction, key: string) {
+  const payload = payloadRecord(transaction.payload);
+  const value = payload?.[key];
+  if (typeof value === "string" && value) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function payloadNumber(transaction: Transaction, key: string) {
+  const value = payloadScalarString(transaction, key);
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function hasDocumentReference(transaction: Transaction) {

@@ -200,6 +200,7 @@ Cross-industry expansion notes live in [Cross-Industry EDI Module Notes](cross-i
 - [x] Add JSON evidence bundles for completed scenario runs.
 - [x] Add browser-persisted Recent Scenario Runs with re-export, transaction copy, and re-run controls.
 - [x] Add guided scenario playback mode with next-step and finish controls for live demos.
+- [x] Add compact attachment packet summaries inside transaction timeline chains.
 
 ### P3 — Security and Operational Readiness
 

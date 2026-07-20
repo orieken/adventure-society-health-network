@@ -436,7 +436,7 @@ This models common enterprise patterns where large PDFs/images are stored elsewh
 
 ### 5. Multi-Attachment Bundles
 
-Baseline support now exists through checklist packets and deficiency resubmission. Continue expanding one claim or auth receiving multiple attachment documents:
+Baseline support now exists through checklist packets and deficiency resubmission. One claim or auth can receive multiple attachment documents:
 
 - operative note
 - discharge summary
@@ -444,7 +444,7 @@ Baseline support now exists through checklist packets and deficiency resubmissio
 - itemized bill
 - medical necessity letter
 
-The dashboard could show a compact “attachment packet” timeline grouped under the claim or authorization.
+The dashboard timeline shows a compact “275 Packet Summary” grouped under the claim or authorization, including observed documents, declared packet size, review status, and attachment labels.
 
 ### 6. Payer-Specific Attachment Matrix
 
