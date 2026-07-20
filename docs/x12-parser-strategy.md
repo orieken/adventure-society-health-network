@@ -60,6 +60,8 @@ The adapter should expose one internal result shape:
 
 That lets ASHN swap implementation details without rewriting gateway routes, dashboard replay, audit storage, or payer-core workflow logic.
 
+ASHN now has this first boundary in `packages/x12parser`: raw delimiter-based X12 is parsed into one `ParsedTransaction` result, then `edi-intake` adapts that result into the existing canonical XML/JSON-style inbound model before validation, audit, routing, and payer forwarding.
+
 ## Build vs. Integrate Decision
 
 ### Keep Building In-House When
@@ -107,7 +109,7 @@ type X12ParseIssue struct {
 }
 ```
 
-`edi-intake` should depend on this result, not on scattered segment-map helpers. The current parser can become the first adapter behind that contract.
+`edi-intake` depends on this result, not on scattered segment-map helpers. The current parser is the first adapter behind that contract.
 
 ## Migration Plan
 

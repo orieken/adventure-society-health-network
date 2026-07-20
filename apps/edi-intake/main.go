@@ -20,6 +20,7 @@ import (
 	edimock "ashn/packages/edi-mock"
 	"ashn/packages/openapidocs"
 	"ashn/packages/requestmeta"
+	"ashn/packages/x12parser"
 
 	_ "github.com/lib/pq"
 )
@@ -411,79 +412,151 @@ func parseInboundJSON(body []byte) (inboundTransaction, error) {
 }
 
 func parseInboundRawX12(body []byte) (inboundTransaction, error) {
-	segments := parseRawX12Segments(string(body))
-	if len(segments) == 0 {
-		return inboundTransaction{}, fmt.Errorf("missing X12 segments")
-	}
-	segmentMap := map[string][][]string{}
-	for _, segment := range segments {
-		if len(segment) == 0 {
-			continue
-		}
-		segmentMap[segment[0]] = append(segmentMap[segment[0]], segment)
-	}
-	st := firstRawSegment(segmentMap, "ST")
-	if len(st) < 2 || strings.TrimSpace(st[1]) == "" {
-		return inboundTransaction{}, fmt.Errorf("missing ST transaction set")
-	}
+	parsed, err := x12parser.Parse(body)
 	inbound := inboundTransaction{
-		Type:     strings.TrimSpace(st[1]),
-		Sender:   party{ID: rawSenderID(segmentMap)},
-		Receiver: party{ID: rawReceiverID(segmentMap)},
+		Type:     parsed.Type,
+		Sender:   party{ID: parsed.Sender.ID},
+		Receiver: party{ID: parsed.Receiver.ID},
 	}
-	switch domain.TransactionType(inbound.Type) {
-	case domain.Tx834:
-		enrollment, err := raw834Enrollment(segmentMap)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.Enrollment = &enrollment
-	case domain.Tx820:
-		premium, err := raw820PremiumPayment(segmentMap)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.PremiumPayment = &premium
-	case domain.Tx270:
-		eligibility, err := raw270Eligibility(segmentMap, inbound.Sender.ID)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.EligibilityInquiry = &eligibility
-	case domain.Tx276:
-		claimStatus, err := raw276ClaimStatus(segmentMap)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.ClaimStatusRequest = &claimStatus
-	case domain.Tx278:
-		priorAuth, err := raw278PriorAuthorization(segmentMap, inbound.Sender.ID)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.PriorAuthorization = &priorAuth
-	case domain.Tx837:
-		claim, err := raw837Claim(segmentMap, inbound.Sender.ID)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.Claim = &claim
-	case domain.Tx275:
-		attachment, err := raw275Attachment(segmentMap, inbound.Sender.ID)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.Attachment = &attachment
-	case domain.Tx835:
-		payment, err := raw835Payment(segmentMap)
-		if err != nil {
-			return inbound, err
-		}
-		inbound.Payment = &payment
-	default:
-		return inbound, fmt.Errorf("raw X12 transaction type %s not implemented", inbound.Type)
+	if err != nil {
+		return inbound, err
 	}
+	inbound.Enrollment = xmlEnrollmentFromParsed(parsed.Enrollment)
+	inbound.PremiumPayment = xmlPremiumPaymentFromParsed(parsed.PremiumPayment)
+	inbound.EligibilityInquiry = xmlEligibilityFromParsed(parsed.EligibilityInquiry)
+	inbound.ClaimStatusRequest = xmlClaimStatusFromParsed(parsed.ClaimStatusRequest)
+	inbound.PriorAuthorization = xmlPriorAuthFromParsed(parsed.PriorAuthorization)
+	inbound.Claim = xmlClaimFromParsed(parsed.Claim)
+	inbound.Attachment = xmlAttachmentFromParsed(parsed.Attachment)
+	inbound.Payment = xmlPaymentFromParsed(parsed.Payment)
 	return inbound, nil
+}
+
+func xmlEnrollmentFromParsed(value *x12parser.Enrollment) *xmlEnrollment {
+	if value == nil {
+		return nil
+	}
+	return &xmlEnrollment{Name: value.Name, Rank: value.Rank, Guild: value.Guild, Region: value.Region}
+}
+
+func xmlPremiumPaymentFromParsed(value *x12parser.PremiumPayment) *xmlPremiumPayment {
+	if value == nil {
+		return nil
+	}
+	return &xmlPremiumPayment{AdventurerID: value.AdventurerID, AmountCents: value.AmountCents}
+}
+
+func xmlEligibilityFromParsed(value *x12parser.Eligibility) *xmlEligibility {
+	if value == nil {
+		return nil
+	}
+	return &xmlEligibility{AdventurerID: value.AdventurerID, ProviderID: value.ProviderID, ServiceType: value.ServiceType}
+}
+
+func xmlClaimStatusFromParsed(value *x12parser.ClaimStatus) *xmlClaimStatus {
+	if value == nil {
+		return nil
+	}
+	return &xmlClaimStatus{ClaimID: value.ClaimID}
+}
+
+func xmlPriorAuthFromParsed(value *x12parser.PriorAuthorization) *xmlPriorAuth {
+	if value == nil {
+		return nil
+	}
+	return &xmlPriorAuth{
+		AdventurerID:     value.AdventurerID,
+		ProviderID:       value.ProviderID,
+		ServiceType:      value.ServiceType,
+		IncidentSeverity: value.IncidentSeverity,
+		DentalService: xmlDentalService{
+			CDTCode:     value.DentalService.CDTCode,
+			ToothNumber: value.DentalService.ToothNumber,
+			Surface:     value.DentalService.Surface,
+			Quadrant:    value.DentalService.Quadrant,
+			Orthodontic: value.DentalService.Orthodontic,
+		},
+	}
+}
+
+func xmlClaimFromParsed(value *x12parser.Claim) *xmlClaim {
+	if value == nil {
+		return nil
+	}
+	claim := &xmlClaim{
+		AdventurerID:               value.AdventurerID,
+		ProviderID:                 value.ProviderID,
+		IncidentSeverity:           value.IncidentSeverity,
+		AmountCents:                value.AmountCents,
+		AuthorizationTransactionID: value.AuthorizationTransactionID,
+	}
+	for _, line := range value.ServiceLines {
+		claim.ServiceLines = append(claim.ServiceLines, xmlClaimServiceLine{
+			LineNumber:    line.LineNumber,
+			ProcedureCode: line.ProcedureCode,
+			Description:   line.Description,
+			Units:         line.Units,
+			AmountCents:   line.AmountCents,
+			CDTCode:       line.CDTCode,
+			ToothNumber:   line.ToothNumber,
+			Surface:       line.Surface,
+			Quadrant:      line.Quadrant,
+			Orthodontic:   line.Orthodontic,
+		})
+	}
+	for _, diagnosis := range value.Diagnoses {
+		claim.Diagnoses = append(claim.Diagnoses, xmlClaimDiagnosis{
+			Qualifier:   diagnosis.Qualifier,
+			Code:        diagnosis.Code,
+			Description: diagnosis.Description,
+			Primary:     diagnosis.Primary,
+		})
+	}
+	for _, control := range value.AttachmentControls {
+		claim.AttachmentControls = append(claim.AttachmentControls, xmlAttachmentControl{
+			ReportTypeCode:          control.ReportTypeCode,
+			TransmissionCode:        control.TransmissionCode,
+			AttachmentControlNumber: control.AttachmentControlNumber,
+		})
+	}
+	return claim
+}
+
+func xmlAttachmentFromParsed(value *x12parser.Attachment) *xmlAttachment {
+	if value == nil {
+		return nil
+	}
+	return &xmlAttachment{
+		PacketID:                   value.PacketID,
+		PacketSequence:             value.PacketSequence,
+		PacketCount:                value.PacketCount,
+		ClaimID:                    value.ClaimID,
+		AuthorizationTransactionID: value.AuthorizationTransactionID,
+		ProviderID:                 value.ProviderID,
+		AttachmentPurpose:          value.AttachmentPurpose,
+		AttachmentTraceID:          value.AttachmentTraceID,
+		AttachmentFormatCode:       value.AttachmentFormatCode,
+		AttachmentObjectType:       value.AttachmentObjectType,
+		AttachmentEncoding:         value.AttachmentEncoding,
+		AttachmentServiceDate:      value.AttachmentServiceDate,
+		AttachmentType:             value.AttachmentType,
+		AttachmentControlNumber:    value.AttachmentControlNumber,
+		ReportTypeCode:             value.ReportTypeCode,
+		TransmissionCode:           value.TransmissionCode,
+		ContentType:                value.ContentType,
+		FileName:                   value.FileName,
+		Description:                value.Description,
+		Content:                    value.Content,
+		DocumentReferenceID:        value.DocumentReferenceID,
+		DocumentReferenceURL:       value.DocumentReferenceURL,
+	}
+}
+
+func xmlPaymentFromParsed(value *x12parser.Payment) *xmlPayment {
+	if value == nil {
+		return nil
+	}
+	return &xmlPayment{ClaimID: value.ClaimID, PaymentAmountCents: value.PaymentAmountCents}
 }
 
 func raw834Enrollment(segmentMap map[string][][]string) (xmlEnrollment, error) {

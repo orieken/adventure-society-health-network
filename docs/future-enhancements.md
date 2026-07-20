@@ -79,6 +79,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Expand segment generation toward companion-guide examples.
 - [x] Add XML intake validation rules per transaction type.
 - [x] Add profile-based companion-guide-style validation per trading partner.
+- [x] Add a raw X12 parser adapter boundary so `edi-intake` depends on a stable parsed transaction contract.
 
 ### P1 — Acknowledgments
 
