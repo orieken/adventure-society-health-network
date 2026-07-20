@@ -579,8 +579,10 @@ func TestGatewayHealthRetriesColdStartBadGateway(t *testing.T) {
 func TestGatewaySystemReadinessAggregatesOperationalSignals(t *testing.T) {
 	t.Setenv("RENDER_GIT_COMMIT", "abc123")
 	requestIDs := []string{}
+	acceptEncodings := []string{}
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		requestIDs = append(requestIDs, r.Header.Get("X-Request-ID"))
+		acceptEncodings = append(acceptEncodings, r.Header.Get("Accept-Encoding"))
 		switch r.URL.Path {
 		case "/health":
 			return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
@@ -603,6 +605,7 @@ func TestGatewaySystemReadinessAggregatesOperationalSignals(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/system/readiness", nil)
 	request.Header.Set("X-Request-ID", "req-readiness")
+	request.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusOK, response.Code)
@@ -619,6 +622,7 @@ func TestGatewaySystemReadinessAggregatesOperationalSignals(t *testing.T) {
 	checks := readiness["checks"].([]any)
 	assert.Len(t, checks, 5)
 	assert.Contains(t, requestIDs, "req-readiness")
+	assert.NotContains(t, acceptEncodings, "gzip, deflate, br")
 	assert.NotEmpty(t, envelope.Lore)
 }
 
@@ -652,8 +656,10 @@ func TestGatewaySystemReadinessReportsDegradedSignals(t *testing.T) {
 
 func TestGatewayMetricsSummaryAggregatesOperationalData(t *testing.T) {
 	paths := []string{}
+	acceptEncodings := []string{}
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		paths = append(paths, r.URL.RequestURI())
+		acceptEncodings = append(acceptEncodings, r.Header.Get("Accept-Encoding"))
 		switch r.URL.Path {
 		case "/transactions":
 			return jsonResponse(http.StatusOK, domain.Envelope{Data: []domain.Transaction{
@@ -685,7 +691,9 @@ func TestGatewayMetricsSummaryAggregatesOperationalData(t *testing.T) {
 
 	handler := gatewayHandler(gateway{payerURL: "http://payer-core", ediURL: "http://edi-intake", client: client})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/metrics/summary", nil))
+	request := httptest.NewRequest(http.MethodGet, "/v1/metrics/summary", nil)
+	request.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	handler.ServeHTTP(response, request)
 
 	assert.Equal(t, http.StatusOK, response.Code)
 	envelope := decodeGatewayEnvelope(t, response)
@@ -707,6 +715,7 @@ func TestGatewayMetricsSummaryAggregatesOperationalData(t *testing.T) {
 	asyncJobs := summary["asyncJobs"].(map[string]any)
 	assert.Equal(t, float64(1), asyncJobs["deadLetters"])
 	assert.ElementsMatch(t, []string{"/transactions?limit=100", "/claims?limit=100", "/jobs?limit=100", "/x12/messages/rejections"}, paths)
+	assert.NotContains(t, acceptEncodings, "gzip, deflate, br")
 	assert.NotEmpty(t, envelope.Lore)
 }
 

@@ -301,6 +301,7 @@ func (g gateway) readinessGET(r *http.Request, name, baseURL, path string) readi
 		return readinessCheck{Name: name, Status: "unavailable", Detail: "request creation failed"}
 	}
 	req.Header = r.Header.Clone()
+	req.Header.Del("Accept-Encoding")
 	requestmeta.Propagate(r, req)
 	resp, err := g.httpClient().Do(req)
 	if err != nil {
@@ -485,6 +486,7 @@ func (g gateway) fetchMetricsData(r *http.Request, baseURL, path string, target 
 		return err
 	}
 	req.Header = r.Header.Clone()
+	req.Header.Del("Accept-Encoding")
 	requestmeta.Propagate(r, req)
 	resp, err := g.httpClient().Do(req)
 	if err != nil {

@@ -72,7 +72,7 @@ type DocumentReference = {
 type ReadinessReport = {
   generatedAt: string;
   status: string;
-  services: Array<{ service: string; status: string }>;
+  services: Record<string, string>;
   checks: Array<{ name: string; status: string }>;
 };
 
@@ -248,11 +248,11 @@ test.describe("ASHN operations contracts", () => {
     const envelope = (await response.json()) as Envelope<ReadinessReport>;
     expect(envelope.data?.generatedAt).toBeTruthy();
     expect(envelope.data?.status).toMatch(/ready|degraded|unavailable/);
-    expect(envelope.data?.services.map((service) => service.service)).toEqual(
+    expect(Object.keys(envelope.data?.services ?? {})).toEqual(
       expect.arrayContaining(["api-gateway", "payer-core", "provider-service", "edi-intake"])
     );
     expect(envelope.data?.checks.map((check) => check.name)).toEqual(
-      expect.arrayContaining(["transaction-ledger", "async-worker-queue", "provider-registry", "xml-intake-audit"])
+      expect.arrayContaining(["ledger transactions", "async jobs", "provider registry", "intake audit"])
     );
   });
 
@@ -262,7 +262,7 @@ test.describe("ASHN operations contracts", () => {
 
     const envelope = (await response.json()) as Envelope<MetricsSummary>;
     expect(envelope.data?.generatedAt).toBeTruthy();
-    expect(envelope.data?.operationalStatus).toMatch(/ready|degraded|unavailable/);
+    expect(envelope.data?.operationalStatus).toMatch(/healthy|attention/);
     expect(typeof envelope.data?.transactions.totalLoaded).toBe("number");
     expect(typeof envelope.data?.claims.totalLoaded).toBe("number");
     expect(typeof envelope.data?.financials.billedCents).toBe("number");
