@@ -135,6 +135,17 @@ type AdjudicationExplanation = {
   premiumPaidAmountCents?: number;
 };
 
+type PremiumPayment = {
+  id: string;
+  adventurerId: string;
+  transactionId: string;
+  amountCents: number;
+  status: string;
+  createdAt: string;
+  reconciled: boolean;
+  currentForBenefits: boolean;
+};
+
 type DocumentationChecklistItem = {
   code: string;
   label: string;
@@ -810,6 +821,7 @@ function App() {
   const [claim, setClaim] = useState<Claim | null>(null);
   const [recentAdventurers, setRecentAdventurers] = useState<Adventurer[]>([]);
   const [recentClaims, setRecentClaims] = useState<Claim[]>([]);
+  const [recentPremiumPayments, setRecentPremiumPayments] = useState<PremiumPayment[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [inboundMessages, setInboundMessages] = useState<InboundMessage[]>([]);
   const [intakeRejectionMetrics, setIntakeRejectionMetrics] = useState<IntakeRejectionMetrics | null>(null);
@@ -943,7 +955,7 @@ function App() {
       q: searchTerm,
       type: auditTypeFilter
     });
-    const [healthResult, readinessResult, metricsResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, rejectionResult, jobsResult] = await Promise.allSettled([
+    const [healthResult, readinessResult, metricsResult, providersResult, partnersResult, adventurersResult, claimsResult, premiumPaymentsResult, transactionsResult, auditResult, rejectionResult, jobsResult] = await Promise.allSettled([
       request<Record<string, string>>("/v1/health"),
       request<ReadinessReport>("/v1/system/readiness"),
       request<MetricsSummary>("/v1/metrics/summary"),
@@ -951,6 +963,7 @@ function App() {
       request<TradingPartner[]>("/v1/x12/trading-partners"),
       request<Adventurer[]>(`/v1/adventurers?${adventurerQuery}`),
       request<Claim[]>(`/v1/claims?${claimQuery}`),
+      request<PremiumPayment[]>("/v1/premium-payments?limit=5"),
       request<Transaction[]>(`/v1/transactions?${transactionQuery}`),
       request<InboundMessage[]>(`/v1/x12/messages?${auditQuery}`),
       request<IntakeRejectionMetrics>(`/v1/x12/messages/rejections?${rejectionQuery}`),
@@ -963,6 +976,7 @@ function App() {
     const partnersEnvelope = settledValue(partnersResult);
     const adventurersEnvelope = settledValue(adventurersResult);
     const claimsEnvelope = settledValue(claimsResult);
+    const premiumPaymentsEnvelope = settledValue(premiumPaymentsResult);
     const transactionsEnvelope = settledValue(transactionsResult);
     const auditEnvelope = settledValue(auditResult);
     const rejectionEnvelope = settledValue(rejectionResult);
@@ -980,6 +994,7 @@ function App() {
       setRecentClaims(claimsEnvelope.data ?? []);
       setClaimPage(claimsEnvelope.page ?? { limit: claimPageSize, offset: claimOffset, count: claimsEnvelope.data?.length ?? 0, hasMore: false });
     }
+    if (premiumPaymentsEnvelope) setRecentPremiumPayments(premiumPaymentsEnvelope.data ?? []);
     if (transactionsEnvelope) {
       setRecentTransactions(transactionsEnvelope.data ?? []);
       setTransactionPage(transactionsEnvelope.page ?? { limit: transactionPageSize, offset: transactionOffset, count: transactionsEnvelope.data?.length ?? 0, hasMore: false });
@@ -2534,6 +2549,21 @@ function App() {
             recentClaims.map((item) => <ClaimRow key={item.id} claim={item} onSelect={openClaimDetail} />)
           )}
           <Pager page={claimPage} onPrevious={() => setClaimOffset(Math.max(0, claimPage.offset - claimPage.limit))} onNext={() => setClaimOffset(claimPage.offset + claimPage.limit)} />
+        </div>
+
+        <div className="panel ledger">
+          <div className="ledger-title">
+            <div>
+              <h2>Premium Ledger</h2>
+              <p className="muted">820 reconciliation</p>
+            </div>
+            <span className="muted">{recentPremiumPayments.length} recent</span>
+          </div>
+          {recentPremiumPayments.length === 0 ? (
+            <p className="muted">No premium payments have been recorded yet.</p>
+          ) : (
+            recentPremiumPayments.map((payment) => <PremiumPaymentRow key={payment.id} payment={payment} />)
+          )}
         </div>
 
         <div className="panel ledger">
@@ -4423,6 +4453,21 @@ function ClaimRow({ claim, onSelect }: { claim: Claim; onSelect: (claimId: strin
         <span>{money(claim.amountCents)} billed · {money(claim.paidAmountCents)} paid · provider {claim.providerId}</span>
       </div>
       <code>{claim.id}</code>
+    </article>
+  );
+}
+
+function PremiumPaymentRow({ payment }: { payment: PremiumPayment }) {
+  const benefitLabel = payment.currentForBenefits ? "Benefit-current" : "Historical";
+  const reconciliationLabel = payment.reconciled ? "Reconciled" : "Needs review";
+  return (
+    <article className="compact-row">
+      <div>
+        <strong>{money(payment.amountCents)} · {reconciliationLabel}</strong>
+        <span>{benefitLabel} · {payment.status} · {new Date(payment.createdAt).toLocaleString()}</span>
+        <span>Adventurer {payment.adventurerId}</span>
+      </div>
+      <code>{payment.transactionId}</code>
     </article>
   );
 }
