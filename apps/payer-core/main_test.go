@@ -1767,7 +1767,7 @@ func TestPayerLoadersFallbackOnDatabaseErrors(t *testing.T) {
 	defer cleanup()
 	mock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
 		WillReturnError(assert.AnError)
-	assert.Len(t, loadProviders(db), 6)
+	assert.Len(t, loadProviders(db), 7)
 
 	mock.ExpectQuery("SELECT id, name, rank, guild, region, coverage_status FROM adventurers").
 		WillReturnError(assert.AnError)
@@ -1790,7 +1790,7 @@ func TestPayerLoadProvidersFallsBackWhenTableEmpty(t *testing.T) {
 	mock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "provider_type", "tier_rank", "region"}))
 
-	assert.Len(t, loadProviders(db), 6)
+	assert.Len(t, loadProviders(db), 7)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

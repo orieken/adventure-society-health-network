@@ -91,7 +91,7 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	payment := serveJSON(t, mux, http.MethodPost, "/claims/"+claim.ID+"/payment", domain.PaymentRequest{PaymentAmountCents: 100000})
 	require.Equal(t, http.StatusOK, payment.Code)
 
-	assertTableCount(t, db, "providers", 6)
+	assertTableCount(t, db, "providers", 7)
 	assertTableCount(t, db, "adventurers", 1)
 	assertTableCount(t, db, "claims", 1)
 	assertTableCount(t, db, "enrollments", 1)
@@ -102,7 +102,7 @@ func TestIntegrationPostgresPersistsAndHydratesWorkflow(t *testing.T) {
 	reloaded := newIntegrationStore(db)
 	assert.Contains(t, reloaded.adventurers, adventurer.ID)
 	assert.Contains(t, reloaded.claims, claim.ID)
-	assert.Len(t, reloaded.providers, 6)
+	assert.Len(t, reloaded.providers, 7)
 	assert.Len(t, reloaded.transactions, 8)
 	assert.Equal(t, domain.ClaimPaid, reloaded.claims[claim.ID].Status)
 

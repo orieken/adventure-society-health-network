@@ -310,6 +310,8 @@ When XML or JSON arrives, `edi-intake` first validates the canonical ASHN transa
 4. The route target must be supported.
 5. Transaction-specific profile rules must pass, such as `275` attachment metadata, `278` service/severity rules, and `837` diagnosis/procedure constraints.
 
+The seeded profiles now include three payer-facing provider variants: Vitesse Temple for same-day, oral-surgery-heavy workflows; Rimaros Hospital for broader medical/dental acceptance with a seven-day unsolicited attachment window; and Crown Dental Clearinghouse for dental-only `278`/`837D` traffic with stricter CDT, surface, attachment, and control-prefix rules.
+
 Accepted intake is forwarded to existing `payer-core` HTTP endpoints. Rejected intake still creates an inbound audit record, preserving the raw payload and validation error for debugging, export, and replay.
 
 This gives the demo a realistic EDI boundary: not every external sender can submit every transaction type.

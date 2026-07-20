@@ -1458,6 +1458,53 @@ func TestValidateTradingPartnerProfileAppliesDentalPredeterminationRules(t *test
 	assert.Equal(t, "dental predetermination for trading partner tp-vitesse-temple requires tooth number", err.Error())
 }
 
+func TestValidateTradingPartnerProfileAppliesCrownDentalVariant(t *testing.T) {
+	partner := seedTradingPartners()["tp-crown-dental"]
+	valid := inboundTransaction{
+		Type: string(domain.Tx278),
+		PriorAuthorization: &xmlPriorAuth{
+			ServiceType:      "dental-predetermination",
+			IncidentSeverity: "Awakened",
+			DentalService:    xmlDentalService{CDTCode: "D2740", ToothNumber: "14", Surface: "O", Quadrant: "UR"},
+		},
+	}
+	require.NoError(t, validateTradingPartnerProfile(partner, valid))
+
+	invalidSeverity := valid
+	invalidSeverity.PriorAuthorization = &xmlPriorAuth{
+		ServiceType:      "dental-predetermination",
+		IncidentSeverity: "Diamond",
+		DentalService:    xmlDentalService{CDTCode: "D2740", ToothNumber: "14", Surface: "O", Quadrant: "UR"},
+	}
+	err := validateTradingPartnerProfile(partner, invalidSeverity)
+	require.Error(t, err)
+	assert.Equal(t, "incident severity Diamond is not allowed for trading partner tp-crown-dental; allowed: Normal, Awakened", err.Error())
+
+	invalidCDT := valid
+	invalidCDT.PriorAuthorization = &xmlPriorAuth{
+		ServiceType:      "dental-predetermination",
+		IncidentSeverity: "Awakened",
+		DentalService:    xmlDentalService{CDTCode: "D7240", ToothNumber: "14", Surface: "O", Quadrant: "UR"},
+	}
+	err = validateTradingPartnerProfile(partner, invalidCDT)
+	require.Error(t, err)
+	assert.Equal(t, "dental CDT code D7240 is not allowed for trading partner tp-crown-dental; allowed ranges: D1000-D4999", err.Error())
+
+	claim := inboundTransaction{
+		Type: string(domain.Tx837D),
+		Claim: &xmlClaim{
+			Diagnoses:    []xmlClaimDiagnosis{{Qualifier: "ABK", Code: "K021", Primary: true}},
+			ServiceLines: []xmlClaimServiceLine{{ProcedureCode: "D2740", CDTCode: "D2740", ToothNumber: "14", Surface: "O", Quadrant: "UR", AmountCents: "120000"}},
+		},
+	}
+	require.NoError(t, validateTradingPartnerProfile(partner, claim))
+
+	claim.Claim.ServiceLines[0].Surface = "MO"
+	err = validateTradingPartnerProfile(partner, claim)
+	require.Error(t, err)
+	assert.Equal(t, "dental surface MO is not allowed for trading partner tp-crown-dental; allowed: O, M, D, B, L", err.Error())
+}
+
 func TestValidateTradingPartnerProfileAppliesClaimRules(t *testing.T) {
 	partners := seedTradingPartners()
 	inbound := inboundTransaction{
@@ -1679,6 +1726,9 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	assert.Equal(t, []string{"D7000-D7999"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DentalCDTRanges)
 	assert.Equal(t, []string{"XRAY", "PERIO", "NARR", "PLAN"}, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DentalRequiredAttachmentCodes)
 	assert.True(t, seedTradingPartners()["tp-vitesse-temple"].ValidationProfile.DentalRequiresToothNumber)
+	assert.Equal(t, []string{"270", "269", "275", "278", "837D"}, seedTradingPartners()["tp-crown-dental"].AllowedTransactionTypes)
+	assert.Equal(t, []string{"D1000-D4999"}, seedTradingPartners()["tp-crown-dental"].ValidationProfile.DentalCDTRanges)
+	assert.Equal(t, []string{"preventive-basic-only", "three-day-unsolicited-window", "pdf-or-image-evidence"}, seedTradingPartners()["tp-crown-dental"].ValidationProfile.DentalPredeterminationRules)
 	assert.Equal(t, []string{"ASHN", "RIM", "D"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }
 
@@ -2013,14 +2063,14 @@ func TestLoadTradingPartnersFallsBackOnDatabaseErrorAndOpenDBNoEnv(t *testing.T)
 	defer cleanup()
 	mock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
 		WillReturnError(assert.AnError)
-	assert.Len(t, loadTradingPartners(db), 4)
+	assert.Len(t, loadTradingPartners(db), 5)
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	emptyDB, emptyMock, emptyCleanup := newIntakeMockDB(t)
 	defer emptyCleanup()
 	emptyMock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "validation_profile", "route_target", "status"}))
-	assert.Len(t, loadTradingPartners(emptyDB), 4)
+	assert.Len(t, loadTradingPartners(emptyDB), 5)
 	require.NoError(t, emptyMock.ExpectationsWereMet())
 
 	t.Setenv("DATABASE_URL", "")

@@ -252,10 +252,13 @@ flowchart TD
     A["275 Attachment Request"] --> B{"Provider profile"}
     B --> C["Vitesse trading partner profile"]
     B --> D["Rimaros trading partner profile"]
+    B --> I["Crown Dental profile"]
     C --> E{"OZ + B4 + EL + text/plain + 4 KB"}
     D --> F{"OZ/PN + 03/B4 + EL + text/plain/pdf + 8 KB"}
+    I --> J{"Dental-only + D1000-D4999 + pdf/image + 6 KB"}
     E --> G["Emit 275 + raw X12"]
     F --> G
+    J --> G
     G --> H["Timeline: OZ/B4 attachment"]
 ```
 
@@ -270,6 +273,7 @@ flowchart TD
 - `GET /v1/transactions/{id}/document-reference` exposes a safe 275 vault receipt; embedded content can be downloaded from `/document-reference/content`.
 - Multi-attachment packets can submit repeated supporting documents as separate `275` transactions sharing `packetId`, `packetSequence`, and `packetCount`.
 - `edi-intake` rejects partner profile violations before forwarding, including unsupported attachment/report/content codes, bad control-number prefixes, oversized embedded content, unsupported `278` service/severity values, and dental CDT/tooth/surface/quadrant violations.
+- Crown Dental Clearinghouse is a stricter dental companion-guide variant: it allows only `270`, `269`, `275`, `278`, and `837D`, limits dental CDT codes to `D1000-D4999`, requires tooth numbers, permits single-surface values only, and accepts PDF/image evidence with `CROWN-` or `DENT-` controls.
 - The dashboard Partners tab shows each profile as a compact companion-guide matrix for `275` attachment rules, `278` authorization service/severity rules, `837` diagnosis/procedure rules, and dental predetermination rules.
 - Raw `275` X12 emits `GS08` as `006020X314` and includes claim `REF*1K` or authorization `REF*G1`, packet `REF*F8`, plus `REF*6R`, `PWK`, `LQ*AT`, `K3`, and optional `BIN`.
 - The timeline labels 275 steps using attachment/report metadata and review status, and transaction detail exposes request/response links plus JSON, XML, and X12 payload tabs for demos and debugging.

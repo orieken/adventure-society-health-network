@@ -37,7 +37,7 @@ func TestListProvidersReturnsSeededCatalog(t *testing.T) {
 	assert.NotEmpty(t, envelope.Lore)
 	var providers []domain.Provider
 	require.NoError(t, json.Unmarshal(envelope.Data, &providers))
-	assert.Len(t, providers, 6)
+	assert.Len(t, providers, 7)
 }
 
 func TestGetProviderReturnsNotFoundEnvelope(t *testing.T) {
@@ -193,7 +193,7 @@ func TestProviderLoadProvidersReadsDatabaseAndFallsBackWhenEmpty(t *testing.T) {
 	defer emptyCleanup()
 	emptyMock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "provider_type", "tier_rank", "region"}))
-	assert.Len(t, loadProviders(emptyDB), 6)
+	assert.Len(t, loadProviders(emptyDB), 7)
 	require.NoError(t, emptyMock.ExpectationsWereMet())
 }
 
@@ -202,7 +202,7 @@ func TestProviderLoadProvidersFallsBackOnDatabaseErrorAndOpenDBNoEnv(t *testing.
 	defer cleanup()
 	mock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").
 		WillReturnError(assert.AnError)
-	assert.Len(t, loadProviders(db), 6)
+	assert.Len(t, loadProviders(db), 7)
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	t.Setenv("DATABASE_URL", "")
@@ -251,7 +251,7 @@ func TestProviderLoadProvidersSkipsBadRowsAndFallsBackOnRowsError(t *testing.T) 
 		RowError(0, assert.AnError)
 	rowsErrMock.ExpectQuery("SELECT id, name, provider_type, tier_rank, region FROM providers").WillReturnRows(rows)
 
-	assert.Len(t, loadProviders(rowsErrDB), 6)
+	assert.Len(t, loadProviders(rowsErrDB), 7)
 	require.NoError(t, rowsErrMock.ExpectationsWereMet())
 }
 

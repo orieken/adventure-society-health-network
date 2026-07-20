@@ -1990,6 +1990,7 @@ func seedTradingPartners() map[string]domain.TradingPartner {
 		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
 		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
 		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
+		{ID: "tp-crown-dental", Name: "Crown Dental Clearinghouse", SenderID: "provider-crown-dental", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "278", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: crownDentalValidationProfile()},
 		{ID: "tp-adventure-society-remittance", Name: "Adventure Society Remittance", SenderID: "Adventure Society", ReceiverID: "provider-vitesse-temple", AllowedTransactionTypes: []string{"835"}, RouteTarget: "payer-core", Status: "active"},
 	} {
 		partners[partner.ID] = partner
@@ -2044,6 +2045,31 @@ func rimarosValidationProfile() domain.PartnerValidationProfile {
 		DentalAllowedSurfaces:           []string{"O", "M", "D", "B", "L", "MO", "DO", "MOD"},
 		DentalAllowedQuadrants:          []string{"UR", "UL", "LR", "LL"},
 		DentalPredeterminationRules:     []string{"broad-dental-review", "seven-day-unsolicited-window"},
+	}
+}
+
+func crownDentalValidationProfile() domain.PartnerValidationProfile {
+	return domain.PartnerValidationProfile{
+		AttachmentTypes:                 []string{"OZ"},
+		ReportTypeCodes:                 []string{"B4", "XR"},
+		TransmissionCodes:               []string{"EL"},
+		ContentTypes:                    []string{"application/pdf", "image/jpeg"},
+		AllowedFileExtensions:           []string{".pdf", ".jpg", ".jpeg"},
+		ControlNumberPrefixes:           []string{"CROWN-", "DENT-"},
+		MaxEmbeddedContentBytes:         6144,
+		MaxAttachmentsPerPacket:         4,
+		UnsolicitedAttachmentWindowDays: 3,
+		ServiceTypes:                    []string{"dental-predetermination"},
+		IncidentSeverities:              []string{"Normal", "Awakened"},
+		DiagnosisQualifiers:             []string{"ABK"},
+		DiagnosisCodes:                  []string{"K021", "K029"},
+		ProcedureCodePrefixes:           []string{"D"},
+		DentalCDTRanges:                 []string{"D1000-D4999"},
+		DentalRequiredAttachmentCodes:   []string{"XRAY", "NARR"},
+		DentalRequiresToothNumber:       true,
+		DentalAllowedSurfaces:           []string{"O", "M", "D", "B", "L"},
+		DentalAllowedQuadrants:          []string{"UR", "UL", "LR", "LL"},
+		DentalPredeterminationRules:     []string{"preventive-basic-only", "three-day-unsolicited-window", "pdf-or-image-evidence"},
 	}
 }
 
