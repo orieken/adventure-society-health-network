@@ -232,6 +232,55 @@ func TestAcceptRawX12RoutesClaimToPayerCore(t *testing.T) {
 	assert.Equal(t, "Raw X12 claim submitted.", decodeEnvelope(t, response).Lore)
 }
 
+func TestAcceptRawX12RoutesDentalClaimToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var claimRequest domain.ClaimRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/claims":
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&claimRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Data:        domain.Claim{ID: "claim-raw-837d", AdventurerID: claimRequest.AdventurerID, ProviderID: claimRequest.ProviderID, Status: domain.ClaimSubmitted},
+				Lore:        "Raw X12 dental claim submitted.",
+				Transaction: &domain.Transaction{Type: domain.Tx837D, Status: domain.TxStatusAccepted},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx837D, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw837DFixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/claims", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "adv-raw-837d", claimRequest.AdventurerID)
+	assert.Equal(t, "provider-vitesse-temple", claimRequest.ProviderID)
+	assert.Equal(t, domain.SeverityNormal, claimRequest.IncidentSeverity)
+	assert.Equal(t, int64(85000), claimRequest.AmountCents)
+	require.Len(t, claimRequest.Diagnoses, 1)
+	assert.Equal(t, "K021", claimRequest.Diagnoses[0].Code)
+	require.Len(t, claimRequest.ServiceLines, 1)
+	assert.Equal(t, "D7240", claimRequest.ServiceLines[0].ProcedureCode)
+	assert.Equal(t, "D7240", claimRequest.ServiceLines[0].CDTCode)
+	assert.Equal(t, "14", claimRequest.ServiceLines[0].ToothNumber)
+	assert.Equal(t, "MO", claimRequest.ServiceLines[0].Surface)
+	assert.Equal(t, "UR", claimRequest.ServiceLines[0].Quadrant)
+	assert.True(t, claimRequest.ServiceLines[0].Orthodontic)
+	assert.Equal(t, "Raw X12 dental claim submitted.", decodeEnvelope(t, response).Lore)
+}
+
 func TestAcceptRawX12RoutesEligibilityToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	var eligibilityRequest domain.EligibilityRequest
@@ -2110,6 +2159,30 @@ func raw837Fixture() string {
 		"SE*13*000000001~",
 		"GE*1*000000001~",
 		"IEA*1*000000001~",
+	}, "\n")
+}
+
+func raw837DFixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*00000837D*0*T*:~",
+		"GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*00000837D*X*005010X224A2~",
+		"ST*837D*00000837D~",
+		"BHT*0019*00*00000837D*20260708*1200*CH~",
+		"HL*1**20*1~",
+		"NM1*41*2*provider-vitesse-temple*****46*provider-vitesse-temple~",
+		"NM1*85*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+		"HL*2*1*22*0~",
+		"NM1*IL*1*adv-raw-837d****MI*adv-raw-837d~",
+		"CLM*claim-raw-837d*850.00***11:B:1*Y*A*Y*I~",
+		"HI*ABK:K021~",
+		"SV3*AD:D7240*850.00*UN*1***1~",
+		"TOO*JP*14~",
+		"REF*D9*SURFACE-MO~",
+		"REF*D9*QUADRANT-UR~",
+		"CRC*ZZ*Y*ORTHO~",
+		"SE*14*00000837D~",
+		"GE*1*00000837D~",
+		"IEA*1*00000837D~",
 	}, "\n")
 }
 

@@ -4,7 +4,7 @@ This backlog captures what ASHN already supports and the next useful build paths
 
 ## Current Foundation
 
-ASHN now has a working EDI intake boundary that accepts canonical XML/JSON payloads plus first-pass raw X12 `834`/`820`/`270`/`276`/`278`/`837`/`835`/`275`, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
+ASHN now has a working EDI intake boundary that accepts canonical XML/JSON payloads plus first-pass raw X12 `834`/`820`/`270`/`276`/`278`/`837`/`837D`/`835`/`275`, validates them, converts them into ASHN's internal transaction model, audits every submission, and forwards accepted work to `payer-core`.
 
 This keeps `payer-core` focused on business state while giving us a clean place to experiment with external data formats, trading partner rules, replay, and broader raw X12 intake.
 
@@ -51,7 +51,7 @@ Why this deserves a new service:
 - It supports XML, JSON, first-pass raw X12, and can later add file drops and async queues.
 - `payer-core` remains the source of truth for business rules, state transitions, transaction generation, and async jobs.
 
-Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. ASHN now uses XML/JSON for readable canonical demos and a small raw X12 parser for `834`, `820`, `270`, `276`, `278`, `837`, `835`, and `275` segment intake.
+Important nuance: real X12 is often exchanged as delimiter-based EDI text rather than XML. Many enterprise systems also use XML wrappers, canonical XML, or XML-based integration contracts around EDI workflows. ASHN now uses XML/JSON for readable canonical demos and a small raw X12 parser for `834`, `820`, `270`, `276`, `278`, `837`, `837D`, `835`, and `275` segment intake.
 
 ## XML Intake Architecture Decisions
 
@@ -73,6 +73,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Parse raw X12 `270` eligibility into canonical eligibility requests.
 - [x] Parse raw X12 `276` claim status into canonical status requests.
 - [x] Parse raw X12 `278` prior authorization into canonical authorization requests.
+- [x] Parse raw X12 `837D` dental claims with CDT, tooth, surface, quadrant, and orthodontic detail.
 - [x] Parse raw X12 `835` remittance/payment into canonical payment requests.
 - [x] Add copy buttons for raw transaction payloads.
 - [x] Add download buttons for raw transaction payloads.

@@ -77,6 +77,29 @@ func TestParseMapsSupportedRawX12Transactions(t *testing.T) {
 			},
 		},
 		{
+			name: "837D dental claim",
+			raw:  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*0000837D0*0*T*:~GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*0000837D0*X*005010X224A2~ST*837D*0000837D0~NM1*85*2*provider-vitesse-temple*****XX*provider-vitesse-temple~NM1*IL*1*Dental Ranger*****MI*adv-raw-837d~CLM*claim-raw-837d*850.00***11:B:1*Y*A*Y*I~HI*ABK:K021~SV3*AD:D7240*850.00*UN*1***1~TOO*JP*14~REF*D9*SURFACE-MO~REF*D9*QUADRANT-UR~CRC*ZZ*Y*ORTHO~SE*11*0000837D0~GE*1*0000837D0~IEA*1*0000837D0~",
+			assert: func(t *testing.T, parsed ParsedTransaction) {
+				require.NotNil(t, parsed.Claim)
+				assert.Equal(t, "837D", parsed.Type)
+				assert.Equal(t, "85000", parsed.Claim.AmountCents)
+				assert.Equal(t, []ClaimDiagnosis{{Qualifier: "ABK", Code: "K021", Primary: true}}, parsed.Claim.Diagnoses)
+				require.Len(t, parsed.Claim.ServiceLines, 1)
+				assert.Equal(t, ClaimServiceLine{
+					LineNumber:    1,
+					ProcedureCode: "D7240",
+					Description:   "Raw X12 dental service line",
+					Units:         1,
+					AmountCents:   "85000",
+					CDTCode:       "D7240",
+					ToothNumber:   "14",
+					Surface:       "MO",
+					Quadrant:      "UR",
+					Orthodontic:   true,
+				}, parsed.Claim.ServiceLines[0])
+			},
+		},
+		{
 			name: "275 attachment",
 			raw:  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000275*0*T*:~GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000275*X*006020X314~ST*275*000000275~BGN*11*trace-277~NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~REF*1K*claim-raw-275~REF*6R*ATTACH-275~REF*F8*packet-raw-1-OF-2~DTP*472*D8*20260718~PWK*B4*EL***AC*ATTACH-275~CAT*B4*TXT~OOI*DOC*ATTACH-275~BDS*ASC**Content-Type: text/plain~LQ*AT*OZ~K3*Document-Reference: https://docs.example.test/raw.pdf~SE*14*000000275~GE*1*000000275~IEA*1*000000275~",
 			assert: func(t *testing.T, parsed ParsedTransaction) {

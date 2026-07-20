@@ -189,6 +189,12 @@ func Parse(body []byte) (ParsedTransaction, error) {
 			return parsed, err
 		}
 		parsed.Claim = &claim
+	case domain.Tx837D:
+		claim, err := raw837DClaim(segmentMap, parsed.Sender.ID)
+		if err != nil {
+			return parsed, err
+		}
+		parsed.Claim = &claim
 	case domain.Tx275:
 		attachment, err := raw275Attachment(segmentMap, parsed.Sender.ID)
 		if err != nil {
@@ -307,6 +313,15 @@ func raw837Claim(segmentMap map[string][][]string, senderID string) (Claim, erro
 	if claim.IncidentSeverity == "" {
 		claim.IncidentSeverity = string(domain.SeverityNormal)
 	}
+	return claim, nil
+}
+
+func raw837DClaim(segmentMap map[string][][]string, senderID string) (Claim, error) {
+	claim, err := raw837Claim(segmentMap, senderID)
+	if err != nil {
+		return Claim{}, err
+	}
+	claim.ServiceLines = raw837DServiceLines(segmentMap)
 	return claim, nil
 }
 
@@ -472,6 +487,66 @@ func raw837ServiceLines(segmentMap map[string][][]string) []ClaimServiceLine {
 		serviceLines = append(serviceLines, line)
 	}
 	return serviceLines
+}
+
+func raw837DServiceLines(segmentMap map[string][][]string) []ClaimServiceLine {
+	serviceLines := []ClaimServiceLine{}
+	dentalContext := rawDentalServiceContext(segmentMap)
+	for index, sv3 := range segmentMap["SV3"] {
+		if len(sv3) < 3 {
+			continue
+		}
+		amountCents := rawAmountCents(sv3[2])
+		if amountCents == "" {
+			continue
+		}
+		cdtCode := rawProcedureCode(sv3[1])
+		line := ClaimServiceLine{
+			LineNumber:    index + 1,
+			ProcedureCode: cdtCode,
+			Description:   "Raw X12 dental service line",
+			Units:         rawServiceUnits(sv3),
+			AmountCents:   amountCents,
+			CDTCode:       cdtCode,
+			ToothNumber:   dentalContext.ToothNumber,
+			Surface:       dentalContext.Surface,
+			Quadrant:      dentalContext.Quadrant,
+			Orthodontic:   dentalContext.Orthodontic,
+		}
+		if len(sv3) > 7 {
+			if parsed, err := strconv.Atoi(strings.TrimSpace(sv3[7])); err == nil && parsed > 0 {
+				line.LineNumber = parsed
+			}
+		}
+		serviceLines = append(serviceLines, line)
+	}
+	return serviceLines
+}
+
+func rawDentalServiceContext(segmentMap map[string][][]string) DentalService {
+	context := DentalService{}
+	if too := firstRawSegment(segmentMap, "TOO"); len(too) > 2 {
+		context.ToothNumber = strings.TrimSpace(too[2])
+	}
+	for _, ref := range segmentMap["REF"] {
+		if len(ref) < 3 || !strings.EqualFold(strings.TrimSpace(ref[1]), "D9") {
+			continue
+		}
+		value := strings.TrimSpace(ref[2])
+		switch {
+		case strings.HasPrefix(strings.ToUpper(value), "SURFACE-"):
+			context.Surface = strings.TrimSpace(value[len("SURFACE-"):])
+		case strings.HasPrefix(strings.ToUpper(value), "QUADRANT-"):
+			context.Quadrant = strings.TrimSpace(value[len("QUADRANT-"):])
+		}
+	}
+	for _, crc := range segmentMap["CRC"] {
+		if len(crc) >= 4 && strings.EqualFold(strings.TrimSpace(crc[1]), "ZZ") && strings.EqualFold(strings.TrimSpace(crc[3]), "ORTHO") {
+			context.Orthodontic = true
+			break
+		}
+	}
+	return context
 }
 
 func raw837Diagnoses(segmentMap map[string][][]string) []ClaimDiagnosis {
