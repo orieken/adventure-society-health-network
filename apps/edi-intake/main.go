@@ -33,20 +33,21 @@ type intakeApp struct {
 }
 
 type inboundTransaction struct {
-	XMLName              xml.Name             `xml:"AshnX12Transaction" json:"-"`
-	Type                 string               `xml:"type,attr" json:"type"`
-	Sender               party                `xml:"Sender" json:"sender"`
-	Receiver             party                `xml:"Receiver" json:"receiver"`
-	Enrollment           *xmlEnrollment       `xml:"Enrollment" json:"enrollment,omitempty"`
-	EligibilityInquiry   *xmlEligibility      `xml:"EligibilityInquiry" json:"eligibilityInquiry,omitempty"`
-	PriorAuthorization   *xmlPriorAuth        `xml:"PriorAuthorization" json:"priorAuthorization,omitempty"`
-	Attachment           *xmlAttachment       `xml:"Attachment" json:"attachment,omitempty"`
-	AttachmentPacket     *xmlAttachmentPacket `xml:"AttachmentPacket" json:"attachmentPacket,omitempty"`
-	Claim                *xmlClaim            `xml:"Claim" json:"claim,omitempty"`
-	ClaimStatusRequest   *xmlClaimStatus      `xml:"ClaimStatusRequest" json:"claimStatusRequest,omitempty"`
-	Payment              *xmlPayment          `xml:"Payment" json:"payment,omitempty"`
-	PremiumPayment       *xmlPremiumPayment   `xml:"PremiumPayment" json:"premiumPayment,omitempty"`
-	RawUnsupportedFields []xml.Name           `xml:",any" json:"-"`
+	XMLName              xml.Name                `xml:"AshnX12Transaction" json:"-"`
+	Type                 string                  `xml:"type,attr" json:"type"`
+	Sender               party                   `xml:"Sender" json:"sender"`
+	Receiver             party                   `xml:"Receiver" json:"receiver"`
+	Enrollment           *xmlEnrollment          `xml:"Enrollment" json:"enrollment,omitempty"`
+	EligibilityInquiry   *xmlEligibility         `xml:"EligibilityInquiry" json:"eligibilityInquiry,omitempty"`
+	BenefitCoordination  *xmlBenefitCoordination `xml:"BenefitCoordination" json:"benefitCoordination,omitempty"`
+	PriorAuthorization   *xmlPriorAuth           `xml:"PriorAuthorization" json:"priorAuthorization,omitempty"`
+	Attachment           *xmlAttachment          `xml:"Attachment" json:"attachment,omitempty"`
+	AttachmentPacket     *xmlAttachmentPacket    `xml:"AttachmentPacket" json:"attachmentPacket,omitempty"`
+	Claim                *xmlClaim               `xml:"Claim" json:"claim,omitempty"`
+	ClaimStatusRequest   *xmlClaimStatus         `xml:"ClaimStatusRequest" json:"claimStatusRequest,omitempty"`
+	Payment              *xmlPayment             `xml:"Payment" json:"payment,omitempty"`
+	PremiumPayment       *xmlPremiumPayment      `xml:"PremiumPayment" json:"premiumPayment,omitempty"`
+	RawUnsupportedFields []xml.Name              `xml:",any" json:"-"`
 }
 
 type party struct {
@@ -64,6 +65,14 @@ type xmlEligibility struct {
 	AdventurerID string `xml:"AdventurerId" json:"adventurerId"`
 	ProviderID   string `xml:"ProviderId" json:"providerId"`
 	ServiceType  string `xml:"ServiceType" json:"serviceType,omitempty"`
+}
+
+type xmlBenefitCoordination struct {
+	AdventurerID     string `xml:"AdventurerId" json:"adventurerId"`
+	ProviderID       string `xml:"ProviderId" json:"providerId"`
+	PrimaryPayerID   string `xml:"PrimaryPayerId" json:"primaryPayerId"`
+	SecondaryPayerID string `xml:"SecondaryPayerId" json:"secondaryPayerId"`
+	ServiceType      string `xml:"ServiceType" json:"serviceType,omitempty"`
 }
 
 type xmlPriorAuth struct {
@@ -424,6 +433,7 @@ func parseInboundRawX12(body []byte) (inboundTransaction, error) {
 	inbound.Enrollment = xmlEnrollmentFromParsed(parsed.Enrollment)
 	inbound.PremiumPayment = xmlPremiumPaymentFromParsed(parsed.PremiumPayment)
 	inbound.EligibilityInquiry = xmlEligibilityFromParsed(parsed.EligibilityInquiry)
+	inbound.BenefitCoordination = xmlBenefitCoordinationFromParsed(parsed.BenefitCoordination)
 	inbound.ClaimStatusRequest = xmlClaimStatusFromParsed(parsed.ClaimStatusRequest)
 	inbound.PriorAuthorization = xmlPriorAuthFromParsed(parsed.PriorAuthorization)
 	inbound.Claim = xmlClaimFromParsed(parsed.Claim)
@@ -451,6 +461,19 @@ func xmlEligibilityFromParsed(value *x12parser.Eligibility) *xmlEligibility {
 		return nil
 	}
 	return &xmlEligibility{AdventurerID: value.AdventurerID, ProviderID: value.ProviderID, ServiceType: value.ServiceType}
+}
+
+func xmlBenefitCoordinationFromParsed(value *x12parser.BenefitCoordination) *xmlBenefitCoordination {
+	if value == nil {
+		return nil
+	}
+	return &xmlBenefitCoordination{
+		AdventurerID:     value.AdventurerID,
+		ProviderID:       value.ProviderID,
+		PrimaryPayerID:   value.PrimaryPayerID,
+		SecondaryPayerID: value.SecondaryPayerID,
+		ServiceType:      value.ServiceType,
+	}
 }
 
 func xmlClaimStatusFromParsed(value *x12parser.ClaimStatus) *xmlClaimStatus {
@@ -610,6 +633,28 @@ func (t inboundTransaction) toPayerRequest() (string, string, any, error) {
 			AdventurerID: strings.TrimSpace(t.EligibilityInquiry.AdventurerID),
 			ProviderID:   strings.TrimSpace(t.EligibilityInquiry.ProviderID),
 			ServiceType:  strings.TrimSpace(t.EligibilityInquiry.ServiceType),
+		}, nil
+	case domain.Tx269:
+		if t.BenefitCoordination == nil {
+			return "", "", nil, fmt.Errorf("missing benefit coordination")
+		}
+		if err := requireFields(map[string]string{
+			"AdventurerId":     t.BenefitCoordination.AdventurerID,
+			"ProviderId":       t.BenefitCoordination.ProviderID,
+			"PrimaryPayerId":   t.BenefitCoordination.PrimaryPayerID,
+			"SecondaryPayerId": t.BenefitCoordination.SecondaryPayerID,
+		}); err != nil {
+			return "", "", nil, err
+		}
+		if err := validateProviderSender(t.Sender.ID, t.BenefitCoordination.ProviderID); err != nil {
+			return "", "", nil, err
+		}
+		return http.MethodPost, "/benefit-coordination", domain.BenefitCoordinationRequest{
+			AdventurerID:     strings.TrimSpace(t.BenefitCoordination.AdventurerID),
+			ProviderID:       strings.TrimSpace(t.BenefitCoordination.ProviderID),
+			PrimaryPayerID:   strings.TrimSpace(t.BenefitCoordination.PrimaryPayerID),
+			SecondaryPayerID: strings.TrimSpace(t.BenefitCoordination.SecondaryPayerID),
+			ServiceType:      strings.TrimSpace(t.BenefitCoordination.ServiceType),
 		}, nil
 	case domain.Tx275:
 		attachments, packetID, claimID, authorizationTransactionID, err := t.attachmentRequests()
@@ -1943,8 +1988,8 @@ func seedTradingPartners() map[string]domain.TradingPartner {
 	partners := map[string]domain.TradingPartner{}
 	for _, partner := range []domain.TradingPartner{
 		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
-		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
-		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
+		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
+		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
 		{ID: "tp-adventure-society-remittance", Name: "Adventure Society Remittance", SenderID: "Adventure Society", ReceiverID: "provider-vitesse-temple", AllowedTransactionTypes: []string{"835"}, RouteTarget: "payer-core", Status: "active"},
 	} {
 		partners[partner.ID] = partner

@@ -101,6 +101,42 @@ func TestEligibilityReturns270And271Pair(t *testing.T) {
 	assert.Len(t, app.transactions, 2)
 }
 
+func TestCoordinateBenefitsCreates269(t *testing.T) {
+	app := newTestStore()
+	app.adventurers["adv-1"] = domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankGold, CoverageStatus: domain.CoverageActive}
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/benefit-coordination", domain.BenefitCoordinationRequest{
+		AdventurerID:     "adv-1",
+		ProviderID:       "provider-vitesse-temple",
+		PrimaryPayerID:   "Adventure Society",
+		SecondaryPayerID: "guild-secondary-plan",
+		ServiceType:      "dental",
+	})
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	envelope := decodeEnvelope(t, response)
+	require.NotNil(t, envelope.Transaction)
+	assert.Equal(t, domain.Tx269, envelope.Transaction.Type)
+	assert.Equal(t, domain.TxStatusAccepted, envelope.Transaction.Status)
+	assert.Contains(t, envelope.Transaction.RawX12, "ST*269")
+	assert.Contains(t, envelope.Transaction.RawX12, "REF*2U*guild-secondary-plan")
+	assert.Contains(t, app.transactions, envelope.Transaction.ID)
+}
+
+func TestCoordinateBenefitsRejectsMissingFields(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodPost, "/benefit-coordination", domain.BenefitCoordinationRequest{
+		AdventurerID: "adv-1",
+		ProviderID:   "provider-vitesse-temple",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.Equal(t, "invalid benefit coordination request", decodeEnvelope(t, response).Error)
+}
+
 func TestDentalEligibilityReturnsBenefitDetails(t *testing.T) {
 	app := newTestStore()
 	adventurer := domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankGold, CoverageStatus: domain.CoverageActive}
@@ -1584,6 +1620,7 @@ func TestPayerOpenAPIIncludesWorkflowRoutes(t *testing.T) {
 	assert.Equal(t, "ASHN Payer Core", info["title"])
 	paths := spec["paths"].(map[string]any)
 	assert.Contains(t, paths, "/enrollments")
+	assert.Contains(t, paths, "/benefit-coordination")
 	assert.Contains(t, paths, "/claims/{id}/payment")
 	assert.Contains(t, paths, "/transactions/{id}/replay")
 }
@@ -2211,6 +2248,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
 	mux.HandleFunc("POST /premium-payments", app.recordPremiumPayment)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
+	mux.HandleFunc("POST /benefit-coordination", app.coordinateBenefits)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)
 	mux.HandleFunc("POST /auth-requests/{id}/attachments", app.attachAuthorizationInformation)

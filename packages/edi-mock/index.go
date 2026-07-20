@@ -49,6 +49,20 @@ func Generate271(adventurer domain.Adventurer, eligibility bool, serviceTypes ..
 	return transaction(domain.Tx271, status, "Adventure Society", adventurer.ID, payload)
 }
 
+func Generate269(request domain.BenefitCoordinationRequest) domain.Transaction {
+	serviceType := eligibilityServiceType(request.ServiceType)
+	return transaction(domain.Tx269, domain.TxStatusAccepted, request.ProviderID, "Adventure Society", map[string]any{
+		"x12":              "269 Health Care Benefit Coordination",
+		"adventurerId":     request.AdventurerID,
+		"providerId":       request.ProviderID,
+		"primaryPayerId":   request.PrimaryPayerID,
+		"secondaryPayerId": request.SecondaryPayerID,
+		"serviceType":      serviceType,
+		"coordination":     "primary payer remains Adventure Society; secondary payer captured for COB review",
+		"lore":             lore.ThemeTransaction(domain.Tx269, request.PrimaryPayerID, request.SecondaryPayerID),
+	})
+}
+
 func DentalEligibility(adventurer domain.Adventurer, eligible bool) domain.DentalEligibilityDetail {
 	remainingMaximumCents := int64(0)
 	if eligible {
@@ -335,6 +349,25 @@ func transactionSegments(tx domain.Transaction) []string {
 			segments = append(segments, dentalEligibilitySegments(tx)...)
 		}
 		return segments
+	case domain.Tx269:
+		serviceType := payloadString(tx, "serviceType", "medical")
+		eqCode := "30"
+		if isDentalEligibility(serviceType) {
+			eqCode = "35"
+		}
+		return []string{
+			"TRN*1*" + element(tx.ID) + "*" + element(tx.SenderID) + "~",
+			"HL*1**20*1~",
+			"NM1*PR*2*" + element(payloadString(tx, "primaryPayerId", tx.ReceiverID)) + "*****PI*" + element(payloadString(tx, "primaryPayerId", tx.ReceiverID)) + "~",
+			"NM1*PR*2*" + element(payloadString(tx, "secondaryPayerId", "secondary-payer")) + "*****PI*" + element(payloadString(tx, "secondaryPayerId", "secondary-payer")) + "~",
+			"HL*2*1*21*1~",
+			"NM1*1P*2*" + element(payloadString(tx, "providerId", tx.SenderID)) + "*****XX*" + element(payloadString(tx, "providerId", tx.SenderID)) + "~",
+			"HL*3*2*22*0~",
+			"NM1*IL*1*" + element(payloadString(tx, "adventurerId", tx.ID)) + "****MI*" + element(payloadString(tx, "adventurerId", tx.ID)) + "~",
+			"REF*6P*" + element(payloadString(tx, "primaryPayerId", tx.ReceiverID)) + "~",
+			"REF*2U*" + element(payloadString(tx, "secondaryPayerId", "secondary-payer")) + "~",
+			"EQ*" + eqCode + "~",
+		}
 	case domain.Tx275:
 		attachment := attachmentInfo(tx)
 		segments := []string{
@@ -495,6 +528,8 @@ func implementationGuide(txType domain.TransactionType) string {
 		return "218"
 	case domain.Tx270, domain.Tx271:
 		return "270A1"
+	case domain.Tx269:
+		return "269A1"
 	case domain.Tx275:
 		return "275A1"
 	case domain.Tx276, domain.Tx277:

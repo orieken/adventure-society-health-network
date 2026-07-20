@@ -83,6 +83,8 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.proxy(w, r, g.payerURL, path)
 	case path == "/eligibility" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, "/eligibility/query")
+	case path == "/benefit-coordination" && r.Method == http.MethodPost:
+		g.proxy(w, r, g.payerURL, path)
 	case path == "/auth-requests" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, path)
 	case strings.HasPrefix(path, "/auth-requests/") && r.Method == http.MethodPost:
@@ -675,7 +677,10 @@ func apiGatewayOpenAPI() map[string]any {
 			},
 			"/v1/adventurers/{id}": {"get": {Summary: "Get an adventurer", Tags: []string{"adventurers"}}},
 			"/v1/eligibility":      {"post": {Summary: "Run 270/271 eligibility", Tags: []string{"eligibility", "x12"}, RequestBody: true}},
-			"/v1/auth-requests":    {"post": {Summary: "Submit 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true}},
+			"/v1/benefit-coordination": {
+				"post": {Summary: "Record 269 benefit coordination", Tags: []string{"benefits", "x12"}, RequestBody: true},
+			},
+			"/v1/auth-requests": {"post": {Summary: "Submit 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true}},
 			"/v1/auth-requests/{id}/decision": {
 				"post": {Summary: "Approve or deny a 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true},
 			},

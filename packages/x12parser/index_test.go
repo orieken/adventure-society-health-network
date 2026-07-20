@@ -45,6 +45,19 @@ func TestParseMapsSupportedRawX12Transactions(t *testing.T) {
 			},
 		},
 		{
+			name: "269 benefit coordination",
+			raw:  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000269*0*T*:~GS*HS*provider-vitesse-temple*Adventure Society*20260708*1200*000000269*X*005010X269A1~ST*269*000000269~NM1*PR*2*Adventure Society*****PI*Adventure Society~NM1*PR*2*guild-secondary-plan*****PI*guild-secondary-plan~NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~NM1*IL*1*Coordination Ranger*****MI*adv-raw-269~REF*2U*guild-secondary-plan~EQ*35~SE*8*000000269~GE*1*000000269~IEA*1*000000269~",
+			assert: func(t *testing.T, parsed ParsedTransaction) {
+				require.NotNil(t, parsed.BenefitCoordination)
+				assert.Equal(t, "269", parsed.Type)
+				assert.Equal(t, "adv-raw-269", parsed.BenefitCoordination.AdventurerID)
+				assert.Equal(t, "provider-vitesse-temple", parsed.BenefitCoordination.ProviderID)
+				assert.Equal(t, "Adventure Society", parsed.BenefitCoordination.PrimaryPayerID)
+				assert.Equal(t, "guild-secondary-plan", parsed.BenefitCoordination.SecondaryPayerID)
+				assert.Equal(t, "dental", parsed.BenefitCoordination.ServiceType)
+			},
+		},
+		{
 			name: "276 claim status",
 			raw:  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000276*0*T*:~GS*HR*provider-vitesse-temple*Adventure Society*20260708*1200*000000276*X*005010X212~ST*276*000000276~REF*1K*claim-raw-276~SE*3*000000276~GE*1*000000276~IEA*1*000000276~",
 			assert: func(t *testing.T, parsed ParsedTransaction) {

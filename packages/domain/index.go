@@ -296,6 +296,14 @@ type EligibilityRequest struct {
 	ServiceType  string `json:"serviceType,omitempty"`
 }
 
+type BenefitCoordinationRequest struct {
+	AdventurerID     string `json:"adventurerId"`
+	ProviderID       string `json:"providerId"`
+	PrimaryPayerID   string `json:"primaryPayerId"`
+	SecondaryPayerID string `json:"secondaryPayerId"`
+	ServiceType      string `json:"serviceType,omitempty"`
+}
+
 type DentalEligibilityDetail struct {
 	ServiceType               string `json:"serviceType"`
 	AnnualMaximumCents        int64  `json:"annualMaximumCents"`

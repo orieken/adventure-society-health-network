@@ -9,17 +9,18 @@ import (
 )
 
 type ParsedTransaction struct {
-	Type               string
-	Sender             Party
-	Receiver           Party
-	Enrollment         *Enrollment
-	EligibilityInquiry *Eligibility
-	PriorAuthorization *PriorAuthorization
-	Attachment         *Attachment
-	Claim              *Claim
-	ClaimStatusRequest *ClaimStatus
-	Payment            *Payment
-	PremiumPayment     *PremiumPayment
+	Type                string
+	Sender              Party
+	Receiver            Party
+	Enrollment          *Enrollment
+	EligibilityInquiry  *Eligibility
+	BenefitCoordination *BenefitCoordination
+	PriorAuthorization  *PriorAuthorization
+	Attachment          *Attachment
+	Claim               *Claim
+	ClaimStatusRequest  *ClaimStatus
+	Payment             *Payment
+	PremiumPayment      *PremiumPayment
 }
 
 type Party struct {
@@ -37,6 +38,14 @@ type Eligibility struct {
 	AdventurerID string
 	ProviderID   string
 	ServiceType  string
+}
+
+type BenefitCoordination struct {
+	AdventurerID     string
+	ProviderID       string
+	PrimaryPayerID   string
+	SecondaryPayerID string
+	ServiceType      string
 }
 
 type PriorAuthorization struct {
@@ -171,6 +180,12 @@ func Parse(body []byte) (ParsedTransaction, error) {
 			return parsed, err
 		}
 		parsed.EligibilityInquiry = &eligibility
+	case domain.Tx269:
+		coordination, err := raw269BenefitCoordination(segmentMap, parsed.Sender.ID, parsed.Receiver.ID)
+		if err != nil {
+			return parsed, err
+		}
+		parsed.BenefitCoordination = &coordination
 	case domain.Tx276:
 		claimStatus, err := raw276ClaimStatus(segmentMap)
 		if err != nil {
@@ -211,6 +226,29 @@ func Parse(body []byte) (ParsedTransaction, error) {
 		return parsed, fmt.Errorf("raw X12 transaction type %s not implemented", parsed.Type)
 	}
 	return parsed, nil
+}
+
+func raw269BenefitCoordination(segmentMap map[string][][]string, senderID, receiverID string) (BenefitCoordination, error) {
+	coordination := BenefitCoordination{
+		AdventurerID:     rawNM1ID(segmentMap, "IL"),
+		ProviderID:       firstNonEmpty(rawNM1ID(segmentMap, "1P"), senderID),
+		PrimaryPayerID:   firstNonEmpty(rawNM1ID(segmentMap, "PR"), receiverID),
+		SecondaryPayerID: rawSecondaryPayerID(segmentMap),
+		ServiceType:      rawEligibilityServiceType(segmentMap),
+	}
+	if coordination.AdventurerID == "" {
+		return BenefitCoordination{}, fmt.Errorf("missing subscriber NM1 segment")
+	}
+	if coordination.ProviderID == "" {
+		return BenefitCoordination{}, fmt.Errorf("missing provider NM1 segment")
+	}
+	if coordination.PrimaryPayerID == "" {
+		return BenefitCoordination{}, fmt.Errorf("missing primary payer NM1 segment")
+	}
+	if coordination.SecondaryPayerID == "" {
+		return BenefitCoordination{}, fmt.Errorf("missing secondary payer NM1 segment")
+	}
+	return coordination, nil
 }
 
 func raw834Enrollment(segmentMap map[string][][]string) (Enrollment, error) {
@@ -640,6 +678,28 @@ func rawNM1Name(segmentMap map[string][][]string, entityCode string) string {
 	return ""
 }
 
+func rawSecondaryPayerID(segmentMap map[string][][]string) string {
+	payerCount := 0
+	for _, nm1 := range segmentMap["NM1"] {
+		if len(nm1) < 4 || !strings.EqualFold(nm1[1], "PR") {
+			continue
+		}
+		payerCount++
+		if payerCount == 2 {
+			if len(nm1) > 9 && strings.TrimSpace(nm1[9]) != "" {
+				return strings.TrimSpace(nm1[9])
+			}
+			return strings.TrimSpace(nm1[3])
+		}
+	}
+	for _, ref := range segmentMap["REF"] {
+		if len(ref) >= 3 && strings.EqualFold(strings.TrimSpace(ref[1]), "2U") {
+			return strings.TrimSpace(ref[2])
+		}
+	}
+	return ""
+}
+
 func rawK3Value(segmentMap map[string][][]string, key string) string {
 	prefix := strings.ToLower(strings.TrimSpace(key)) + ":"
 	for _, k3 := range segmentMap["K3"] {
@@ -668,6 +728,17 @@ func rawServiceType(segmentMap map[string][][]string) string {
 		return strings.TrimSpace(eq[1])
 	}
 	return ""
+}
+
+func rawEligibilityServiceType(segmentMap map[string][][]string) string {
+	switch rawServiceType(segmentMap) {
+	case "35":
+		return "dental"
+	case "30":
+		return "medical"
+	default:
+		return rawServiceType(segmentMap)
+	}
 }
 
 func raw278ServiceType(segmentMap map[string][][]string) string {

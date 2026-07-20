@@ -82,7 +82,7 @@ sequenceDiagram
 | `277` | Claim status response | Society returns the claim’s current status | `Accepted` |
 | `999` | Implementation acknowledgment | Intake confirms whether an XML submission was accepted or rejected | `Accepted` or `Failed` |
 | `277CA` | Claim acknowledgment | Society confirms receipt of an `837` claim before adjudication | `Accepted` |
-| `269` | Health care benefit coordination | Reserved in the domain model for future coordination workflows | Not yet emitted |
+| `269` | Health care benefit coordination | Provider records primary/secondary payer coordination context | `Accepted` |
 
 ## How Each Step Works
 
@@ -316,7 +316,7 @@ This gives the demo a realistic EDI boundary: not every external sender can subm
 
 ## What Is Real vs. Simplified
 
-ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `834` enrollment, `820` premium payment, `270` eligibility, `276` claim status, `278` prior authorization and dental predetermination, `837` professional claim, `837D` dental claim, `835` remittance/payment, and `275` attachment messages into canonical ASHN requests. The parser build-vs-integrate recommendation is captured in [X12 Parser Strategy](x12-parser-strategy.md).
+ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `834` enrollment, `820` premium payment, `270` eligibility, `269` benefit coordination, `276` claim status, `278` prior authorization and dental predetermination, `837` professional claim, `837D` dental claim, `835` remittance/payment, and `275` attachment messages into canonical ASHN requests. The parser build-vs-integrate recommendation is captured in [X12 Parser Strategy](x12-parser-strategy.md).
 
 What it models well:
 

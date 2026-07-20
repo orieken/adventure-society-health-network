@@ -92,6 +92,7 @@ func main() {
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
 	mux.HandleFunc("POST /premium-payments", app.recordPremiumPayment)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
+	mux.HandleFunc("POST /benefit-coordination", app.coordinateBenefits)
 	mux.HandleFunc("POST /auth-requests", app.authRequest)
 	mux.HandleFunc("POST /auth-requests/{id}/decision", app.decideAuthorization)
 	mux.HandleFunc("POST /auth-requests/{id}/attachments", app.attachAuthorizationInformation)
@@ -193,6 +194,37 @@ func (s *store) eligibility(w http.ResponseWriter, r *http.Request) {
 		data["dentalEligibility"] = edimock.DentalEligibility(adventurer, eligible)
 	}
 	respond(w, http.StatusOK, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx271, adventurer.Name, "Adventure Society"), Transactions: []domain.Transaction{inquiry, response}})
+}
+
+func (s *store) coordinateBenefits(w http.ResponseWriter, r *http.Request) {
+	var req domain.BenefitCoordinationRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	req.AdventurerID = strings.TrimSpace(req.AdventurerID)
+	req.ProviderID = strings.TrimSpace(req.ProviderID)
+	req.PrimaryPayerID = strings.TrimSpace(req.PrimaryPayerID)
+	req.SecondaryPayerID = strings.TrimSpace(req.SecondaryPayerID)
+	req.ServiceType = strings.TrimSpace(req.ServiceType)
+	if req.AdventurerID == "" || req.ProviderID == "" || req.PrimaryPayerID == "" || req.SecondaryPayerID == "" {
+		fail(w, http.StatusBadRequest, "invalid benefit coordination request", "The coordination scroll needs adventurer, provider, primary payer, and secondary payer seals.")
+		return
+	}
+	adventurer, provider, ok := s.findAdventurerProvider(w, req.AdventurerID, req.ProviderID)
+	if !ok {
+		return
+	}
+	tx := edimock.Generate269(req)
+	s.saveTransaction(tx)
+	data := map[string]any{
+		"adventurerId":     adventurer.ID,
+		"providerId":       provider.ID,
+		"primaryPayerId":   req.PrimaryPayerID,
+		"secondaryPayerId": req.SecondaryPayerID,
+		"serviceType":      req.ServiceType,
+		"coordination":     "accepted",
+	}
+	respond(w, http.StatusCreated, domain.Envelope{Data: data, Lore: lore.ThemeTransaction(domain.Tx269, req.PrimaryPayerID, req.SecondaryPayerID), Transaction: &tx})
 }
 
 func (s *store) authRequest(w http.ResponseWriter, r *http.Request) {
@@ -2549,6 +2581,9 @@ func payerOpenAPI() map[string]any {
 			},
 			"/eligibility/query": {
 				"post": {Summary: "Run 270/271 eligibility", Tags: []string{"eligibility", "x12"}, RequestBody: true},
+			},
+			"/benefit-coordination": {
+				"post": {Summary: "Record 269 benefit coordination", Tags: []string{"benefits", "x12"}, RequestBody: true},
 			},
 			"/auth-requests": {
 				"post": {Summary: "Submit 278 authorization", Tags: []string{"authorizations", "x12"}, RequestBody: true},

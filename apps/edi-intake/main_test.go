@@ -319,6 +319,52 @@ func TestAcceptRawX12RoutesEligibilityToPayerCore(t *testing.T) {
 	assert.Equal(t, "Raw X12 eligibility checked.", decodeEnvelope(t, response).Lore)
 }
 
+func TestAcceptRawX12RoutesBenefitCoordinationToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var coordinationRequest domain.BenefitCoordinationRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/benefit-coordination":
+			assert.Equal(t, http.MethodPost, r.Method)
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&coordinationRequest))
+			return jsonResponse(http.StatusCreated, domain.Envelope{
+				Data: map[string]string{"transactionId": "tx-raw-269", "status": "Accepted"},
+				Lore: "Raw X12 benefit coordination accepted.",
+				Transaction: &domain.Transaction{
+					ID:     "tx-raw-269",
+					Type:   domain.Tx269,
+					Status: domain.TxStatusAccepted,
+				},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx269, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw269Fixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusCreated, response.Code)
+	assert.Equal(t, []string{"/benefit-coordination", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "adv-raw-269", coordinationRequest.AdventurerID)
+	assert.Equal(t, "provider-vitesse-temple", coordinationRequest.ProviderID)
+	assert.Equal(t, "Adventure Society", coordinationRequest.PrimaryPayerID)
+	assert.Equal(t, "guild-secondary-plan", coordinationRequest.SecondaryPayerID)
+	assert.Equal(t, "dental", coordinationRequest.ServiceType)
+	assert.Equal(t, "Raw X12 benefit coordination accepted.", decodeEnvelope(t, response).Lore)
+}
+
 func TestParseRawX12MapsDentalEligibilityServiceType(t *testing.T) {
 	inbound, err := parseInboundRawX12([]byte(strings.Replace(raw270Fixture(), "EQ*30~", "EQ*35~", 1)))
 	require.NoError(t, err)
@@ -1012,6 +1058,18 @@ func TestInboundRawX12ParsesSupportedTransactionTypes(t *testing.T) {
 	require.NotNil(t, eligibility.EligibilityInquiry)
 	assert.Equal(t, "adv-raw-270", eligibility.EligibilityInquiry.AdventurerID)
 	assert.Equal(t, "provider-vitesse-temple", eligibility.EligibilityInquiry.ProviderID)
+
+	coordination, err := parseInboundRawX12([]byte(raw269Fixture()))
+	require.NoError(t, err)
+	assert.Equal(t, "269", coordination.Type)
+	assert.Equal(t, "provider-vitesse-temple", coordination.Sender.ID)
+	assert.Equal(t, "Adventure Society", coordination.Receiver.ID)
+	require.NotNil(t, coordination.BenefitCoordination)
+	assert.Equal(t, "adv-raw-269", coordination.BenefitCoordination.AdventurerID)
+	assert.Equal(t, "provider-vitesse-temple", coordination.BenefitCoordination.ProviderID)
+	assert.Equal(t, "Adventure Society", coordination.BenefitCoordination.PrimaryPayerID)
+	assert.Equal(t, "guild-secondary-plan", coordination.BenefitCoordination.SecondaryPayerID)
+	assert.Equal(t, "dental", coordination.BenefitCoordination.ServiceType)
 
 	status, err := parseInboundRawX12([]byte(raw276Fixture()))
 	require.NoError(t, err)
@@ -2284,6 +2342,29 @@ func raw270Fixture() string {
 		"SE*9*000000003~",
 		"GE*1*000000003~",
 		"IEA*1*000000003~",
+	}, "\n")
+}
+
+func raw269Fixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000269*0*T*:~",
+		"GS*HS*provider-vitesse-temple*Adventure Society*20260708*1200*000000269*X*005010X269A1~",
+		"ST*269*000000269~",
+		"BHT*0022*13*000000269*20260708*1200~",
+		"TRN*1*tx-raw-269*provider-vitesse-temple~",
+		"HL*1**20*1~",
+		"NM1*PR*2*Adventure Society*****PI*Adventure Society~",
+		"NM1*PR*2*guild-secondary-plan*****PI*guild-secondary-plan~",
+		"HL*2*1*21*1~",
+		"NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+		"HL*3*2*22*0~",
+		"NM1*IL*1*Coordination Ranger*****MI*adv-raw-269~",
+		"REF*6P*Adventure Society~",
+		"REF*2U*guild-secondary-plan~",
+		"EQ*35~",
+		"SE*15*000000269~",
+		"GE*1*000000269~",
+		"IEA*1*000000269~",
 	}, "\n")
 }
 

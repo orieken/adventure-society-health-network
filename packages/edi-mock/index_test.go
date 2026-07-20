@@ -41,6 +41,26 @@ func TestGenerate837IncludesCompanionGuideInspiredSegments(t *testing.T) {
 	assert.Contains(t, tx.RawX12, "SV1*HC:ASHN2*300.00*UN*1***2")
 }
 
+func TestGenerate269IncludesBenefitCoordinationSegments(t *testing.T) {
+	tx := Generate269(domain.BenefitCoordinationRequest{
+		AdventurerID:     "adv-1",
+		ProviderID:       "provider-vitesse-temple",
+		PrimaryPayerID:   "Adventure Society",
+		SecondaryPayerID: "guild-secondary-plan",
+		ServiceType:      "dental",
+	})
+
+	assert.Equal(t, domain.Tx269, tx.Type)
+	assert.Equal(t, domain.TxStatusAccepted, tx.Status)
+	assert.Contains(t, tx.RawX12, "ST*269")
+	assert.Contains(t, tx.RawX12, "NM1*PR*2*Adventure Society")
+	assert.Contains(t, tx.RawX12, "NM1*PR*2*guild-secondary-plan")
+	assert.Contains(t, tx.RawX12, "NM1*1P*2*provider-vitesse-temple")
+	assert.Contains(t, tx.RawX12, "NM1*IL*1*adv-1")
+	assert.Contains(t, tx.RawX12, "REF*2U*guild-secondary-plan")
+	assert.Contains(t, tx.RawX12, "EQ*35")
+}
+
 func TestGenerate837DIncludesDentalServiceSegments(t *testing.T) {
 	claim := domain.Claim{
 		ID:               "claim-dental-1",
