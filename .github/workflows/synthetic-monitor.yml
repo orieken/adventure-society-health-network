@@ -13,6 +13,14 @@ on:
         options:
           - "false"
           - "true"
+      run_operations:
+        description: "Verify readiness and metrics endpoints"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       dashboard_url:
         description: "Optional dashboard URL for browser smoke checks"
         required: false
@@ -34,6 +42,7 @@ jobs:
       ASHN_PROVIDER_SERVICE_URL: ${{ vars.ASHN_PROVIDER_SERVICE_URL || 'https://ashn-provider-service.onrender.com' }}
       ASHN_EDI_INTAKE_URL: ${{ vars.ASHN_EDI_INTAKE_URL || 'https://ashn-edi-intake.onrender.com' }}
       ASHN_RUN_MUTATING_E2E: ${{ github.event_name == 'workflow_dispatch' && inputs.run_mutating == 'true' && '1' || '0' }}
+      ASHN_EXPECT_OPERATIONS_E2E: ${{ github.event_name == 'workflow_dispatch' && inputs.run_operations == 'true' && '1' || '0' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7

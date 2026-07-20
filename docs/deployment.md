@@ -96,6 +96,8 @@ It runs every six hours and checks the deployed service surface:
 - Gateway pagination
 - Request ID, correlation ID, and trace header propagation
 
+Readiness and metrics contracts are available as a manual post-deploy check. Use this after Render finishes deploying gateway changes that include `/v1/system/readiness` and `/v1/metrics/summary`.
+
 To enable dashboard smoke checks on the schedule, add this repository variable:
 
 ```text
@@ -111,7 +113,7 @@ ASHN_PROVIDER_SERVICE_URL=https://ashn-provider-service.onrender.com
 ASHN_EDI_INTAKE_URL=https://ashn-edi-intake.onrender.com
 ```
 
-Use **Actions → Synthetic Monitor → Run workflow** to trigger an on-demand smoke check. Set `run_mutating=true` only for release validation or demo environments because it creates ledger, intake, and partner-management records.
+Use **Actions → Synthetic Monitor → Run workflow** to trigger an on-demand smoke check. Set `run_operations=true` to include readiness/metrics checks. Set `run_mutating=true` only for release validation or demo environments because it creates ledger, intake, and partner-management records.
 
 ## Notes
 

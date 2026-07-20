@@ -65,6 +65,7 @@ Default scheduled behavior:
 Manual `workflow_dispatch` behavior:
 
 - Set `run_mutating=true` to run the full deployed transaction workflow suite.
+- Set `run_operations=true` after gateway deploys to verify `/v1/system/readiness` and `/v1/metrics/summary`.
 - Set `dashboard_url` to run dashboard browser smoke checks against Netlify or another deployed dashboard.
 
 Recommended GitHub repository variables:
