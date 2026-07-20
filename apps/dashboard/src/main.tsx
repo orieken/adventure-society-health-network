@@ -837,6 +837,7 @@ function App() {
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [selectedInboundMessage, setSelectedInboundMessage] = useState<InboundMessage | null>(null);
+  const [selectedPremiumPayment, setSelectedPremiumPayment] = useState<PremiumPayment | null>(null);
   const [authorizationTransaction, setAuthorizationTransaction] = useState<Transaction | null>(null);
   const [events, setEvents] = useState<Envelope[]>([]);
   const [busy, setBusy] = useState(false);
@@ -2077,6 +2078,7 @@ function App() {
       setSelectedClaim(result.data);
       setSelectedTransaction(null);
       setSelectedInboundMessage(null);
+      setSelectedPremiumPayment(null);
     }
     setBusy(false);
   }
@@ -2090,6 +2092,19 @@ function App() {
       setPayloadTab("json");
       setSelectedClaim(null);
       setSelectedInboundMessage(null);
+      setSelectedPremiumPayment(null);
+    }
+    setBusy(false);
+  }
+
+  async function openPremiumPaymentDetail(paymentId: string) {
+    setBusy(true);
+    const result = await request<PremiumPayment>(`/v1/premium-payments/${paymentId}`);
+    if (result.data) {
+      setSelectedPremiumPayment(result.data);
+      setSelectedClaim(null);
+      setSelectedTransaction(null);
+      setSelectedInboundMessage(null);
     }
     setBusy(false);
   }
@@ -2098,12 +2113,14 @@ function App() {
     setSelectedInboundMessage(message);
     setSelectedClaim(null);
     setSelectedTransaction(null);
+    setSelectedPremiumPayment(null);
   }
 
   function closeDetail() {
     setSelectedClaim(null);
     setSelectedTransaction(null);
     setSelectedInboundMessage(null);
+    setSelectedPremiumPayment(null);
   }
 
   return (
@@ -2562,7 +2579,7 @@ function App() {
           {recentPremiumPayments.length === 0 ? (
             <p className="muted">No premium payments have been recorded yet.</p>
           ) : (
-            recentPremiumPayments.map((payment) => <PremiumPaymentRow key={payment.id} payment={payment} />)
+            recentPremiumPayments.map((payment) => <PremiumPaymentRow key={payment.id} payment={payment} onSelect={openPremiumPaymentDetail} />)
           )}
         </div>
 
@@ -2665,13 +2682,13 @@ function App() {
       </section>
       )}
 
-      {(selectedClaim || selectedTransaction || selectedInboundMessage) && (
+      {(selectedClaim || selectedTransaction || selectedInboundMessage || selectedPremiumPayment) && (
         <div className="drawer-backdrop" onClick={closeDetail}>
         <aside className="detail-drawer" onClick={(event) => event.stopPropagation()} aria-label="Selected record details">
           <div className="ledger-title">
             <div>
               <p className="eyebrow">Selected Record</p>
-              <h2>{selectedTransaction ? "Transaction Detail" : selectedInboundMessage ? "Intake Detail" : "Claim Detail"}</h2>
+              <h2>{selectedTransaction ? "Transaction Detail" : selectedInboundMessage ? "Intake Detail" : selectedPremiumPayment ? "Premium Reconciliation" : "Claim Detail"}</h2>
             </div>
             <button className="secondary" onClick={closeDetail}>Close</button>
           </div>
@@ -2769,6 +2786,24 @@ function App() {
               <DetailItem label="Claim ID" value={selectedClaim.id} />
               <DiagnosisBreakdown diagnoses={selectedClaim.diagnoses ?? []} />
               <ServiceLineBreakdown serviceLines={selectedClaim.serviceLines ?? []} />
+            </div>
+          )}
+          {selectedPremiumPayment && (
+            <div className="detail-grid">
+              <div className="detail-actions">
+                <button className="secondary" onClick={() => downloadFromPath(`/v1/premium-payments/${selectedPremiumPayment.id}/export?format=json`)}>Export JSON</button>
+                <button className="secondary" onClick={() => downloadFromPath(`/v1/premium-payments/${selectedPremiumPayment.id}/export?format=xml`)}>Export XML</button>
+                <button className="secondary" onClick={() => downloadText(`ashn-premium-payment-${selectedPremiumPayment.id}.csv`, premiumPaymentToCSV(selectedPremiumPayment))}>Export CSV</button>
+                <button onClick={() => openTransactionDetail(selectedPremiumPayment.transactionId)}>Open 820 Transaction</button>
+              </div>
+              <DetailItem label="Amount" value={money(selectedPremiumPayment.amountCents)} />
+              <DetailItem label="Status" value={selectedPremiumPayment.status} />
+              <DetailItem label="Reconciled" value={selectedPremiumPayment.reconciled ? "Yes" : "No"} />
+              <DetailItem label="Benefit Current" value={selectedPremiumPayment.currentForBenefits ? "Yes" : "No"} />
+              <DetailItem label="Adventurer" value={selectedPremiumPayment.adventurerId} />
+              <DetailItem label="Transaction" value={selectedPremiumPayment.transactionId} />
+              <DetailItem label="Created" value={new Date(selectedPremiumPayment.createdAt).toLocaleString()} />
+              <DetailItem label="Premium Payment ID" value={selectedPremiumPayment.id} />
             </div>
           )}
           {selectedInboundMessage && (
@@ -4457,11 +4492,11 @@ function ClaimRow({ claim, onSelect }: { claim: Claim; onSelect: (claimId: strin
   );
 }
 
-function PremiumPaymentRow({ payment }: { payment: PremiumPayment }) {
+function PremiumPaymentRow({ payment, onSelect }: { payment: PremiumPayment; onSelect: (paymentId: string) => void }) {
   const benefitLabel = payment.currentForBenefits ? "Benefit-current" : "Historical";
   const reconciliationLabel = payment.reconciled ? "Reconciled" : "Needs review";
   return (
-    <article className="compact-row">
+    <article className="compact-row clickable" onClick={() => onSelect(payment.id)}>
       <div>
         <strong>{money(payment.amountCents)} · {reconciliationLabel}</strong>
         <span>{benefitLabel} · {payment.status} · {new Date(payment.createdAt).toLocaleString()}</span>
@@ -4470,6 +4505,21 @@ function PremiumPaymentRow({ payment }: { payment: PremiumPayment }) {
       <code>{payment.transactionId}</code>
     </article>
   );
+}
+
+function premiumPaymentToCSV(payment: PremiumPayment) {
+  const headers = ["id", "adventurerId", "transactionId", "amountCents", "status", "createdAt", "reconciled", "currentForBenefits"];
+  const row = [
+    payment.id,
+    payment.adventurerId,
+    payment.transactionId,
+    String(payment.amountCents),
+    payment.status,
+    payment.createdAt,
+    String(payment.reconciled),
+    String(payment.currentForBenefits)
+  ];
+  return [headers, row].map((items) => items.map(csvCell).join(",")).join("\n");
 }
 
 function AdventurerRow({ adventurer }: { adventurer: Adventurer }) {

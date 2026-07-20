@@ -91,6 +91,8 @@ func main() {
 	mux.HandleFunc("GET /adventurers", app.listAdventurers)
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
 	mux.HandleFunc("GET /premium-payments", app.listPremiumPayments)
+	mux.HandleFunc("GET /premium-payments/{id}", app.getPremiumPayment)
+	mux.HandleFunc("GET /premium-payments/{id}/export", app.exportPremiumPayment)
 	mux.HandleFunc("POST /premium-payments", app.recordPremiumPayment)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /benefit-coordination", app.coordinateBenefits)
@@ -1321,6 +1323,31 @@ func (s *store) listPremiumPayments(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *store) getPremiumPayment(w http.ResponseWriter, r *http.Request) {
+	payment, ok := s.findPremiumPayment(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, "premium payment not found", "The dues ledger could not locate that 820 reconciliation rune.")
+		return
+	}
+	respond(w, http.StatusOK, domain.Envelope{Data: payment, Lore: "The dues ledger opened this 820 reconciliation record."})
+}
+
+func (s *store) exportPremiumPayment(w http.ResponseWriter, r *http.Request) {
+	payment, ok := s.findPremiumPayment(r.PathValue("id"))
+	if !ok {
+		fail(w, http.StatusNotFound, "premium payment not found", "The dues ledger could not locate that 820 reconciliation rune.")
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	switch format {
+	case "xml":
+		download(w, "application/xml; charset=utf-8", fmt.Sprintf("ashn-premium-payment-%s.xml", payment.ID), []byte(premiumPaymentXML(payment)))
+	default:
+		payload, _ := json.MarshalIndent(payment, "", "  ")
+		download(w, "application/json; charset=utf-8", fmt.Sprintf("ashn-premium-payment-%s.json", payment.ID), payload)
+	}
+}
+
 func (s *store) getTransaction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	tx, ok := s.findTransaction(id)
@@ -1697,6 +1724,27 @@ func download(w http.ResponseWriter, contentType, filename string, payload []byt
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
+}
+
+func premiumPaymentXML(payment domain.PremiumPayment) string {
+	return fmt.Sprintf(`<PremiumPayment id="%s">
+  <AdventurerId>%s</AdventurerId>
+  <TransactionId>%s</TransactionId>
+  <AmountCents>%d</AmountCents>
+  <Status>%s</Status>
+  <CreatedAt>%s</CreatedAt>
+  <Reconciled>%t</Reconciled>
+  <CurrentForBenefits>%t</CurrentForBenefits>
+</PremiumPayment>`,
+		xmlEscape(payment.ID),
+		xmlEscape(payment.AdventurerID),
+		xmlEscape(payment.TransactionID),
+		payment.AmountCents,
+		xmlEscape(payment.Status),
+		xmlEscape(payment.CreatedAt.Format(time.RFC3339)),
+		payment.Reconciled,
+		payment.CurrentForBenefits,
+	)
 }
 
 func (s *store) saveAdventurer(adventurer domain.Adventurer) {
@@ -2401,6 +2449,45 @@ func (s *store) queryPremiumPayments(page pageRequest, adventurerID string) ([]d
 	return payments, pageInfo, nil
 }
 
+func (s *store) findPremiumPayment(id string) (domain.PremiumPayment, bool) {
+	if s.db == nil {
+		return domain.PremiumPayment{}, false
+	}
+	payments, _, err := s.queryPremiumPaymentsByClauses(pageRequest{Limit: 1, Offset: 0}, []string{"id = $1"}, []any{id})
+	if err != nil || len(payments) == 0 {
+		if err != nil {
+			ashnlog.Error("postgres_premium_payment_find_failed", err, "service", "payer-core", "premiumPaymentId", id)
+		}
+		return domain.PremiumPayment{}, false
+	}
+	return payments[0], true
+}
+
+func (s *store) queryPremiumPaymentsByClauses(page pageRequest, clauses []string, args []any) ([]domain.PremiumPayment, domain.PageInfo, error) {
+	query := `SELECT id, adventurer_id, transaction_id, amount_cents, status, created_at, status = 'Accepted' AS reconciled, status = 'Accepted' AND created_at >= now() - interval '45 days' AS current_for_benefits FROM premium_payments`
+	query = appendWhere(query, clauses)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, page.Limit+1, page.Offset)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	defer rows.Close()
+	payments := []domain.PremiumPayment{}
+	for rows.Next() {
+		var payment domain.PremiumPayment
+		if err := rows.Scan(&payment.ID, &payment.AdventurerID, &payment.TransactionID, &payment.AmountCents, &payment.Status, &payment.CreatedAt, &payment.Reconciled, &payment.CurrentForBenefits); err != nil {
+			return nil, domain.PageInfo{}, err
+		}
+		payments = append(payments, payment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	payments, pageInfo := trimFetchedPage(payments, page)
+	return payments, pageInfo, nil
+}
+
 func parsePage(r *http.Request, fallback int) pageRequest {
 	return pageRequest{Limit: parseLimit(r, fallback), Offset: parseOffset(r)}
 }
@@ -2626,6 +2713,12 @@ func payerOpenAPI() map[string]any {
 			"/premium-payments": {
 				"get":  {Summary: "List 820 premium payment history", Tags: []string{"premium", "x12"}},
 				"post": {Summary: "Record 820 premium payment", Tags: []string{"premium", "x12"}, RequestBody: true},
+			},
+			"/premium-payments/{id}": {
+				"get": {Summary: "Get 820 premium payment reconciliation detail", Tags: []string{"premium", "x12"}},
+			},
+			"/premium-payments/{id}/export": {
+				"get": {Summary: "Export 820 premium payment reconciliation as JSON or XML", Tags: []string{"premium", "export"}},
 			},
 			"/eligibility/query": {
 				"post": {Summary: "Run 270/271 eligibility", Tags: []string{"eligibility", "x12"}, RequestBody: true},

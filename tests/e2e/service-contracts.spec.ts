@@ -621,6 +621,17 @@ test.describe("ASHN mutating demo contracts", () => {
       reconciled: true,
       currentForBenefits: true
     });
+    expect(recordedPremium?.id).toBeTruthy();
+
+    const premiumExport = await request.get(`${serviceUrls.apiGateway}/v1/premium-payments/${recordedPremium?.id}/export?format=json`);
+    expect(premiumExport.ok()).toBeTruthy();
+    expect(premiumExport.headers()["content-disposition"]).toContain(`ashn-premium-payment-${recordedPremium?.id}.json`);
+    const exportedPremium = (await premiumExport.json()) as PremiumPayment;
+    expect(exportedPremium).toMatchObject({
+      id: recordedPremium?.id,
+      transactionId: premiumEnvelope.transaction?.id,
+      currentForBenefits: true
+    });
 
     const claim = await request.post(`${serviceUrls.apiGateway}/v1/claims`, {
       data: {

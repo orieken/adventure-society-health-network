@@ -81,6 +81,8 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.proxy(w, r, g.payerURL, path)
 	case path == "/premium-payments" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		g.proxy(w, r, g.payerURL, path)
+	case strings.HasPrefix(path, "/premium-payments/") && r.Method == http.MethodGet:
+		g.proxy(w, r, g.payerURL, path)
 	case path == "/eligibility" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, "/eligibility/query")
 	case path == "/benefit-coordination" && r.Method == http.MethodPost:
@@ -699,6 +701,12 @@ func apiGatewayOpenAPI() map[string]any {
 			"/v1/premium-payments": {
 				"get":  {Summary: "List 820 premium payment history", Tags: []string{"premium", "x12"}},
 				"post": {Summary: "Record 820 premium payment", Tags: []string{"premium", "x12"}, RequestBody: true},
+			},
+			"/v1/premium-payments/{id}": {
+				"get": {Summary: "Get 820 premium payment reconciliation detail", Tags: []string{"premium", "x12"}},
+			},
+			"/v1/premium-payments/{id}/export": {
+				"get": {Summary: "Export 820 premium payment reconciliation as JSON or XML", Tags: []string{"premium", "export"}},
 			},
 			"/v1/transactions":                         {"get": {Summary: "List ledger transactions", Tags: []string{"transactions"}}},
 			"/v1/transactions/{id}":                    {"get": {Summary: "Get transaction detail", Tags: []string{"transactions"}}},

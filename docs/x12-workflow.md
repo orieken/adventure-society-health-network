@@ -96,7 +96,7 @@ Raw delimiter-based `834` intake is available at `POST /v1/x12/raw`. The parser 
 
 ### 1.5 Premium Payment: `820`
 
-ASHN can record premium dues through `POST /v1/premium-payments`, canonical XML/JSON `820`, or raw delimiter-based `820` intake. The raw parser reads the adventurer/member identifier from `NM1*IL` and the paid amount from `RMR` or `BPR`, emits a `999`, and forwards the canonical premium payment request to `payer-core`. `GET /v1/premium-payments` exposes the DB-backed payment history with reconciliation and `currentForBenefits` signals for demos.
+ASHN can record premium dues through `POST /v1/premium-payments`, canonical XML/JSON `820`, or raw delimiter-based `820` intake. The raw parser reads the adventurer/member identifier from `NM1*IL` and the paid amount from `RMR` or `BPR`, emits a `999`, and forwards the canonical premium payment request to `payer-core`. `GET /v1/premium-payments` exposes the DB-backed payment history with reconciliation and `currentForBenefits` signals for demos. Individual records can be inspected through `GET /v1/premium-payments/{id}` and exported through `GET /v1/premium-payments/{id}/export?format=json|xml`; the dashboard Premium Ledger also offers a CSV export for the selected reconciliation record.
 
 Accepted `820` payments now participate in the benefit-plan simulation: a recent accepted premium marks the adventurer as premium-current for claim adjudication, slightly improving paid amount calculations and reducing patient responsibility in the async worker’s `277` adjudication payload.
 

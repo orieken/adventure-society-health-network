@@ -239,6 +239,19 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(premiumLedger.getByText("$50.00 · Reconciled")).toBeVisible();
     await expect(premiumLedger.getByText("Benefit-current · Accepted")).toBeVisible();
     await expect(premiumLedger.getByText("tx-e2e-820-premium")).toBeVisible();
+
+    await premiumLedger.getByText("tx-e2e-820-premium").click();
+    const drawer = page.getByLabel("Selected record details");
+    await expect(drawer.getByRole("heading", { name: "Premium Reconciliation" })).toBeVisible();
+    await expect(drawer.getByText("Premium Payment ID")).toBeVisible();
+    await expect(drawer.getByText("premium-e2e-820")).toBeVisible();
+    await expect(drawer.getByText("Benefit Current")).toBeVisible();
+    await expect(drawer.locator(".detail-item").filter({ hasText: "Benefit Current" }).getByText("Yes")).toBeVisible();
+
+    const downloadPromise = page.waitForEvent("download");
+    await drawer.getByRole("button", { name: "Export CSV" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("ashn-premium-payment-premium-e2e-820.csv");
   });
 
   test("submits raw X12 intake from the XML tab", async ({ page }) => {
@@ -1000,6 +1013,32 @@ async function mockDashboardApi(page: Page) {
             rawX12: "ST*820*workflow-premium~BPR*C*50.00~SE*3*workflow-premium~"
           }
         }
+      });
+      return;
+    }
+
+    if (path.startsWith("/v1/premium-payments/") && path.endsWith("/export")) {
+      const id = path.split("/").at(-2) ?? "";
+      const payment = premiumPayments.find((item) => item.id === id);
+      await route.fulfill({
+        status: payment ? 200 : 404,
+        headers: {
+          "content-type": url.searchParams.get("format") === "xml" ? "application/xml" : "application/json",
+          "content-disposition": `attachment; filename="ashn-premium-payment-${id}.${url.searchParams.get("format") === "xml" ? "xml" : "json"}"`
+        },
+        body: url.searchParams.get("format") === "xml"
+          ? `<PremiumPayment id="${id}"></PremiumPayment>`
+          : JSON.stringify(payment ?? { error: "missing" })
+      });
+      return;
+    }
+
+    if (path.startsWith("/v1/premium-payments/")) {
+      const id = path.split("/").pop() ?? "";
+      const payment = premiumPayments.find((item) => item.id === id);
+      await route.fulfill({
+        status: payment ? 200 : 404,
+        json: payment ? { data: payment, lore: "The dues ledger opened this 820 reconciliation record." } : { error: "premium payment not found" }
       });
       return;
     }
