@@ -197,6 +197,8 @@ These rules are intentionally small but teach the real-world shape of partner-sp
 | --- | --- | --- | --- |
 | `provider-vitesse-temple` | `OZ`/`B4`, text/PDF/JPEG, `TEMPLE-`/`ATTACH-`/`XML-`, 4 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `K021` | `ASHN` or `D` prefix | `D7000-D7999`, tooth required, surfaces/quadrants constrained, `XRAY`/`PERIO`/`NARR`/`PLAN` docs |
 | `provider-rimaros-hospital` | `OZ`/`PN`, `03`/`B4`, text/PDF, `RIM-`/`ATTACH-`/`XML-`, 8 KB | `ABK`/`ABF`; `S610`, `T509`, `S062X9A`, `M542` | `ASHN`, `RIM`, or `D` prefix | `D0000-D9999`, tooth optional, surfaces/quadrants constrained, `XRAY`/`NARR` docs |
+| `provider-obsidian-claims` | `PN`/`03`, text/PDF, `OBS-`/`ATTACH-`, 3 KB | `ABK`; `S610`, `T509` only | exact `ASHN1` or `ASHN2` | none; professional `837` only |
+| `provider-crown-dental` | `OZ`/`B4`/`XR`, PDF/JPEG, `CROWN-`/`DENT-`, 6 KB | `ABK`; `K021`, `K029` | `D` prefix | `D1000-D4999`, tooth required, single-surface values only |
 
 Generated raw `275` X12 now keeps the existing claim/auth attachment path while emitting a `GS08` implementation version of `006020X314`. It includes `REF*1K` or `REF*G1` for correlation, `REF*6R` for the attachment control number, `PWK` for report/transmission metadata, `LQ*AT` for the attachment category, `K3` for content type or external document reference, and `BIN` when embedded content is present.
 
@@ -310,7 +312,7 @@ When XML or JSON arrives, `edi-intake` first validates the canonical ASHN transa
 4. The route target must be supported.
 5. Transaction-specific profile rules must pass, such as `275` attachment metadata, `278` service/severity rules, and `837` diagnosis/procedure constraints.
 
-The seeded profiles now include three payer-facing provider variants: Vitesse Temple for same-day, oral-surgery-heavy workflows; Rimaros Hospital for broader medical/dental acceptance with a seven-day unsolicited attachment window; and Crown Dental Clearinghouse for dental-only `278`/`837D` traffic with stricter CDT, surface, attachment, and control-prefix rules.
+The seeded profiles now include four payer-facing provider variants: Vitesse Temple for same-day, oral-surgery-heavy workflows; Rimaros Hospital for broader medical/dental acceptance with a seven-day unsolicited attachment window; Obsidian Claims Clearinghouse for narrow professional `837` claims that reject catastrophic diagnosis/procedure combinations; and Crown Dental Clearinghouse for dental-only `278`/`837D` traffic with stricter CDT, surface, attachment, and control-prefix rules.
 
 Accepted intake is forwarded to existing `payer-core` HTTP endpoints. Rejected intake still creates an inbound audit record, preserving the raw payload and validation error for debugging, export, and replay.
 

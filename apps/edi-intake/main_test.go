@@ -1545,6 +1545,39 @@ func TestValidateTradingPartnerProfileRejectsClaimProcedureOutsideProfile(t *tes
 	assert.Equal(t, "procedure code RIM100 is not allowed for trading partner tp-vitesse-temple; allowed: ASHN, D", err.Error())
 }
 
+func TestValidateTradingPartnerProfileAppliesObsidianClaimsVariant(t *testing.T) {
+	partner := seedTradingPartners()["tp-obsidian-claims"]
+	valid := inboundTransaction{
+		Type: string(domain.Tx837),
+		Claim: &xmlClaim{
+			Diagnoses: []xmlClaimDiagnosis{{Qualifier: "ABK", Code: "T509", Primary: true}},
+			ServiceLines: []xmlClaimServiceLine{
+				{ProcedureCode: "ASHN1", AmountCents: "75000"},
+				{ProcedureCode: "ASHN2", AmountCents: "25000"},
+			},
+		},
+	}
+	require.NoError(t, validateTradingPartnerProfile(partner, valid))
+
+	diamondDiagnosis := valid
+	diamondDiagnosis.Claim = &xmlClaim{
+		Diagnoses:    []xmlClaimDiagnosis{{Qualifier: "ABK", Code: "S062X9A", Primary: true}},
+		ServiceLines: []xmlClaimServiceLine{{ProcedureCode: "ASHN1", AmountCents: "75000"}},
+	}
+	err := validateTradingPartnerProfile(partner, diamondDiagnosis)
+	require.Error(t, err)
+	assert.Equal(t, "diagnosis code S062X9A is not allowed for trading partner tp-obsidian-claims; allowed: S610, T509", err.Error())
+
+	resurrectionLine := valid
+	resurrectionLine.Claim = &xmlClaim{
+		Diagnoses:    []xmlClaimDiagnosis{{Qualifier: "ABK", Code: "T509", Primary: true}},
+		ServiceLines: []xmlClaimServiceLine{{ProcedureCode: "ASHN3", AmountCents: "75000"}},
+	}
+	err = validateTradingPartnerProfile(partner, resurrectionLine)
+	require.Error(t, err)
+	assert.Equal(t, "procedure code ASHN3 is not allowed for trading partner tp-obsidian-claims; allowed: ASHN1, ASHN2", err.Error())
+}
+
 func TestValidateTradingPartnerProfileAppliesDentalClaimLineRules(t *testing.T) {
 	partner := seedTradingPartners()["tp-vitesse-temple"]
 	inbound := inboundTransaction{
@@ -1729,6 +1762,7 @@ func TestListTradingPartnersReturnsSeedProfiles(t *testing.T) {
 	assert.Equal(t, []string{"270", "269", "275", "278", "837D"}, seedTradingPartners()["tp-crown-dental"].AllowedTransactionTypes)
 	assert.Equal(t, []string{"D1000-D4999"}, seedTradingPartners()["tp-crown-dental"].ValidationProfile.DentalCDTRanges)
 	assert.Equal(t, []string{"preventive-basic-only", "three-day-unsolicited-window", "pdf-or-image-evidence"}, seedTradingPartners()["tp-crown-dental"].ValidationProfile.DentalPredeterminationRules)
+	assert.Equal(t, []string{"ASHN1", "ASHN2"}, seedTradingPartners()["tp-obsidian-claims"].ValidationProfile.ProcedureCodes)
 	assert.Equal(t, []string{"ASHN", "RIM", "D"}, seedTradingPartners()["tp-rimaros-hospital"].ValidationProfile.ProcedureCodePrefixes)
 }
 
@@ -2063,14 +2097,14 @@ func TestLoadTradingPartnersFallsBackOnDatabaseErrorAndOpenDBNoEnv(t *testing.T)
 	defer cleanup()
 	mock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
 		WillReturnError(assert.AnError)
-	assert.Len(t, loadTradingPartners(db), 5)
+	assert.Len(t, loadTradingPartners(db), 6)
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	emptyDB, emptyMock, emptyCleanup := newIntakeMockDB(t)
 	defer emptyCleanup()
 	emptyMock.ExpectQuery("SELECT id, name, sender_id, receiver_id, allowed_transaction_types").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "sender_id", "receiver_id", "allowed_transaction_types", "validation_profile", "route_target", "status"}))
-	assert.Len(t, loadTradingPartners(emptyDB), 5)
+	assert.Len(t, loadTradingPartners(emptyDB), 6)
 	require.NoError(t, emptyMock.ExpectationsWereMet())
 
 	t.Setenv("DATABASE_URL", "")

@@ -1990,6 +1990,7 @@ func seedTradingPartners() map[string]domain.TradingPartner {
 		{ID: "tp-greenstone-guild", Name: "Greenstone Employer Guild", SenderID: "partner-greenstone", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"834", "820"}, RouteTarget: "payer-core", Status: "active"},
 		{ID: "tp-vitesse-temple", Name: "Temple of the Healer, Vitesse", SenderID: "provider-vitesse-temple", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: vitesseValidationProfile()},
 		{ID: "tp-rimaros-hospital", Name: "Rimaros City Hospital", SenderID: "provider-rimaros-hospital", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "276", "278", "837", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: rimarosValidationProfile()},
+		{ID: "tp-obsidian-claims", Name: "Obsidian Claims Clearinghouse", SenderID: "provider-obsidian-claims", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "275", "276", "837"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: obsidianClaimsValidationProfile()},
 		{ID: "tp-crown-dental", Name: "Crown Dental Clearinghouse", SenderID: "provider-crown-dental", ReceiverID: "Adventure Society", AllowedTransactionTypes: []string{"270", "269", "275", "278", "837D"}, RouteTarget: "payer-core", Status: "active", ValidationProfile: crownDentalValidationProfile()},
 		{ID: "tp-adventure-society-remittance", Name: "Adventure Society Remittance", SenderID: "Adventure Society", ReceiverID: "provider-vitesse-temple", AllowedTransactionTypes: []string{"835"}, RouteTarget: "payer-core", Status: "active"},
 	} {
@@ -2070,6 +2071,23 @@ func crownDentalValidationProfile() domain.PartnerValidationProfile {
 		DentalAllowedSurfaces:           []string{"O", "M", "D", "B", "L"},
 		DentalAllowedQuadrants:          []string{"UR", "UL", "LR", "LL"},
 		DentalPredeterminationRules:     []string{"preventive-basic-only", "three-day-unsolicited-window", "pdf-or-image-evidence"},
+	}
+}
+
+func obsidianClaimsValidationProfile() domain.PartnerValidationProfile {
+	return domain.PartnerValidationProfile{
+		AttachmentTypes:                 []string{"PN"},
+		ReportTypeCodes:                 []string{"03"},
+		TransmissionCodes:               []string{"EL"},
+		ContentTypes:                    []string{"text/plain", "application/pdf"},
+		AllowedFileExtensions:           []string{".txt", ".pdf"},
+		ControlNumberPrefixes:           []string{"OBS-", "ATTACH-"},
+		MaxEmbeddedContentBytes:         3072,
+		MaxAttachmentsPerPacket:         3,
+		UnsolicitedAttachmentWindowDays: 2,
+		DiagnosisQualifiers:             []string{"ABK"},
+		DiagnosisCodes:                  []string{"S610", "T509"},
+		ProcedureCodes:                  []string{"ASHN1", "ASHN2"},
 	}
 }
 

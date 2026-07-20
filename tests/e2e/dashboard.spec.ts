@@ -593,6 +593,10 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(vitesseCard.getByText(/D7000-D7999 CDT/)).toBeVisible();
     await expect(vitesseCard.getByText(/tooth required/)).toBeVisible();
     await expect(vitesseCard.getByText(/XRAY\/PERIO\/NARR\/PLAN docs/)).toBeVisible();
+    const obsidianCard = page.locator(".partner-card").filter({ hasText: "Obsidian Claims Clearinghouse" });
+    await expect(obsidianCard.getByLabel("Obsidian Claims Clearinghouse companion guide")).toBeVisible();
+    await expect(obsidianCard.getByText(/S610\/T509 diagnoses/)).toBeVisible();
+    await expect(obsidianCard.getByText(/ASHN1\/ASHN2 procedures/)).toBeVisible();
 
     await page.getByLabel("Partner name").fill("Crystal Tower Partner");
     await page.getByLabel("Sender ID").fill("provider-crystal-tower");
@@ -854,6 +858,26 @@ async function mockDashboardApi(page: Page) {
         dentalAllowedSurfaces: ["O", "M", "D", "B", "L", "MO", "DO", "MOD"],
         dentalAllowedQuadrants: ["UR", "UL", "LR", "LL"],
         dentalPredeterminationRules: ["oral-surgery-only", "accepted-275-evidence-required"]
+      }
+    },
+    {
+      id: "tp-obsidian-claims",
+      name: "Obsidian Claims Clearinghouse",
+      senderId: "provider-obsidian-claims",
+      receiverId: "Adventure Society",
+      allowedTransactionTypes: ["270", "275", "276", "837"],
+      routeTarget: "payer-core",
+      status: "active",
+      validationProfile: {
+        attachmentTypes: ["PN"],
+        reportTypeCodes: ["03"],
+        contentTypes: ["text/plain", "application/pdf"],
+        allowedFileExtensions: [".txt", ".pdf"],
+        maxAttachmentsPerPacket: 3,
+        unsolicitedAttachmentWindowDays: 2,
+        maxEmbeddedContentBytes: 3072,
+        diagnosisCodes: ["S610", "T509"],
+        procedureCodes: ["ASHN1", "ASHN2"]
       }
     }
   ];
