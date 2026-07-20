@@ -255,6 +255,24 @@ type TransactionJob = {
   updatedAt: string;
 };
 
+type ReadinessCheck = {
+  name: string;
+  status: string;
+  detail: string;
+  count?: number;
+};
+
+type ReadinessReport = {
+  status: string;
+  generatedAt: string;
+  version: string;
+  commit?: string;
+  services: Record<string, string>;
+  checks: ReadinessCheck[];
+  summary: Record<string, number>;
+  links: Record<string, string>;
+};
+
 type DemoScenario = {
   id: string;
   title: string;
@@ -737,6 +755,7 @@ function storeSavedFilters(filters: SavedFilter[]) {
 
 function App() {
   const [health, setHealth] = useState<Envelope<Record<string, string>> | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [tradingPartners, setTradingPartners] = useState<TradingPartner[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("provider-vitesse-temple");
@@ -877,8 +896,9 @@ function App() {
       q: searchTerm,
       type: auditTypeFilter
     });
-    const [healthResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, rejectionResult, jobsResult] = await Promise.allSettled([
+    const [healthResult, readinessResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, rejectionResult, jobsResult] = await Promise.allSettled([
       request<Record<string, string>>("/v1/health"),
+      request<ReadinessReport>("/v1/system/readiness"),
       request<Provider[]>("/v1/providers"),
       request<TradingPartner[]>("/v1/x12/trading-partners"),
       request<Adventurer[]>(`/v1/adventurers?${adventurerQuery}`),
@@ -889,6 +909,7 @@ function App() {
       request<TransactionJob[]>("/v1/jobs?limit=8")
     ]);
     const healthEnvelope = settledValue(healthResult);
+    const readinessEnvelope = settledValue(readinessResult);
     const providersEnvelope = settledValue(providersResult);
     const partnersEnvelope = settledValue(partnersResult);
     const adventurersEnvelope = settledValue(adventurersResult);
@@ -898,6 +919,7 @@ function App() {
     const rejectionEnvelope = settledValue(rejectionResult);
     const jobsEnvelope = settledValue(jobsResult);
     if (healthEnvelope) setHealth(healthEnvelope);
+    if (readinessEnvelope?.data) setReadiness(readinessEnvelope.data);
     if (providersEnvelope) setProviders(providersEnvelope.data ?? []);
     if (partnersEnvelope) setTradingPartners(partnersEnvelope.data ?? []);
     if (adventurersEnvelope) {
@@ -2062,6 +2084,7 @@ function App() {
               )}
             </div>
           </div>
+          <ReadinessPanel readiness={readiness} />
         </div>
       </section>
 
@@ -2699,6 +2722,45 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
       <strong>{value}</strong>
       <p>{detail}</p>
     </div>
+  );
+}
+
+function ReadinessPanel({ readiness }: { readiness: ReadinessReport | null }) {
+  const status = readiness?.status ?? "loading";
+  const checkCount = readiness?.checks.length ?? 0;
+  const okCount = readiness?.summary.ok ?? 0;
+  const generatedAt = readiness?.generatedAt ? new Date(readiness.generatedAt).toLocaleTimeString() : "awaiting signal";
+  return (
+    <section className="readiness-panel" aria-label="System readiness">
+      <div className="readiness-header">
+        <div>
+          <span className="mini-label">System Readiness</span>
+          <strong className={status === "ready" ? "ready" : "degraded"}>{status}</strong>
+        </div>
+        <span className="readiness-time">{generatedAt}</span>
+      </div>
+      <div className="readiness-summary">
+        <span>{okCount}/{checkCount} checks ok</span>
+        <span>v{readiness?.version ?? "0.1.0"}</span>
+        {readiness?.commit && <span>{readiness.commit.slice(0, 7)}</span>}
+      </div>
+      <div className="readiness-checks">
+        {(readiness?.checks ?? []).slice(0, 5).map((check) => (
+          <div key={check.name} className="readiness-check">
+            <span className={check.status === "ok" ? "gateway-diamond ok" : "gateway-diamond bad"} />
+            <strong>{check.name}</strong>
+            <small>{check.count !== undefined ? `${check.count} loaded` : check.detail}</small>
+          </div>
+        ))}
+        {!readiness && (
+          <div className="readiness-check">
+            <span className="gateway-diamond bad" />
+            <strong>Readiness Signal</strong>
+            <small>loading</small>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

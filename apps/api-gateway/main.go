@@ -69,6 +69,8 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/health" && r.Method == http.MethodGet:
 		g.health(w)
+	case path == "/system/readiness" && r.Method == http.MethodGet:
+		g.systemReadiness(w, r)
 	case path == "/adventurers" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, "/enrollments")
 	case path == "/adventurers" && r.Method == http.MethodGet:
@@ -165,6 +167,157 @@ func (g gateway) health(w http.ResponseWriter) {
 	}
 	wg.Wait()
 	respond(w, http.StatusOK, domain.Envelope{Data: status, Lore: "The gateway crystal checked every downstream beacon."})
+}
+
+type readinessReport struct {
+	Status      string            `json:"status"`
+	GeneratedAt string            `json:"generatedAt"`
+	Version     string            `json:"version"`
+	Commit      string            `json:"commit,omitempty"`
+	Services    map[string]string `json:"services"`
+	Checks      []readinessCheck  `json:"checks"`
+	Summary     map[string]int    `json:"summary"`
+	Links       map[string]string `json:"links"`
+}
+
+type readinessCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+	Count  int    `json:"count,omitempty"`
+}
+
+type readinessEnvelope struct {
+	Data json.RawMessage  `json:"data,omitempty"`
+	Page *domain.PageInfo `json:"page,omitempty"`
+}
+
+type readinessMetricsEnvelope struct {
+	Data struct {
+		Total int `json:"total"`
+	} `json:"data"`
+}
+
+func (g gateway) systemReadiness(w http.ResponseWriter, r *http.Request) {
+	services := map[string]string{
+		"api-gateway":      "ok",
+		"payer-core":       g.downstreamHealth(g.payerURL),
+		"provider-service": g.downstreamHealth(g.providerURL),
+		"edi-intake":       g.downstreamHealth(g.ediURL),
+	}
+	checks := []readinessCheck{
+		g.readinessCollectionCheck(r, "ledger transactions", g.payerURL, "/transactions?limit=1"),
+		g.readinessCollectionCheck(r, "async jobs", g.payerURL, "/jobs?limit=8"),
+		g.readinessCollectionCheck(r, "provider registry", g.providerURL, "/providers"),
+		g.readinessCollectionCheck(r, "intake audit", g.ediURL, "/x12/messages?limit=1"),
+		g.readinessRejectionCheck(r),
+	}
+	summary := map[string]int{"ok": 0, "degraded": 0, "unavailable": 0}
+	ready := true
+	for _, status := range services {
+		if status != "ok" {
+			ready = false
+		}
+	}
+	for _, check := range checks {
+		summary[check.Status]++
+		if check.Status != "ok" {
+			ready = false
+		}
+	}
+	status := "ready"
+	if !ready {
+		status = "degraded"
+	}
+	respond(w, http.StatusOK, domain.Envelope{
+		Data: readinessReport{
+			Status:      status,
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			Version:     "0.1.0",
+			Commit:      buildCommit(),
+			Services:    services,
+			Checks:      checks,
+			Summary:     summary,
+			Links: map[string]string{
+				"openapi": "/openapi.json",
+				"health":  "/v1/health",
+			},
+		},
+		Lore: "The Society readiness board gathered health, ledger, queue, partner, and intake signals.",
+	})
+}
+
+func (g gateway) readinessCollectionCheck(r *http.Request, name, baseURL, path string) readinessCheck {
+	check := g.readinessGET(r, name, baseURL, path)
+	if check.Status != "ok" {
+		return check
+	}
+	var envelope readinessEnvelope
+	if err := json.Unmarshal([]byte(check.Detail), &envelope); err != nil {
+		check.Status = "degraded"
+		check.Detail = "response shape changed"
+		return check
+	}
+	check.Detail = "reachable"
+	if envelope.Page != nil {
+		check.Count = envelope.Page.Count
+		return check
+	}
+	var items []any
+	if err := json.Unmarshal(envelope.Data, &items); err == nil {
+		check.Count = len(items)
+	}
+	return check
+}
+
+func (g gateway) readinessRejectionCheck(r *http.Request) readinessCheck {
+	check := g.readinessGET(r, "intake rejections", g.ediURL, "/x12/messages/rejections")
+	if check.Status != "ok" {
+		return check
+	}
+	var envelope readinessMetricsEnvelope
+	if err := json.Unmarshal([]byte(check.Detail), &envelope); err != nil {
+		check.Status = "degraded"
+		check.Detail = "response shape changed"
+		return check
+	}
+	check.Detail = "reachable"
+	check.Count = envelope.Data.Total
+	return check
+}
+
+func (g gateway) readinessGET(r *http.Request, name, baseURL, path string) readinessCheck {
+	if strings.TrimSpace(baseURL) == "" {
+		return readinessCheck{Name: name, Status: "unavailable", Detail: "service URL is not configured"}
+	}
+	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return readinessCheck{Name: name, Status: "unavailable", Detail: "request creation failed"}
+	}
+	req.Header = r.Header.Clone()
+	requestmeta.Propagate(r, req)
+	resp, err := g.httpClient().Do(req)
+	if err != nil {
+		return readinessCheck{Name: name, Status: "unavailable", Detail: "request failed"}
+	}
+	defer resp.Body.Close()
+	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= http.StatusInternalServerError {
+		return readinessCheck{Name: name, Status: "unavailable", Detail: strconv.Itoa(resp.StatusCode)}
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return readinessCheck{Name: name, Status: "degraded", Detail: strconv.Itoa(resp.StatusCode)}
+	}
+	return readinessCheck{Name: name, Status: "ok", Detail: string(payload)}
+}
+
+func buildCommit() string {
+	for _, key := range []string{"RENDER_GIT_COMMIT", "GIT_COMMIT", "SOURCE_VERSION", "COMMIT_SHA"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (g gateway) doProxyRequest(r *http.Request, targetURL string) (*http.Response, error) {
@@ -318,7 +471,8 @@ func apiGatewayOpenAPI() map[string]any {
 		Description: "Public facade for the Adventure Society Health Network demo APIs.",
 		Version:     "0.1.0",
 		Paths: map[string]map[string]openapidocs.Operation{
-			"/v1/health": {"get": {Summary: "Check service health", Tags: []string{"gateway"}}},
+			"/v1/health":           {"get": {Summary: "Check service health", Tags: []string{"gateway"}}},
+			"/v1/system/readiness": {"get": {Summary: "Check deploy readiness signals", Tags: []string{"gateway", "operations"}}},
 			"/v1/adventurers": {
 				"get":  {Summary: "List adventurers", Tags: []string{"adventurers"}},
 				"post": {Summary: "Create an enrollment", Tags: []string{"adventurers", "x12"}, RequestBody: true},

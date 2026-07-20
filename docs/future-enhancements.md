@@ -210,6 +210,8 @@ Cross-industry expansion notes live in [Cross-Industry EDI Module Notes](cross-i
 - [x] Add health checks for every service in Docker Compose.
 - [x] Add migration tests and seed-data reset tests.
 - [x] Add rate limiting for public/demo endpoints.
+- [x] Add scheduled synthetic monitoring for deployed service smoke checks.
+- [x] Add system readiness API and dashboard panel for service, ledger, queue, partner, and intake signals.
 
 ## Canonical XML Shape
 
@@ -271,8 +273,8 @@ Example `270` eligibility inquiry:
 2. Add optional file-drop intake for batch/demo payloads. ✅
 3. Add richer benefit-plan rules that influence service-line adjudication.
 4. Add more companion-guide variants per trading partner and transaction type.
-5. Add operational dashboard views for audit errors, retries, and partner rejection trends.
-6. Add exportable demo scenarios for repeatable training and stakeholder walkthroughs.
+5. Add operational dashboard views for audit errors, retries, partner rejection trends, and system readiness. ✅
+6. Add exportable demo scenarios for repeatable training and stakeholder walkthroughs. ✅
 
 ## Decision Summary
 

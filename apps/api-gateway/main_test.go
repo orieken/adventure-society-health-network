@@ -568,6 +568,80 @@ func TestGatewayHealthRetriesColdStartBadGateway(t *testing.T) {
 	assert.Equal(t, 2, attemptsByHost["edi-intake"])
 }
 
+func TestGatewaySystemReadinessAggregatesOperationalSignals(t *testing.T) {
+	t.Setenv("RENDER_GIT_COMMIT", "abc123")
+	requestIDs := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requestIDs = append(requestIDs, r.Header.Get("X-Request-ID"))
+		switch r.URL.Path {
+		case "/health":
+			return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
+		case "/transactions":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: []map[string]string{{"id": "tx-1"}}, Page: &domain.PageInfo{Limit: 1, Count: 1}})
+		case "/jobs":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: []map[string]string{{"id": "job-1"}}})
+		case "/providers":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: []map[string]string{{"id": "provider-1"}}})
+		case "/x12/messages":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: []map[string]string{{"id": "msg-1"}}, Page: &domain.PageInfo{Limit: 1, Count: 1}})
+		case "/x12/messages/rejections":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: map[string]int{"total": 2}})
+		default:
+			return jsonResponse(http.StatusNotFound, domain.ErrorEnvelope{Error: "missing"})
+		}
+	})}
+
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", ediURL: "http://edi-intake", client: client})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/system/readiness", nil)
+	request.Header.Set("X-Request-ID", "req-readiness")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeGatewayEnvelope(t, response)
+	var readiness map[string]any
+	require.NoError(t, json.Unmarshal(envelope.Data, &readiness))
+	assert.Equal(t, "ready", readiness["status"])
+	assert.Equal(t, "abc123", readiness["commit"])
+	assert.NotEmpty(t, readiness["generatedAt"])
+	services := readiness["services"].(map[string]any)
+	assert.Equal(t, "ok", services["payer-core"])
+	assert.Equal(t, "ok", services["provider-service"])
+	assert.Equal(t, "ok", services["edi-intake"])
+	checks := readiness["checks"].([]any)
+	assert.Len(t, checks, 5)
+	assert.Contains(t, requestIDs, "req-readiness")
+	assert.NotEmpty(t, envelope.Lore)
+}
+
+func TestGatewaySystemReadinessReportsDegradedSignals(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/health" {
+			return jsonResponse(http.StatusOK, map[string]string{"status": "ok"})
+		}
+		if r.URL.Path == "/jobs" {
+			return jsonResponse(http.StatusBadRequest, domain.ErrorEnvelope{Error: "bad filter"})
+		}
+		if r.URL.Path == "/x12/messages/rejections" {
+			return jsonResponse(http.StatusInternalServerError, domain.ErrorEnvelope{Error: "down"})
+		}
+		return jsonResponse(http.StatusOK, domain.Envelope{Data: []map[string]string{}})
+	})}
+
+	response := httptest.NewRecorder()
+	gateway{payerURL: "http://payer-core", providerURL: "http://provider-service", ediURL: "http://edi-intake", client: client}.systemReadiness(response, httptest.NewRequest(http.MethodGet, "/v1/system/readiness", nil))
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var envelope testEnvelope
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	var readiness map[string]any
+	require.NoError(t, json.Unmarshal(envelope.Data, &readiness))
+	assert.Equal(t, "degraded", readiness["status"])
+	summary := readiness["summary"].(map[string]any)
+	assert.Equal(t, float64(1), summary["degraded"])
+	assert.Equal(t, float64(1), summary["unavailable"])
+}
+
 func TestGatewayRetriesGETProxyOnColdStartBadGateway(t *testing.T) {
 	attempts := 0
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -673,6 +747,7 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	assert.Equal(t, "ASHN API Gateway", info["title"])
 	paths := spec["paths"].(map[string]any)
 	assert.Contains(t, paths, "/v1/health")
+	assert.Contains(t, paths, "/v1/system/readiness")
 	assert.Contains(t, paths, "/v1/x12/xml")
 	assert.Contains(t, paths, "/v1/x12/raw")
 	assert.Contains(t, paths, "/v1/x12/batch")

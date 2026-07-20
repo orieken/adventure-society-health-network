@@ -121,6 +121,8 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByRole("heading", { name: /ASHN Transaction Dashboard/i })).toBeVisible();
     await expect(page.getByText("Adventure Society Health Network")).toBeVisible();
     await expect(page.locator(".gateway-url")).toHaveAttribute("href", /^https?:\/\/.+/);
+    await expect(page.getByLabel("System readiness")).toContainText("ready");
+    await expect(page.getByText("5/5 checks ok")).toBeVisible();
 
     await expect(page.getByRole("button", { name: /Workflow/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Timeline/i })).toBeVisible();
@@ -822,6 +824,30 @@ async function mockDashboardApi(page: Page) {
 
     if (path === "/v1/health") {
       await route.fulfill({ json: { data: { "api-gateway": "ok", "payer-core": "ok", "provider-service": "ok", "edi-intake": "ok" } } });
+      return;
+    }
+
+    if (path === "/v1/system/readiness") {
+      await route.fulfill({
+        json: {
+          data: {
+            status: "ready",
+            generatedAt: new Date(Date.UTC(2026, 6, 19, 4, 38, 0)).toISOString(),
+            version: "0.1.0",
+            commit: "e2e-readiness",
+            services: { "api-gateway": "ok", "payer-core": "ok", "provider-service": "ok", "edi-intake": "ok" },
+            checks: [
+              { name: "ledger transactions", status: "ok", detail: "reachable", count: 25 },
+              { name: "async jobs", status: "ok", detail: "reachable", count: 2 },
+              { name: "provider registry", status: "ok", detail: "reachable", count: 1 },
+              { name: "intake audit", status: "ok", detail: "reachable", count: 10 },
+              { name: "intake rejections", status: "ok", detail: "reachable", count: 4 }
+            ],
+            summary: { ok: 5, degraded: 0, unavailable: 0 },
+            links: { openapi: "/openapi.json", health: "/v1/health" }
+          }
+        }
+      });
       return;
     }
 
