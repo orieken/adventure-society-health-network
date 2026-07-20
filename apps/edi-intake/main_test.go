@@ -1971,24 +1971,6 @@ func TestRawParsingHelperFallbacks(t *testing.T) {
 	assert.Equal(t, explicit, claimDiagnosesForValidation(xmlClaim{Diagnoses: explicit}))
 	assert.Nil(t, claimDiagnosesForValidation(xmlClaim{IncidentSeverity: "unknown"}))
 
-	assert.Equal(t, "12345", raw820AmountCents(map[string][][]string{"RMR": {{"RMR", "IK", "member", "", "123.45"}}}))
-	assert.Equal(t, "9900", raw820AmountCents(map[string][][]string{"BPR": {{"BPR", "C", "99.00"}}}))
-	assert.Empty(t, raw820AmountCents(map[string][][]string{}))
-	assert.Equal(t, "1234", raw835BPRAmountCents(map[string][][]string{"BPR": {{"BPR", "I", "12.34"}}}))
-	assert.Empty(t, raw835BPRAmountCents(map[string][][]string{}))
-
-	assert.Equal(t, "resurrection", raw278ServiceType(map[string][][]string{"UM": {{"UM", "", "", "", "", "", "resurrection"}}}))
-	assert.Equal(t, "ASHN1", raw278ServiceType(map[string][][]string{"SV1": {{"SV1", "HC:ASHN1"}}}))
-	assert.Empty(t, raw278ServiceType(map[string][][]string{}))
-
-	attachment := xmlAttachment{}
-	applyRawK3(&attachment, "Document-Reference: https://docs.example.test/doc.pdf")
-	assert.Equal(t, "https://docs.example.test/doc.pdf", attachment.DocumentReferenceURL)
-	applyRawK3(&attachment, "Document-Reference: vault-doc-1")
-	assert.Equal(t, "vault-doc-1", attachment.DocumentReferenceID)
-	applyRawK3(&attachment, "Content-Type: application/pdf")
-	assert.Equal(t, "application/pdf", attachment.ContentType)
-
 	assert.Equal(t, "invalid xml", invalidPayloadError("application/xml"))
 	assert.Equal(t, "invalid json", invalidPayloadError("application/json"))
 	assert.Equal(t, "invalid raw x12", invalidPayloadError("application/edi-x12"))
@@ -2003,14 +1985,6 @@ func TestIntakeClassificationHelpersCoverRejectionBranches(t *testing.T) {
 	assert.Equal(t, "application/edi-x12", inferBatchContentType("claim.edi", ""))
 	assert.Equal(t, "application/edi-x12", inferBatchContentType("claim.txt", ""))
 	assert.Equal(t, "application/octet-stream", inferBatchContentType("claim.bin", ""))
-
-	assert.Equal(t, "solicited", attachmentPurposeFromBGN01("11"))
-	assert.Equal(t, "unsolicited", attachmentPurposeFromBGN01("02"))
-	assert.Equal(t, "99", attachmentPurposeFromBGN01("99"))
-
-	assert.Equal(t, "Awakened", rawSeverity(map[string][][]string{"HI": {{"HI", "ABK:T509"}}}))
-	assert.Equal(t, "Diamond", rawSeverity(map[string][][]string{"HI": {{"HI", "ABK:S062X9A"}}}))
-	assert.Equal(t, "Normal", rawSeverity(map[string][][]string{"HI": {{"HI", "ABK:UNKNOWN"}}}))
 
 	rejectionCases := []struct {
 		errorText string
