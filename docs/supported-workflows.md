@@ -70,6 +70,8 @@ These stay inside ASHN's payer/provider learning mission and are good candidates
 
 The dashboard scenario library includes **Dental Predetermination to Remittance**, a six-step runbook that chains dental eligibility, predetermination, dental 275 evidence, 837D claim submission, and CDT line-level 835 remittance into one repeatable demo with exportable evidence.
 
+The scenario library also includes **Obsidian Companion-Guide Rejection**, a four-step operations runbook that submits an Obsidian professional `837` with disallowed `S062X9A` diagnosis and `ASHN3` procedure values, records the rejected intake audit, resubmits a corrected `T509`/`ASHN2` claim, and opens rejection trend/drilldown filters for inspection or replay.
+
 ## 1. Enrollment Lifecycle
 
 ```mermaid
@@ -278,6 +280,7 @@ flowchart TD
 - `edi-intake` rejects partner profile violations before forwarding, including unsupported attachment/report/content codes, bad control-number prefixes, oversized embedded content, unsupported `278` service/severity values, and dental CDT/tooth/surface/quadrant violations.
 - Crown Dental Clearinghouse is a stricter dental companion-guide variant: it allows only `270`, `269`, `275`, `278`, and `837D`, limits dental CDT codes to `D1000-D4999`, requires tooth numbers, permits single-surface values only, and accepts PDF/image evidence with `CROWN-` or `DENT-` controls.
 - Obsidian Claims Clearinghouse is a stricter professional-claims variant: it allows only `270`, `275`, `276`, and `837`, requires `ABK` diagnoses in the `S610`/`T509` set, and accepts only exact `ASHN1`/`ASHN2` procedure lines.
+- The Obsidian demo scenario intentionally submits one bad `837` and one corrected `837` so operations can compare companion-guide rejection evidence, accepted claim forwarding, and audit drilldown behavior in one short playback.
 - The dashboard Partners tab shows each profile as a compact companion-guide matrix for `275` attachment rules, `278` authorization service/severity rules, `837` diagnosis/procedure rules, and dental predetermination rules.
 - Raw `275` X12 emits `GS08` as `006020X314` and includes claim `REF*1K` or authorization `REF*G1`, packet `REF*F8`, plus `REF*6R`, `PWK`, `LQ*AT`, `K3`, and optional `BIN`.
 - The timeline labels 275 steps using attachment/report metadata and review status, and transaction detail exposes request/response links plus JSON, XML, and X12 payload tabs for demos and debugging.

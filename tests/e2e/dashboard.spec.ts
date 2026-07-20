@@ -513,6 +513,33 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByLabel("Recent scenario runs").getByText("Dental Predetermination to Remittance")).toBeVisible();
   });
 
+  test("runs the Obsidian companion-guide rejection scenario", async ({ page }) => {
+    await mockDashboardApi(page);
+    await page.addInitScript(() => {
+      window.localStorage.removeItem("ashn.scenarioRuns.v1");
+    });
+    await page.goto(dashboardUrl);
+
+    const scenario = page.locator(".scenario-card").filter({ hasText: "Obsidian Companion-Guide Rejection" });
+    await expect(scenario).toBeVisible();
+    await expect(scenario.getByText("S062X9A rejected")).toBeVisible();
+    await expect(scenario.getByText("corrected 837 accepted")).toBeVisible();
+
+    await scenario.getByRole("button", { name: "Run Scenario" }).click();
+
+    await expect(page.getByRole("heading", { name: /XML \/ Raw Intake Audits/i })).toBeVisible();
+    await expect(page.getByLabel("Search ledger")).toHaveValue("obsidian");
+    await expect(page.getByLabel("XML status")).toHaveValue("rejected");
+    await expect(page.getByLabel("XML type")).toHaveValue("837");
+    await expect(page.getByLabel("intake rejections").getByRole("button", { name: /tp-obsidian-claims/ })).toBeVisible();
+    await expect(page.getByLabel("intake rejections").getByText("diagnosis code S062X9A is not allowed")).toBeVisible();
+
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    await expect(scenario.getByText("Complete")).toBeVisible();
+    await expect(scenario.getByText("4/4 steps")).toBeVisible();
+    await expect(page.getByLabel("Recent scenario runs").getByText("Obsidian Companion-Guide Rejection")).toBeVisible();
+  });
+
   test("plays a demo scenario one step at a time", async ({ page }) => {
     await mockDashboardApi(page);
     await page.addInitScript(() => {
@@ -821,6 +848,7 @@ async function mockDashboardApi(page: Page) {
   let claimStatus = "Submitted";
   const workbenchTransactions: DemoTransaction[] = [];
   const rejected275Messages: DemoInboundMessage[] = [];
+  const scenarioInboundMessages: DemoInboundMessage[] = [];
   const premiumPayments: Array<{
     id: string;
     adventurerId: string;
@@ -1658,6 +1686,75 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
+    if (path === "/v1/x12/xml") {
+      expect(route.request().headers()["content-type"]).toContain("application/xml");
+      const rawPayload = route.request().postData() ?? "";
+      if (rawPayload.includes("provider-obsidian-claims") && (rawPayload.includes("<Code>S062X9A</Code>") || rawPayload.includes("<ProcedureCode>ASHN3</ProcedureCode>"))) {
+        const message: DemoInboundMessage = {
+          id: `msg-e2e-obsidian-rejected-${scenarioInboundMessages.length + 1}`,
+          partnerId: "tp-obsidian-claims",
+          contentType: "application/xml",
+          transactionType: "837",
+          rawPayload,
+          status: "rejected",
+          error: "diagnosis code S062X9A is not allowed for trading partner tp-obsidian-claims; allowed: S610, T509",
+          downstreamStatus: 400,
+          createdAt: new Date(Date.UTC(2026, 6, 8, 15, scenarioInboundMessages.length, 0)).toISOString()
+        };
+        scenarioInboundMessages.unshift(message);
+        await route.fulfill({
+          status: 400,
+          json: {
+            error: message.error,
+            lore: "Obsidian companion-guide rejection recorded in intake audit.",
+            data: { messageId: message.id, transactionType: "837", partnerId: message.partnerId }
+          }
+        });
+        return;
+      }
+      if (rawPayload.includes("provider-obsidian-claims")) {
+        const message: DemoInboundMessage = {
+          id: `msg-e2e-obsidian-accepted-${scenarioInboundMessages.length + 1}`,
+          partnerId: "tp-obsidian-claims",
+          contentType: "application/xml",
+          transactionType: "837",
+          rawPayload,
+          status: "accepted",
+          downstreamStatus: 201,
+          createdAt: new Date(Date.UTC(2026, 6, 8, 15, scenarioInboundMessages.length, 0)).toISOString()
+        };
+        const claimTransaction: DemoTransaction = {
+          ...demoTransactions.find((transaction) => transaction.type === "837")!,
+          id: "tx-e2e-obsidian-837",
+          senderId: "provider-obsidian-claims",
+          payload: { x12: "837 Obsidian corrected fixture", claimId: "claim-e2e-obsidian", diagnosisCodes: ["T509"], procedureCodes: ["ASHN2"] },
+          rawX12: "ISA*00*          *00*          *ZZ*OBSIDIAN      *ZZ*ASHN           *260708*1500*^*00501*000000837*0*T*:~ST*837*0001~HI*ABK:T509~SV1*HC:ASHN2*100.00~SE*4*0001~"
+        };
+        const ackTransaction: DemoTransaction = {
+          ...demoTransactions.find((transaction) => transaction.type === "277CA")!,
+          id: "tx-e2e-obsidian-277ca",
+          senderId: "Adventure Society",
+          receiverId: "provider-obsidian-claims",
+          relatedId: "tx-e2e-obsidian-837",
+          payload: { x12: "277CA Obsidian accepted fixture", claimId: "claim-e2e-obsidian", acknowledgment: "accepted" },
+          rawX12: "ISA*00*          *00*          *ZZ*ASHN           *ZZ*OBSIDIAN      *260708*1501*^*00501*000000277*0*T*:~ST*277*0001~BHT*0085*08*claim-e2e-obsidian~STC*A1:20~SE*4*0001~"
+        };
+        scenarioInboundMessages.unshift(message);
+        await route.fulfill({
+          status: 201,
+          json: {
+            data: { id: "claim-e2e-obsidian", status: "Submitted", adventurerId: "scenario-reject-member", providerId: "provider-obsidian-claims" },
+            lore: "Obsidian corrected claim accepted and forwarded.",
+            transaction: claimTransaction,
+            transactions: [claimTransaction, ackTransaction]
+          }
+        });
+        return;
+      }
+      await route.fulfill({ status: 201, json: { data: { id: "xml-e2e-accepted" }, lore: "XML transaction accepted." } });
+      return;
+    }
+
     if (path === "/v1/x12/raw") {
       expect(route.request().headers()["content-type"]).toContain("application/edi-x12");
       const rawPayload = route.request().postData() ?? "";
@@ -1810,12 +1907,12 @@ async function mockDashboardApi(page: Page) {
       return;
     }
 
-    if (path === "/v1/x12/messages/msg-e2e-rejected-837/replay") {
+    if (path === "/v1/x12/messages/msg-e2e-rejected-837/replay" || path.match(/^\/v1\/x12\/messages\/msg-e2e-obsidian-rejected-\d+\/replay$/)) {
       await route.fulfill({
         status: 202,
         json: {
           lore: "Replay queued for rejected 837 intake.",
-          data: { id: "msg-e2e-rejected-837", status: "replay-queued" }
+          data: { id: path.split("/")[4], status: "replay-queued" }
         }
       });
       return;
@@ -1824,7 +1921,7 @@ async function mockDashboardApi(page: Page) {
     if (path === "/v1/x12/messages/rejections") {
       const type = url.searchParams.get("type");
       const q = url.searchParams.get("q")?.toLowerCase() ?? "";
-      const allMessages = [...rejected275Messages, ...demoInboundMessages];
+      const allMessages = [...scenarioInboundMessages, ...rejected275Messages, ...demoInboundMessages];
       const rejected = allMessages.filter((message) => {
         const searchable = `${message.id} ${message.partnerId ?? ""} ${message.transactionType ?? ""} ${message.rawPayload} ${message.status} ${message.error ?? ""}`.toLowerCase();
         return message.status === "rejected" && (!type || message.transactionType === type) && (!q || searchable.includes(q));
@@ -1844,7 +1941,7 @@ async function mockDashboardApi(page: Page) {
       const status = url.searchParams.get("status");
       const type = url.searchParams.get("type");
       const q = url.searchParams.get("q")?.toLowerCase() ?? "";
-      const allMessages = [...rejected275Messages, ...demoInboundMessages];
+      const allMessages = [...scenarioInboundMessages, ...rejected275Messages, ...demoInboundMessages];
       const data = allMessages.filter((message) => {
         const searchable = `${message.id} ${message.partnerId ?? ""} ${message.transactionType ?? ""} ${message.rawPayload} ${message.status} ${message.error ?? ""}`.toLowerCase();
         const matchesStatus = !status || status === "All" || message.status === status;

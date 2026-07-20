@@ -719,19 +719,19 @@ const demoScenarios: DemoScenario[] = [
   },
   {
     id: "partner-rejection-ops",
-    title: "Partner Rejection Operations",
-    outcome: "Shows partner-specific validation failures, audit persistence, rejection trends, and replay controls.",
+    title: "Obsidian Companion-Guide Rejection",
+    outcome: "Shows a strict professional-claims partner rejecting catastrophic diagnosis/procedure data, then accepting the corrected 837.",
     audience: "Integration / operations demo",
     duration: "3–5 minutes",
-    story: "A trading partner sends a claim that violates its companion guide; operations can drill into the failed payload.",
-    highlights: ["partner profiles", "837 validation", "999 rejection", "audit trend", "inspect + replay"],
+    story: "Obsidian Claims sends a professional claim outside its companion guide; operations inspect the rejection, correct the claim, and prove the audit trail.",
+    highlights: ["Obsidian profile", "S062X9A rejected", "ASHN3 rejected", "corrected 837 accepted", "audit trend"],
     steps: [
-      { label: "Open XML Intake", action: "Filter status to rejected", expected: "Operational dashboard groups failures by partner, type, and reason." },
-      { label: "Inspect", action: "Open a rejected 837 audit record", expected: "Raw payload and validation error are visible." },
-      { label: "Export", action: "Export XML or JSON audit artifact", expected: "Demo operator can hand off the failed message." },
-      { label: "Replay", action: "Replay Intake", expected: "The same payload re-enters validation and audit flow." }
+      { label: "Reject", action: "Submit Obsidian 837 with S062X9A + ASHN3", expected: "Intake audit records a rejected companion-guide violation." },
+      { label: "Correct", action: "Submit Obsidian 837 with T509 + ASHN2", expected: "Corrected professional claim is accepted and forwarded." },
+      { label: "Trend", action: "Load rejection metrics for Obsidian diagnosis rules", expected: "Ops can see the companion-guide reason grouped in trends." },
+      { label: "Drilldown", action: "Filter XML Intake to rejected 837s", expected: "Failed Obsidian payload is inspectable and replayable." }
     ],
-    exports: ["Inbound audit JSON/XML", "999 JSON/XML/X12", "Rejection drilldown filters"]
+    exports: ["Rejected audit JSON/XML", "Accepted 837 JSON/XML/X12", "999 JSON/XML/X12", "Rejection drilldown filters"]
   },
   {
     id: "275-rejection-fixtures",
@@ -1552,15 +1552,28 @@ function App() {
   async function runPartnerRejectionScenarioStep(scenario: DemoScenario, stepIndex: number) {
     const invalidClaimXML = `<?xml version="1.0" encoding="UTF-8"?>
 <AshnX12Transaction type="837">
-  <Sender id="provider-vitesse-temple"/>
+  <Sender id="provider-obsidian-claims"/>
   <Receiver id="Adventure Society"/>
   <Claim>
     <AdventurerId>scenario-reject-member</AdventurerId>
-    <ProviderId>provider-vitesse-temple</ProviderId>
+    <ProviderId>provider-obsidian-claims</ProviderId>
     <IncidentSeverity>Awakened</IncidentSeverity>
     <AmountCents>10000</AmountCents>
-    <Diagnosis qualifier="ABK" primary="true"><Code>M542</Code></Diagnosis>
-    <ServiceLine lineNumber="1"><ProcedureCode>ASHN1</ProcedureCode><AmountCents>10000</AmountCents></ServiceLine>
+    <Diagnosis qualifier="ABK" primary="true"><Code>S062X9A</Code></Diagnosis>
+    <ServiceLine lineNumber="1"><ProcedureCode>ASHN3</ProcedureCode><AmountCents>10000</AmountCents></ServiceLine>
+  </Claim>
+</AshnX12Transaction>`;
+    const correctedClaimXML = `<?xml version="1.0" encoding="UTF-8"?>
+<AshnX12Transaction type="837">
+  <Sender id="provider-obsidian-claims"/>
+  <Receiver id="Adventure Society"/>
+  <Claim>
+    <AdventurerId>scenario-reject-member</AdventurerId>
+    <ProviderId>provider-obsidian-claims</ProviderId>
+    <IncidentSeverity>Awakened</IncidentSeverity>
+    <AmountCents>10000</AmountCents>
+    <Diagnosis qualifier="ABK" primary="true"><Code>T509</Code></Diagnosis>
+    <ServiceLine lineNumber="1"><ProcedureCode>ASHN2</ProcedureCode><AmountCents>10000</AmountCents></ServiceLine>
   </Claim>
 </AshnX12Transaction>`;
     if (stepIndex === 0) {
@@ -1570,14 +1583,19 @@ function App() {
         body: invalidClaimXML
       }));
     } else if (stepIndex === 1) {
-      await scenarioStep(scenario, 1, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
+      await scenarioStep(scenario, 1, () => request("/v1/x12/xml", {
+        method: "POST",
+        headers: { "Content-Type": "application/xml" },
+        body: correctedClaimXML
+      }));
     } else if (stepIndex === 2) {
-      await scenarioStep(scenario, 2, () => request<IntakeRejectionMetrics>("/v1/x12/messages/rejections?type=837&q=diagnosis"));
+      await scenarioStep(scenario, 2, () => request<IntakeRejectionMetrics>("/v1/x12/messages/rejections?type=837&q=obsidian"));
     } else if (stepIndex === 3) {
-      await scenarioStep(scenario, 3, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&limit=5"));
+      await scenarioStep(scenario, 3, () => request<InboundMessage[]>("/v1/x12/messages?status=rejected&type=837&q=obsidian&limit=5"));
       setActiveTab("xml");
       setAuditStatusFilter("rejected");
       setAuditTypeFilter("837");
+      setSearchTerm("obsidian");
     }
   }
 
