@@ -642,6 +642,87 @@ func TestGatewaySystemReadinessReportsDegradedSignals(t *testing.T) {
 	assert.Equal(t, float64(1), summary["unavailable"])
 }
 
+func TestGatewayMetricsSummaryAggregatesOperationalData(t *testing.T) {
+	paths := []string{}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.URL.RequestURI())
+		switch r.URL.Path {
+		case "/transactions":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: []domain.Transaction{
+				{ID: "tx-837", Type: domain.Tx837, Status: domain.TxStatusAccepted},
+				{ID: "tx-835", Type: domain.Tx835, Status: domain.TxStatusPaid},
+				{ID: "tx-275", Type: domain.Tx275, Status: domain.TxStatusAccepted},
+			}})
+		case "/claims":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: []domain.Claim{
+				{ID: "claim-1", ProviderID: "provider-vitesse-temple", Status: domain.ClaimPaid, AmountCents: 10000, AllowedAmountCents: 8000, PaidAmountCents: 7200, PatientResponsibilityCents: 800, AdjustmentAmountCents: 2000},
+				{ID: "claim-2", ProviderID: "provider-greenstone-roadside", Status: domain.ClaimDenied, AmountCents: 5000, AdjustmentAmountCents: 5000},
+			}})
+		case "/jobs":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: []metricsJob{
+				{Status: "completed"},
+				{Status: "failed", DeadLetter: true},
+			}})
+		case "/x12/messages/rejections":
+			return jsonResponse(http.StatusOK, domain.Envelope{Data: metricsRejectionData{
+				Total:     3,
+				ByPartner: []metricsCount{{Label: "tp-vitesse-temple", Count: 2}},
+				ByType:    []metricsCount{{Label: "837", Type: "837", Count: 3}},
+				ByReason:  []metricsCount{{Label: "diagnosis not allowed", Count: 3}},
+			}})
+		default:
+			return jsonResponse(http.StatusNotFound, domain.ErrorEnvelope{Error: "missing"})
+		}
+	})}
+
+	handler := gatewayHandler(gateway{payerURL: "http://payer-core", ediURL: "http://edi-intake", client: client})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/metrics/summary", nil))
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeGatewayEnvelope(t, response)
+	var summary map[string]any
+	require.NoError(t, json.Unmarshal(envelope.Data, &summary))
+	assert.Equal(t, "attention", summary["operationalStatus"])
+	transactions := summary["transactions"].(map[string]any)
+	assert.Equal(t, float64(3), transactions["totalLoaded"])
+	transactionTypes := transactions["byType"].(map[string]any)
+	assert.Equal(t, float64(1), transactionTypes["837"])
+	claims := summary["claims"].(map[string]any)
+	claimStatuses := claims["byStatus"].(map[string]any)
+	assert.Equal(t, float64(1), claimStatuses["Paid"])
+	financials := summary["financials"].(map[string]any)
+	assert.Equal(t, float64(15000), financials["billedCents"])
+	assert.Equal(t, float64(7200), financials["paidCents"])
+	intake := summary["intake"].(map[string]any)
+	assert.Equal(t, float64(3), intake["rejectionTotal"])
+	asyncJobs := summary["asyncJobs"].(map[string]any)
+	assert.Equal(t, float64(1), asyncJobs["deadLetters"])
+	assert.ElementsMatch(t, []string{"/transactions?limit=100", "/claims?limit=100", "/jobs?limit=100", "/x12/messages/rejections"}, paths)
+	assert.NotEmpty(t, envelope.Lore)
+}
+
+func TestGatewayMetricsSummarySurvivesPartialDownstreamFailure(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/transactions" {
+			return jsonResponse(http.StatusInternalServerError, domain.ErrorEnvelope{Error: "down"})
+		}
+		return jsonResponse(http.StatusOK, domain.Envelope{Data: []domain.Claim{}})
+	})}
+
+	response := httptest.NewRecorder()
+	gateway{payerURL: "http://payer-core", ediURL: "http://edi-intake", client: client}.metricsSummary(response, httptest.NewRequest(http.MethodGet, "/v1/metrics/summary", nil))
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var envelope testEnvelope
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	var summary map[string]any
+	require.NoError(t, json.Unmarshal(envelope.Data, &summary))
+	assert.Equal(t, "attention", summary["operationalStatus"])
+	highlights := summary["highlights"].([]any)
+	assert.Contains(t, highlights, "Ledger metrics unavailable")
+}
+
 func TestGatewayRetriesGETProxyOnColdStartBadGateway(t *testing.T) {
 	attempts := 0
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -748,6 +829,7 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	paths := spec["paths"].(map[string]any)
 	assert.Contains(t, paths, "/v1/health")
 	assert.Contains(t, paths, "/v1/system/readiness")
+	assert.Contains(t, paths, "/v1/metrics/summary")
 	assert.Contains(t, paths, "/v1/x12/xml")
 	assert.Contains(t, paths, "/v1/x12/raw")
 	assert.Contains(t, paths, "/v1/x12/batch")

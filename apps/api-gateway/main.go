@@ -71,6 +71,8 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.health(w)
 	case path == "/system/readiness" && r.Method == http.MethodGet:
 		g.systemReadiness(w, r)
+	case path == "/metrics/summary" && r.Method == http.MethodGet:
+		g.metricsSummary(w, r)
 	case path == "/adventurers" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, "/enrollments")
 	case path == "/adventurers" && r.Method == http.MethodGet:
@@ -320,6 +322,199 @@ func buildCommit() string {
 	return ""
 }
 
+type metricsSummary struct {
+	GeneratedAt       string                    `json:"generatedAt"`
+	Window            string                    `json:"window"`
+	Transactions      metricsTransactionSummary `json:"transactions"`
+	Claims            metricsClaimSummary       `json:"claims"`
+	Intake            metricsIntakeSummary      `json:"intake"`
+	AsyncJobs         metricsAsyncJobSummary    `json:"asyncJobs"`
+	Financials        metricsFinancialSummary   `json:"financials"`
+	OperationalStatus string                    `json:"operationalStatus"`
+	Highlights        []string                  `json:"highlights"`
+}
+
+type metricsTransactionSummary struct {
+	TotalLoaded int            `json:"totalLoaded"`
+	ByType      map[string]int `json:"byType"`
+	ByStatus    map[string]int `json:"byStatus"`
+}
+
+type metricsClaimSummary struct {
+	TotalLoaded int            `json:"totalLoaded"`
+	ByStatus    map[string]int `json:"byStatus"`
+	ByProvider  map[string]int `json:"byProvider"`
+}
+
+type metricsIntakeSummary struct {
+	RejectionTotal int            `json:"rejectionTotal"`
+	ByPartner      map[string]int `json:"byPartner"`
+	ByType         map[string]int `json:"byType"`
+	ByReason       map[string]int `json:"byReason"`
+}
+
+type metricsAsyncJobSummary struct {
+	TotalLoaded int            `json:"totalLoaded"`
+	ByStatus    map[string]int `json:"byStatus"`
+	DeadLetters int            `json:"deadLetters"`
+}
+
+type metricsFinancialSummary struct {
+	BilledCents                int64 `json:"billedCents"`
+	AllowedCents               int64 `json:"allowedCents"`
+	PaidCents                  int64 `json:"paidCents"`
+	PatientResponsibilityCents int64 `json:"patientResponsibilityCents"`
+	AdjustmentCents            int64 `json:"adjustmentCents"`
+}
+
+type metricsCount struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+	Type  string `json:"type,omitempty"`
+}
+
+type metricsRejectionData struct {
+	Total     int            `json:"total"`
+	ByPartner []metricsCount `json:"byPartner"`
+	ByType    []metricsCount `json:"byType"`
+	ByReason  []metricsCount `json:"byReason"`
+}
+
+type metricsJob struct {
+	Status     string `json:"status"`
+	DeadLetter bool   `json:"deadLetter"`
+}
+
+type metricsEnvelope struct {
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+func (g gateway) metricsSummary(w http.ResponseWriter, r *http.Request) {
+	transactions := []domain.Transaction{}
+	claims := []domain.Claim{}
+	jobs := []metricsJob{}
+	rejections := metricsRejectionData{}
+	highlights := []string{}
+
+	if err := g.fetchMetricsData(r, g.payerURL, "/transactions?limit=100", &transactions); err != nil {
+		highlights = append(highlights, "Ledger metrics unavailable")
+	}
+	if err := g.fetchMetricsData(r, g.payerURL, "/claims?limit=100", &claims); err != nil {
+		highlights = append(highlights, "Claim metrics unavailable")
+	}
+	if err := g.fetchMetricsData(r, g.payerURL, "/jobs?limit=100", &jobs); err != nil {
+		highlights = append(highlights, "Async job metrics unavailable")
+	}
+	if err := g.fetchMetricsData(r, g.ediURL, "/x12/messages/rejections", &rejections); err != nil {
+		highlights = append(highlights, "Intake rejection metrics unavailable")
+	}
+
+	summary := metricsSummary{
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Window:      "latest 100 records per source",
+		Transactions: metricsTransactionSummary{
+			TotalLoaded: len(transactions),
+			ByType:      map[string]int{},
+			ByStatus:    map[string]int{},
+		},
+		Claims: metricsClaimSummary{
+			TotalLoaded: len(claims),
+			ByStatus:    map[string]int{},
+			ByProvider:  map[string]int{},
+		},
+		Intake: metricsIntakeSummary{
+			RejectionTotal: rejections.Total,
+			ByPartner:      countsToMap(rejections.ByPartner),
+			ByType:         countsToMap(rejections.ByType),
+			ByReason:       countsToMap(rejections.ByReason),
+		},
+		AsyncJobs: metricsAsyncJobSummary{
+			TotalLoaded: len(jobs),
+			ByStatus:    map[string]int{},
+		},
+		Financials:        metricsFinancialSummary{},
+		OperationalStatus: "healthy",
+		Highlights:        highlights,
+	}
+
+	for _, tx := range transactions {
+		summary.Transactions.ByType[string(tx.Type)]++
+		summary.Transactions.ByStatus[string(tx.Status)]++
+	}
+	for _, claim := range claims {
+		summary.Claims.ByStatus[string(claim.Status)]++
+		summary.Claims.ByProvider[claim.ProviderID]++
+		summary.Financials.BilledCents += claim.AmountCents
+		summary.Financials.AllowedCents += claim.AllowedAmountCents
+		summary.Financials.PaidCents += claim.PaidAmountCents
+		summary.Financials.PatientResponsibilityCents += claim.PatientResponsibilityCents
+		summary.Financials.AdjustmentCents += claim.AdjustmentAmountCents
+	}
+	for _, job := range jobs {
+		summary.AsyncJobs.ByStatus[job.Status]++
+		if job.DeadLetter {
+			summary.AsyncJobs.DeadLetters++
+		}
+	}
+	if len(highlights) > 0 || summary.AsyncJobs.DeadLetters > 0 {
+		summary.OperationalStatus = "attention"
+	}
+	if summary.Intake.RejectionTotal > 0 {
+		summary.Highlights = append(summary.Highlights, "Partner rejection activity detected")
+	}
+	if summary.Financials.PaidCents > 0 {
+		summary.Highlights = append(summary.Highlights, "Paid claims are flowing through remittance")
+	}
+	if len(summary.Highlights) == 0 {
+		summary.Highlights = append(summary.Highlights, "No critical metric signals in the current sample")
+	}
+
+	respond(w, http.StatusOK, domain.Envelope{Data: summary, Lore: "The Guild Operations Board collected ledger, claim, intake, and worker metrics."})
+}
+
+func (g gateway) fetchMetricsData(r *http.Request, baseURL, path string, target any) error {
+	if strings.TrimSpace(baseURL) == "" {
+		return errRequestCreation
+	}
+	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header = r.Header.Clone()
+	requestmeta.Propagate(r, req)
+	resp, err := g.httpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return http.ErrAbortHandler
+	}
+	var envelope metricsEnvelope
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&envelope); err != nil {
+		return err
+	}
+	if len(envelope.Data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(envelope.Data, target)
+}
+
+func countsToMap(counts []metricsCount) map[string]int {
+	result := map[string]int{}
+	for _, count := range counts {
+		label := strings.TrimSpace(count.Label)
+		if label == "" {
+			label = strings.TrimSpace(count.Type)
+		}
+		if label == "" {
+			label = "unknown"
+		}
+		result[label] = count.Count
+	}
+	return result
+}
+
 func (g gateway) doProxyRequest(r *http.Request, targetURL string) (*http.Response, error) {
 	attempts, delay := g.coldStartRetryPolicy()
 	if r.Method != http.MethodGet {
@@ -473,6 +668,7 @@ func apiGatewayOpenAPI() map[string]any {
 		Paths: map[string]map[string]openapidocs.Operation{
 			"/v1/health":           {"get": {Summary: "Check service health", Tags: []string{"gateway"}}},
 			"/v1/system/readiness": {"get": {Summary: "Check deploy readiness signals", Tags: []string{"gateway", "operations"}}},
+			"/v1/metrics/summary":  {"get": {Summary: "Collect operational metrics summary", Tags: []string{"gateway", "metrics", "operations"}}},
 			"/v1/adventurers": {
 				"get":  {Summary: "List adventurers", Tags: []string{"adventurers"}},
 				"post": {Summary: "Create an enrollment", Tags: []string{"adventurers", "x12"}, RequestBody: true},

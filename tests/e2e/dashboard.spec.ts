@@ -116,6 +116,7 @@ test.describe("ASHN dashboard smoke", () => {
   test.skip(!dashboardUrl, "Set ASHN_DASHBOARD_URL to run dashboard browser smoke tests.");
 
   test("renders the RPG dashboard shell and service links", async ({ consoleLogger, page }) => {
+    await mockDashboardApi(page);
     await page.goto(dashboardUrl);
 
     await expect(page.getByRole("heading", { name: /ASHN Transaction Dashboard/i })).toBeVisible();
@@ -125,6 +126,7 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByText("5/5 checks ok")).toBeVisible();
 
     await expect(page.getByRole("button", { name: /Workflow/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Metrics/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Timeline/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Ledger/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /XML Intake/i })).toBeVisible();
@@ -134,6 +136,12 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(page.getByLabel("Transaction type")).toContainText("275");
     await page.getByLabel("Transaction type").selectOption("275");
     await expect(page.getByLabel("Transaction type")).toHaveValue("275");
+
+    await page.getByRole("button", { name: /Metrics/i }).click();
+    await expect(page.getByRole("heading", { name: "Metrics Cockpit" })).toBeVisible();
+    await expect(page.getByLabel("Guild Operations Metrics")).toContainText("Loaded Transactions");
+    await expect(page.getByText("Transactions by Type")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Claim Money Flow" })).toBeVisible();
 
     await page.getByRole("button", { name: /Partners/i }).click();
     await expect(page.getByRole("heading", { name: /Trading Partners/i })).toBeVisible();
@@ -845,6 +853,48 @@ async function mockDashboardApi(page: Page) {
             ],
             summary: { ok: 5, degraded: 0, unavailable: 0 },
             links: { openapi: "/openapi.json", health: "/v1/health" }
+          }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/metrics/summary") {
+      await route.fulfill({
+        json: {
+          data: {
+            generatedAt: new Date(Date.UTC(2026, 6, 19, 4, 44, 0)).toISOString(),
+            window: "latest 100 records per source",
+            transactions: {
+              totalLoaded: 17,
+              byType: { "837": 4, "275": 5, "835": 2, "278": 3, "999": 3 },
+              byStatus: { Accepted: 9, Pending: 3, Paid: 2, Denied: 1, Failed: 2 }
+            },
+            claims: {
+              totalLoaded: 6,
+              byStatus: { Paid: 2, Approved: 2, Denied: 1, "Pending Documentation": 1 },
+              byProvider: { "provider-vitesse-temple": 4, "provider-greenstone-roadside": 2 }
+            },
+            intake: {
+              rejectionTotal: 7,
+              byPartner: { "tp-vitesse-temple": 5, "tp-rimaros-hospital": 2 },
+              byType: { "275": 4, "837": 3 },
+              byReason: { "diagnosis not allowed": 3, "invalid attachment format": 2, "missing trace": 2 }
+            },
+            asyncJobs: {
+              totalLoaded: 4,
+              byStatus: { completed: 2, pending: 1, failed: 1 },
+              deadLetters: 1
+            },
+            financials: {
+              billedCents: 250000,
+              allowedCents: 190000,
+              paidCents: 160000,
+              patientResponsibilityCents: 30000,
+              adjustmentCents: 60000
+            },
+            operationalStatus: "attention",
+            highlights: ["Partner rejection activity detected", "Paid claims are flowing through remittance"]
           }
         }
       });

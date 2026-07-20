@@ -460,6 +460,118 @@ h2 {
   text-transform: none;
 }
 
+.metrics-cockpit {
+  display: grid;
+  gap: 18px;
+}
+
+.metrics-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(142, 240, 176, 0.16), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(246, 185, 90, 0.18), transparent 36%),
+    rgba(22, 17, 32, 0.78);
+}
+
+.metrics-hero h2 {
+  margin-bottom: 6px;
+  font-size: clamp(34px, 5vw, 64px);
+}
+
+.metrics-status {
+  min-width: 180px;
+  border: 1px solid rgba(142, 240, 176, 0.3);
+  border-radius: 24px;
+  background: rgba(12, 8, 18, 0.74);
+  padding: 18px;
+  text-align: right;
+}
+
+.metrics-status span {
+  display: block;
+  color: #8ef0b0;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.metrics-status.attention span {
+  color: #ffcb7a;
+}
+
+.metrics-status strong,
+.metrics-status small {
+  display: block;
+  color: #d8c8b8;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.metrics-grid,
+.financial-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.metrics-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.metric-bars {
+  align-content: start;
+}
+
+.metric-bar-row {
+  display: grid;
+  gap: 8px;
+}
+
+.metric-bar-row > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.metric-bar-row strong {
+  color: #fff7eb;
+  font-size: 13px;
+}
+
+.metric-bar-row span {
+  color: #f6b95a;
+  font-weight: 900;
+}
+
+.metric-bar-track {
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  height: 10px;
+}
+
+.metric-bar-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8ef0b0, #91d7ff, #f6b95a);
+  box-shadow: 0 0 18px rgba(142, 240, 176, 0.4);
+}
+
+.metrics-highlights p {
+  margin: 0;
+  border-left: 3px solid #f6b95a;
+  color: #d8c8b8;
+  padding-left: 12px;
+}
+
 .gateway-node::before {
   position: absolute;
   top: -15px;

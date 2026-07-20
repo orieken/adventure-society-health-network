@@ -227,7 +227,7 @@ type AcknowledgmentDrilldown = {
   examples: Transaction[];
 };
 
-type DashboardTab = "workflow" | "timeline" | "ledger" | "xml" | "partners";
+type DashboardTab = "workflow" | "metrics" | "timeline" | "ledger" | "xml" | "partners";
 type PayloadTab = "json" | "xml" | "x12";
 
 type InboundMessage = {
@@ -271,6 +271,41 @@ type ReadinessReport = {
   checks: ReadinessCheck[];
   summary: Record<string, number>;
   links: Record<string, string>;
+};
+
+type MetricsSummary = {
+  generatedAt: string;
+  window: string;
+  transactions: {
+    totalLoaded: number;
+    byType: Record<string, number>;
+    byStatus: Record<string, number>;
+  };
+  claims: {
+    totalLoaded: number;
+    byStatus: Record<string, number>;
+    byProvider: Record<string, number>;
+  };
+  intake: {
+    rejectionTotal: number;
+    byPartner: Record<string, number>;
+    byType: Record<string, number>;
+    byReason: Record<string, number>;
+  };
+  asyncJobs: {
+    totalLoaded: number;
+    byStatus: Record<string, number>;
+    deadLetters: number;
+  };
+  financials: {
+    billedCents: number;
+    allowedCents: number;
+    paidCents: number;
+    patientResponsibilityCents: number;
+    adjustmentCents: number;
+  };
+  operationalStatus: string;
+  highlights: string[];
 };
 
 type DemoScenario = {
@@ -603,6 +638,7 @@ const initialPartnerForm: PartnerFormState = {
 };
 const dashboardTabs: { id: DashboardTab; label: string; detail: string }[] = [
   { id: "workflow", label: "Workflow", detail: "Run the demo flow" },
+  { id: "metrics", label: "Metrics", detail: "Guild operations board" },
   { id: "timeline", label: "Timeline", detail: "Follow transaction chains" },
   { id: "ledger", label: "Ledger", detail: "Browse DB records" },
   { id: "xml", label: "XML Intake", detail: "Inspect inbound audits" },
@@ -756,6 +792,7 @@ function storeSavedFilters(filters: SavedFilter[]) {
 function App() {
   const [health, setHealth] = useState<Envelope<Record<string, string>> | null>(null);
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
+  const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [tradingPartners, setTradingPartners] = useState<TradingPartner[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("provider-vitesse-temple");
@@ -896,9 +933,10 @@ function App() {
       q: searchTerm,
       type: auditTypeFilter
     });
-    const [healthResult, readinessResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, rejectionResult, jobsResult] = await Promise.allSettled([
+    const [healthResult, readinessResult, metricsResult, providersResult, partnersResult, adventurersResult, claimsResult, transactionsResult, auditResult, rejectionResult, jobsResult] = await Promise.allSettled([
       request<Record<string, string>>("/v1/health"),
       request<ReadinessReport>("/v1/system/readiness"),
+      request<MetricsSummary>("/v1/metrics/summary"),
       request<Provider[]>("/v1/providers"),
       request<TradingPartner[]>("/v1/x12/trading-partners"),
       request<Adventurer[]>(`/v1/adventurers?${adventurerQuery}`),
@@ -910,6 +948,7 @@ function App() {
     ]);
     const healthEnvelope = settledValue(healthResult);
     const readinessEnvelope = settledValue(readinessResult);
+    const metricsEnvelope = settledValue(metricsResult);
     const providersEnvelope = settledValue(providersResult);
     const partnersEnvelope = settledValue(partnersResult);
     const adventurersEnvelope = settledValue(adventurersResult);
@@ -920,6 +959,7 @@ function App() {
     const jobsEnvelope = settledValue(jobsResult);
     if (healthEnvelope) setHealth(healthEnvelope);
     if (readinessEnvelope?.data) setReadiness(readinessEnvelope.data);
+    if (metricsEnvelope?.data) setMetrics(metricsEnvelope.data);
     if (providersEnvelope) setProviders(providersEnvelope.data ?? []);
     if (partnersEnvelope) setTradingPartners(partnersEnvelope.data ?? []);
     if (adventurersEnvelope) {
@@ -2107,6 +2147,10 @@ function App() {
         ))}
       </nav>
 
+      {activeTab === "metrics" && (
+        <MetricsCockpit metrics={metrics} />
+      )}
+
       {activeTab === "partners" && (
       <section className="panel trading-panel">
         <div className="ledger-title">
@@ -2760,6 +2804,93 @@ function ReadinessPanel({ readiness }: { readiness: ReadinessReport | null }) {
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+function MetricsCockpit({ metrics }: { metrics: MetricsSummary | null }) {
+  const generatedAt = metrics?.generatedAt ? new Date(metrics.generatedAt).toLocaleTimeString() : "awaiting signal";
+  return (
+    <section className="metrics-cockpit" aria-label="Guild Operations Metrics">
+      <div className="panel metrics-hero">
+        <div>
+          <p className="eyebrow">Guild Operations Board</p>
+          <h2>Metrics Cockpit</h2>
+          <p className="muted">Transaction volume, claim money flow, intake rejection pressure, and worker queue health from the live network.</p>
+        </div>
+        <div className={`metrics-status ${metrics?.operationalStatus === "healthy" ? "ready" : "attention"}`}>
+          <span>{metrics?.operationalStatus ?? "loading"}</span>
+          <strong>{generatedAt}</strong>
+          <small>{metrics?.window ?? "latest records"}</small>
+        </div>
+      </div>
+
+      <div className="metrics-grid">
+        <MetricCard label="Loaded Transactions" value={metrics?.transactions.totalLoaded ?? 0} detail="latest ledger sample" />
+        <MetricCard label="Loaded Claims" value={metrics?.claims.totalLoaded ?? 0} detail={`${money(metrics?.financials.billedCents)} billed`} />
+        <MetricCard label="Intake Rejections" value={metrics?.intake.rejectionTotal ?? 0} detail="all-time rejection signal" />
+        <MetricCard label="Dead Letters" value={metrics?.asyncJobs.deadLetters ?? 0} detail={`${metrics?.asyncJobs.totalLoaded ?? 0} worker jobs loaded`} />
+      </div>
+
+      <div className="metrics-board">
+        <MetricBars title="Transactions by Type" items={metrics?.transactions.byType} />
+        <MetricBars title="Transactions by Status" items={metrics?.transactions.byStatus} />
+        <MetricBars title="Claims by Status" items={metrics?.claims.byStatus} />
+        <MetricBars title="Claims by Provider" items={metrics?.claims.byProvider} />
+        <MetricBars title="Async Jobs by Status" items={metrics?.asyncJobs.byStatus} />
+        <MetricBars title="Top Intake Reasons" items={metrics?.intake.byReason} />
+      </div>
+
+      <section className="panel financial-panel">
+        <div className="ledger-title">
+          <div>
+            <h2>Claim Money Flow</h2>
+            <p className="muted">Summed from the latest claim sample.</p>
+          </div>
+        </div>
+        <div className="financial-grid">
+          <DetailItem label="Billed" value={money(metrics?.financials.billedCents)} />
+          <DetailItem label="Allowed" value={money(metrics?.financials.allowedCents)} />
+          <DetailItem label="Paid" value={money(metrics?.financials.paidCents)} />
+          <DetailItem label="Patient Resp." value={money(metrics?.financials.patientResponsibilityCents)} />
+          <DetailItem label="Adjustments" value={money(metrics?.financials.adjustmentCents)} />
+        </div>
+      </section>
+
+      <section className="panel metrics-highlights">
+        <h2>Signal Highlights</h2>
+        {(metrics?.highlights ?? ["Awaiting live metric signal."]).map((highlight) => (
+          <p key={highlight}>{highlight}</p>
+        ))}
+      </section>
+    </section>
+  );
+}
+
+function MetricBars({ title, items }: { title: string; items?: Record<string, number> }) {
+  const entries = Object.entries(items ?? {}).sort((left, right) => right[1] - left[1]).slice(0, 6);
+  const max = Math.max(1, ...entries.map(([, value]) => value));
+  return (
+    <section className="panel metric-bars">
+      <div className="ledger-title">
+        <h2>{title}</h2>
+        <span className="muted">{entries.reduce((sum, [, value]) => sum + value, 0)} events</span>
+      </div>
+      {entries.length === 0 ? (
+        <p className="muted">No metric signal loaded yet.</p>
+      ) : (
+        entries.map(([label, value]) => (
+          <div key={label} className="metric-bar-row">
+            <div>
+              <strong>{label}</strong>
+              <span>{value}</span>
+            </div>
+            <div className="metric-bar-track">
+              <span style={{ width: `${Math.max(8, (value / max) * 100)}%` }} />
+            </div>
+          </div>
+        ))
+      )}
     </section>
   );
 }
