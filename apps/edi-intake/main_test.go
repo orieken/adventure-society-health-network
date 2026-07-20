@@ -493,6 +493,56 @@ func TestAcceptRawX12RoutesPriorAuthorizationToPayerCore(t *testing.T) {
 	assert.Equal(t, "Raw X12 prior authorization queued.", decodeEnvelope(t, response).Lore)
 }
 
+func TestAcceptRawX12RoutesDentalPriorAuthorizationToPayerCore(t *testing.T) {
+	downstreamPaths := []string{}
+	var priorAuthRequest domain.PriorAuthRequest
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		downstreamPaths = append(downstreamPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/auth-requests":
+			assert.Equal(t, http.MethodPost, r.Method)
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&priorAuthRequest))
+			return jsonResponse(http.StatusAccepted, domain.Envelope{
+				Data: map[string]string{"transactionId": "tx-raw-278d", "status": "Pending"},
+				Lore: "Raw X12 dental predetermination queued.",
+				Transaction: &domain.Transaction{
+					ID:     "tx-raw-278d",
+					Type:   domain.Tx278,
+					Status: domain.TxStatusPending,
+				},
+			})
+		case "/transactions":
+			var ack domain.Transaction
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&ack))
+			assert.Equal(t, domain.Tx999, ack.Type)
+			assert.Equal(t, domain.Tx278, acknowledgedTypeFromPayload(t, ack.Payload))
+			return jsonResponse(http.StatusCreated, domain.Envelope{Transaction: &ack})
+		default:
+			t.Fatalf("unexpected downstream path %s", r.URL.Path)
+			return nil, nil
+		}
+	})}
+	handler := newIntakeTestMux(intakeApp{payerURL: "http://payer-core", client: client})
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/x12/raw", strings.NewReader(raw278DentalFixture()))
+	request.Header.Set("Content-Type", "application/edi-x12")
+	handler.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusAccepted, response.Code)
+	assert.Equal(t, []string{"/auth-requests", "/transactions"}, downstreamPaths)
+	assert.Equal(t, "adv-raw-278d", priorAuthRequest.AdventurerID)
+	assert.Equal(t, "provider-vitesse-temple", priorAuthRequest.ProviderID)
+	assert.Equal(t, "dental-predetermination", priorAuthRequest.ServiceType)
+	require.NotNil(t, priorAuthRequest.DentalService)
+	assert.Equal(t, "D7240", priorAuthRequest.DentalService.CDTCode)
+	assert.Equal(t, "14", priorAuthRequest.DentalService.ToothNumber)
+	assert.Equal(t, "MO", priorAuthRequest.DentalService.Surface)
+	assert.Equal(t, "UR", priorAuthRequest.DentalService.Quadrant)
+	assert.True(t, priorAuthRequest.DentalService.Orthodontic)
+	assert.Equal(t, "Raw X12 dental predetermination queued.", decodeEnvelope(t, response).Lore)
+}
+
 func TestAcceptRawX12RoutesPaymentToPayerCore(t *testing.T) {
 	downstreamPaths := []string{}
 	var paymentRequest domain.PaymentRequest
@@ -2272,6 +2322,31 @@ func raw278Fixture() string {
 		"SE*12*000000278~",
 		"GE*1*000000278~",
 		"IEA*1*000000278~",
+	}, "\n")
+}
+
+func raw278DentalFixture() string {
+	return strings.Join([]string{
+		"ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*0000278D0*0*T*:~",
+		"GS*HI*provider-vitesse-temple*Adventure Society*20260708*1200*0000278D0*X*005010X217~",
+		"ST*278*0000278D0~",
+		"BHT*0007*13*0000278D0*20260708*1200~",
+		"TRN*1*tx-raw-278d*provider-vitesse-temple~",
+		"HL*1**20*1~",
+		"NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+		"HL*2*1*22*0~",
+		"NM1*IL*1*Dental Auth Ranger*****MI*adv-raw-278d~",
+		"UM*AR*I*2***dental-predetermination~",
+		"HI*ABK:K021~",
+		"SV1*AD:D7240*0.00*UN*1~",
+		"TOO*JP*14~",
+		"REF*D9*SURFACE-MO~",
+		"REF*D9*QUADRANT-UR~",
+		"CRC*ZZ*Y*ORTHO~",
+		"DTP*472*D8*20260708~",
+		"SE*17*0000278D0~",
+		"GE*1*0000278D0~",
+		"IEA*1*0000278D0~",
 	}, "\n")
 }
 

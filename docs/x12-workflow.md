@@ -127,7 +127,7 @@ The request is initially `Pending`. A dashboard reviewer can manually approve or
 
 Dental predeterminations add a payer review checklist for diagnostic x-rays, periodontal charting, clinical narrative, treatment plan, and optional orthodontic records. The dashboard renders those prompts in the authorization workbench and submits the evidence as linked `275` packet documents. Manual approval is blocked until every required dental document has an accepted attachment review; the async worker auto-denies dental predeterminations with a reason that points the reviewer back to the dental evidence checklist.
 
-Raw delimiter-based `278` intake is available at `POST /v1/x12/raw`. The parser reads the provider and subscriber from `NM1`, extracts the requested service type from `UM`, derives incident severity from companion `HI` diagnosis codes, validates partner-specific service/severity rules, emits a `999`, and forwards the canonical prior authorization request to `payer-core`.
+Raw delimiter-based `278` intake is available at `POST /v1/x12/raw`. The parser reads the provider and subscriber from `NM1`, extracts the requested service type from `UM`, derives incident severity from companion `HI` diagnosis codes, validates partner-specific service/severity rules, emits a `999`, and forwards the canonical prior authorization request to `payer-core`. Dental predetermination raw intake also maps the CDT procedure from `SV1*AD`, tooth number from `TOO`, surface/quadrant hints from `REF*D9`, and orthodontic indicators from `CRC*ZZ`.
 
 The dashboard shows this as a small prior-auth review widget after the `278` is created:
 
@@ -316,7 +316,7 @@ This gives the demo a realistic EDI boundary: not every external sender can subm
 
 ## What Is Real vs. Simplified
 
-ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `834` enrollment, `820` premium payment, `270` eligibility, `276` claim status, `278` prior authorization, `837` professional claim, `837D` dental claim, `835` remittance/payment, and `275` attachment messages into canonical ASHN requests. The parser build-vs-integrate recommendation is captured in [X12 Parser Strategy](x12-parser-strategy.md).
+ASHN intentionally keeps the EDI layer lightweight, but the generated and parsed raw X12 now uses more companion-guide-inspired segment examples. Raw intake currently maps `834` enrollment, `820` premium payment, `270` eligibility, `276` claim status, `278` prior authorization and dental predetermination, `837` professional claim, `837D` dental claim, `835` remittance/payment, and `275` attachment messages into canonical ASHN requests. The parser build-vs-integrate recommendation is captured in [X12 Parser Strategy](x12-parser-strategy.md).
 
 What it models well:
 

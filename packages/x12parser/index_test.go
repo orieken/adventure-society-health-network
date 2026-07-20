@@ -64,6 +64,22 @@ func TestParseMapsSupportedRawX12Transactions(t *testing.T) {
 			},
 		},
 		{
+			name: "278 dental predetermination",
+			raw:  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*0000278D0*0*T*:~GS*HI*provider-vitesse-temple*Adventure Society*20260708*1200*0000278D0*X*005010X217~ST*278*0000278D0~NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~NM1*IL*1*Dental Auth Ranger*****MI*adv-raw-278d~UM*AR*I*2***dental-predetermination~HI*ABK:K021~SV1*AD:D7240*0.00*UN*1~TOO*JP*14~REF*D9*SURFACE-MO~REF*D9*QUADRANT-UR~CRC*ZZ*Y*ORTHO~SE*11*0000278D0~GE*1*0000278D0~IEA*1*0000278D0~",
+			assert: func(t *testing.T, parsed ParsedTransaction) {
+				require.NotNil(t, parsed.PriorAuthorization)
+				assert.Equal(t, "278", parsed.Type)
+				assert.Equal(t, "dental-predetermination", parsed.PriorAuthorization.ServiceType)
+				assert.Equal(t, DentalService{
+					CDTCode:     "D7240",
+					ToothNumber: "14",
+					Surface:     "MO",
+					Quadrant:    "UR",
+					Orthodontic: true,
+				}, parsed.PriorAuthorization.DentalService)
+			},
+		},
+		{
 			name: "837 claim",
 			raw:  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000837*0*T*:~GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000837*X*005010X837P~ST*837*000000837~NM1*85*2*provider-vitesse-temple*****XX*provider-vitesse-temple~NM1*IL*1*Claim Ranger*****MI*adv-raw-837~CLM*claim-raw-837*1250.00***11:B:1*Y*A*Y*I~HI*ABK:S062X9A*ABF:T509~SV1*HC:ASHN1*950.00*UN*1***1~PWK*B4*EL****ATTACH-837~SE*8*000000837~GE*1*000000837~IEA*1*000000837~",
 			assert: func(t *testing.T, parsed ParsedTransaction) {

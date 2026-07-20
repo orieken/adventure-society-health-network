@@ -73,6 +73,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Parse raw X12 `270` eligibility into canonical eligibility requests.
 - [x] Parse raw X12 `276` claim status into canonical status requests.
 - [x] Parse raw X12 `278` prior authorization into canonical authorization requests.
+- [x] Parse raw X12 `278` dental predeterminations with CDT, tooth, surface, quadrant, and orthodontic detail.
 - [x] Parse raw X12 `837D` dental claims with CDT, tooth, surface, quadrant, and orthodontic detail.
 - [x] Parse raw X12 `835` remittance/payment into canonical payment requests.
 - [x] Add copy buttons for raw transaction payloads.

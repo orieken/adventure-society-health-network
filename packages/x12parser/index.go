@@ -274,6 +274,7 @@ func raw278PriorAuthorization(segmentMap map[string][][]string, senderID string)
 		ProviderID:       firstNonEmpty(rawNM1ID(segmentMap, "1P"), senderID),
 		ServiceType:      raw278ServiceType(segmentMap),
 		IncidentSeverity: rawSeverity(segmentMap),
+		DentalService:    raw278DentalService(segmentMap),
 	}
 	if priorAuth.AdventurerID == "" {
 		return PriorAuthorization{}, fmt.Errorf("missing subscriber NM1 segment")
@@ -285,6 +286,17 @@ func raw278PriorAuthorization(segmentMap map[string][][]string, senderID string)
 		return PriorAuthorization{}, fmt.Errorf("missing UM service type")
 	}
 	return priorAuth, nil
+}
+
+func raw278DentalService(segmentMap map[string][][]string) DentalService {
+	dentalService := rawDentalServiceContext(segmentMap)
+	if sv1 := firstRawSegment(segmentMap, "SV1"); len(sv1) > 1 {
+		procedureCode := rawProcedureCode(sv1[1])
+		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sv1[1])), "AD:") {
+			dentalService.CDTCode = procedureCode
+		}
+	}
+	return dentalService
 }
 
 func raw837Claim(segmentMap map[string][][]string, senderID string) (Claim, error) {
