@@ -80,6 +80,54 @@ func TestRecordPremiumPaymentRejectsMissingAdventurer(t *testing.T) {
 	assert.Equal(t, "adventurer not found", decodeEnvelope(t, response).Error)
 }
 
+func TestListPremiumPaymentsReturnsEmptyWithoutDB(t *testing.T) {
+	app := newTestStore()
+	mux := newPayerTestMux(app)
+
+	response := serveJSON(t, mux, http.MethodGet, "/premium-payments?adventurerId=adv-1", nil)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	var payments []domain.PremiumPayment
+	require.NoError(t, json.Unmarshal(envelope.Data, &payments))
+	assert.Empty(t, payments)
+	require.NotNil(t, envelope.Page)
+	assert.Equal(t, 25, envelope.Page.Limit)
+	assert.False(t, envelope.Page.HasMore)
+}
+
+func TestListPremiumPaymentsReturnsReconciliationHistory(t *testing.T) {
+	db, mock, cleanup := newPayerMockDB(t)
+	defer cleanup()
+	app := &store{db: db, transactions: map[string]domain.Transaction{}}
+	mux := newPayerTestMux(app)
+	now := time.Now().UTC()
+	query := `SELECT id, adventurer_id, transaction_id, amount_cents, status, created_at, status = 'Accepted' AS reconciled, status = 'Accepted' AND created_at >= now() - interval '45 days' AS current_for_benefits FROM premium_payments WHERE LOWER(adventurer_id) = LOWER($1) ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+	rows := sqlmock.NewRows([]string{"id", "adventurer_id", "transaction_id", "amount_cents", "status", "created_at", "reconciled", "current_for_benefits"}).
+		AddRow("premium-1", "adv-1", "tx-820-1", int64(5000), "Accepted", now, true, true).
+		AddRow("premium-2", "adv-1", "tx-820-2", int64(4500), "Accepted", now.Add(-50*24*time.Hour), true, false).
+		AddRow("premium-3", "adv-1", "tx-820-3", int64(3000), "Rejected", now.Add(-60*24*time.Hour), false, false)
+	mock.ExpectQuery(regexp.QuoteMeta(query)).
+		WithArgs("adv-1", 3, 0).
+		WillReturnRows(rows)
+
+	response := serveJSON(t, mux, http.MethodGet, "/premium-payments?adventurerId=adv-1&limit=2", nil)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	envelope := decodeEnvelope(t, response)
+	var payments []domain.PremiumPayment
+	require.NoError(t, json.Unmarshal(envelope.Data, &payments))
+	require.Len(t, payments, 2)
+	assert.Equal(t, "premium-1", payments[0].ID)
+	assert.True(t, payments[0].Reconciled)
+	assert.True(t, payments[0].CurrentForBenefits)
+	assert.True(t, payments[1].Reconciled)
+	assert.False(t, payments[1].CurrentForBenefits)
+	require.NotNil(t, envelope.Page)
+	assert.Equal(t, 2, envelope.Page.Count)
+	assert.True(t, envelope.Page.HasMore)
+}
+
 func TestEligibilityReturns270And271Pair(t *testing.T) {
 	app := newTestStore()
 	adventurer := domain.Adventurer{ID: "adv-1", Name: "Farros", Rank: domain.RankIron, Guild: "Grim Foundations", Region: domain.RegionGreenstone, CoverageStatus: domain.CoverageActive}
@@ -1620,6 +1668,7 @@ func TestPayerOpenAPIIncludesWorkflowRoutes(t *testing.T) {
 	assert.Equal(t, "ASHN Payer Core", info["title"])
 	paths := spec["paths"].(map[string]any)
 	assert.Contains(t, paths, "/enrollments")
+	assert.Contains(t, paths, "/premium-payments")
 	assert.Contains(t, paths, "/benefit-coordination")
 	assert.Contains(t, paths, "/claims/{id}/payment")
 	assert.Contains(t, paths, "/transactions/{id}/replay")
@@ -2246,6 +2295,7 @@ func newPayerTestMux(app *store) http.Handler {
 	mux.HandleFunc("POST /enrollments", app.enroll)
 	mux.HandleFunc("GET /adventurers", app.listAdventurers)
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
+	mux.HandleFunc("GET /premium-payments", app.listPremiumPayments)
 	mux.HandleFunc("POST /premium-payments", app.recordPremiumPayment)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /benefit-coordination", app.coordinateBenefits)

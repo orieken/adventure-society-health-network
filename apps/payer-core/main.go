@@ -90,6 +90,7 @@ func main() {
 	mux.HandleFunc("POST /enrollments", app.enroll)
 	mux.HandleFunc("GET /adventurers", app.listAdventurers)
 	mux.HandleFunc("GET /adventurers/{id}", app.getAdventurer)
+	mux.HandleFunc("GET /premium-payments", app.listPremiumPayments)
 	mux.HandleFunc("POST /premium-payments", app.recordPremiumPayment)
 	mux.HandleFunc("POST /eligibility/query", app.eligibility)
 	mux.HandleFunc("POST /benefit-coordination", app.coordinateBenefits)
@@ -1302,6 +1303,24 @@ func (s *store) recordPremiumPayment(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusCreated, domain.Envelope{Data: map[string]any{"adventurerId": adventurer.ID, "amountCents": req.AmountCents, "status": "Accepted"}, Lore: lore.ThemeTransaction(domain.Tx820, adventurer.Name, "Adventure Society"), Transaction: &tx})
 }
 
+func (s *store) listPremiumPayments(w http.ResponseWriter, r *http.Request) {
+	page := parsePage(r, 25)
+	adventurerID := strings.TrimSpace(r.URL.Query().Get("adventurerId"))
+	if s.db != nil {
+		payments, pageInfo, err := s.queryPremiumPayments(page, adventurerID)
+		if err == nil {
+			respond(w, http.StatusOK, domain.Envelope{Data: payments, Lore: "The dues ledger shows accepted 820 payments and benefit-current status.", Page: &pageInfo})
+			return
+		}
+		ashnlog.Error("postgres_premium_payment_list_failed_using_empty", err, "service", "payer-core")
+	}
+	respond(w, http.StatusOK, domain.Envelope{
+		Data: []domain.PremiumPayment{},
+		Lore: "The dues ledger is waiting for DB-backed 820 premium history.",
+		Page: &domain.PageInfo{Limit: page.Limit, Offset: page.Offset, Count: 0, HasMore: false},
+	})
+}
+
 func (s *store) getTransaction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	tx, ok := s.findTransaction(id)
@@ -2355,6 +2374,33 @@ func (s *store) queryTransactions(page pageRequest, filters transactionFilters) 
 	return transactions, pageInfo, nil
 }
 
+func (s *store) queryPremiumPayments(page pageRequest, adventurerID string) ([]domain.PremiumPayment, domain.PageInfo, error) {
+	clauses, args := []string{}, []any{}
+	addTextFilter(&clauses, &args, "adventurer_id", adventurerID)
+	query := `SELECT id, adventurer_id, transaction_id, amount_cents, status, created_at, status = 'Accepted' AS reconciled, status = 'Accepted' AND created_at >= now() - interval '45 days' AS current_for_benefits FROM premium_payments`
+	query = appendWhere(query, clauses)
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, page.Limit+1, page.Offset)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	defer rows.Close()
+	payments := []domain.PremiumPayment{}
+	for rows.Next() {
+		var payment domain.PremiumPayment
+		if err := rows.Scan(&payment.ID, &payment.AdventurerID, &payment.TransactionID, &payment.AmountCents, &payment.Status, &payment.CreatedAt, &payment.Reconciled, &payment.CurrentForBenefits); err != nil {
+			return nil, domain.PageInfo{}, err
+		}
+		payments = append(payments, payment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, domain.PageInfo{}, err
+	}
+	payments, pageInfo := trimFetchedPage(payments, page)
+	return payments, pageInfo, nil
+}
+
 func parsePage(r *http.Request, fallback int) pageRequest {
 	return pageRequest{Limit: parseLimit(r, fallback), Offset: parseOffset(r)}
 }
@@ -2578,6 +2624,7 @@ func payerOpenAPI() map[string]any {
 				"get": {Summary: "Get adventurer detail", Tags: []string{"adventurers"}},
 			},
 			"/premium-payments": {
+				"get":  {Summary: "List 820 premium payment history", Tags: []string{"premium", "x12"}},
 				"post": {Summary: "Record 820 premium payment", Tags: []string{"premium", "x12"}, RequestBody: true},
 			},
 			"/eligibility/query": {

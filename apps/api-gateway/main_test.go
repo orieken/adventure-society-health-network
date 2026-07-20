@@ -115,6 +115,7 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 		{http.MethodPost, "/v1/claims/claim-1/documentation-request"},
 		{http.MethodPost, "/v1/claims/claim-1/attachments"},
 		{http.MethodPost, "/v1/claims/claim-1/payment"},
+		{http.MethodGet, "/v1/premium-payments?adventurerId=adv-1&limit=10"},
 		{http.MethodPost, "/v1/premium-payments"},
 		{http.MethodPost, "/v1/benefit-coordination"},
 		{http.MethodGet, "/v1/transactions/tx-1"},
@@ -140,6 +141,7 @@ func TestGatewayRoutesClaimAndTransactionActionsToPayerCore(t *testing.T) {
 		"POST /claims/claim-1/documentation-request",
 		"POST /claims/claim-1/attachments",
 		"POST /claims/claim-1/payment",
+		"GET /premium-payments?adventurerId=adv-1&limit=10",
 		"POST /premium-payments",
 		"POST /benefit-coordination",
 		"GET /transactions/tx-1",
@@ -832,6 +834,7 @@ func TestAPIGatewayOpenAPIIncludesPublicRoutes(t *testing.T) {
 	assert.Contains(t, paths, "/v1/health")
 	assert.Contains(t, paths, "/v1/system/readiness")
 	assert.Contains(t, paths, "/v1/metrics/summary")
+	assert.Contains(t, paths, "/v1/premium-payments")
 	assert.Contains(t, paths, "/v1/benefit-coordination")
 	assert.Contains(t, paths, "/v1/x12/xml")
 	assert.Contains(t, paths, "/v1/x12/raw")

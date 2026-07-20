@@ -79,7 +79,7 @@ func (g gateway) route(w http.ResponseWriter, r *http.Request) {
 		g.proxy(w, r, g.payerURL, path)
 	case strings.HasPrefix(path, "/adventurers/") && r.Method == http.MethodGet:
 		g.proxy(w, r, g.payerURL, path)
-	case path == "/premium-payments" && r.Method == http.MethodPost:
+	case path == "/premium-payments" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
 		g.proxy(w, r, g.payerURL, path)
 	case path == "/eligibility" && r.Method == http.MethodPost:
 		g.proxy(w, r, g.payerURL, "/eligibility/query")
@@ -691,12 +691,15 @@ func apiGatewayOpenAPI() map[string]any {
 				"get":  {Summary: "List claims", Tags: []string{"claims"}},
 				"post": {Summary: "Submit 837 claim", Tags: []string{"claims", "x12"}, RequestBody: true},
 			},
-			"/v1/claims/{id}":                          {"get": {Summary: "Get claim detail", Tags: []string{"claims"}}},
-			"/v1/claims/{id}/status":                   {"get": {Summary: "Get claim status", Tags: []string{"claims"}}},
-			"/v1/claims/{id}/documentation-request":    {"post": {Summary: "Request 275 supporting documentation", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
-			"/v1/claims/{id}/attachments":              {"post": {Summary: "Submit one 275 patient information attachment or a packet", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
-			"/v1/claims/{id}/payment":                  {"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true}},
-			"/v1/premium-payments":                     {"post": {Summary: "Record 820 premium payment", Tags: []string{"premium", "x12"}, RequestBody: true}},
+			"/v1/claims/{id}":                       {"get": {Summary: "Get claim detail", Tags: []string{"claims"}}},
+			"/v1/claims/{id}/status":                {"get": {Summary: "Get claim status", Tags: []string{"claims"}}},
+			"/v1/claims/{id}/documentation-request": {"post": {Summary: "Request 275 supporting documentation", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
+			"/v1/claims/{id}/attachments":           {"post": {Summary: "Submit one 275 patient information attachment or a packet", Tags: []string{"claims", "attachments", "x12"}, RequestBody: true}},
+			"/v1/claims/{id}/payment":               {"post": {Summary: "Create 835 payment", Tags: []string{"claims", "x12"}, RequestBody: true}},
+			"/v1/premium-payments": {
+				"get":  {Summary: "List 820 premium payment history", Tags: []string{"premium", "x12"}},
+				"post": {Summary: "Record 820 premium payment", Tags: []string{"premium", "x12"}, RequestBody: true},
+			},
 			"/v1/transactions":                         {"get": {Summary: "List ledger transactions", Tags: []string{"transactions"}}},
 			"/v1/transactions/{id}":                    {"get": {Summary: "Get transaction detail", Tags: []string{"transactions"}}},
 			"/v1/transactions/{id}/export":             {"get": {Summary: "Export transaction as JSON, XML, or X12", Tags: []string{"transactions", "export"}}},

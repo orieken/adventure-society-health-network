@@ -403,6 +403,17 @@ type PremiumPaymentRequest struct {
 	AmountCents  int64  `json:"amountCents"`
 }
 
+type PremiumPayment struct {
+	ID                 string    `json:"id"`
+	AdventurerID       string    `json:"adventurerId"`
+	TransactionID      string    `json:"transactionId"`
+	AmountCents        int64     `json:"amountCents"`
+	Status             string    `json:"status"`
+	CreatedAt          time.Time `json:"createdAt"`
+	Reconciled         bool      `json:"reconciled"`
+	CurrentForBenefits bool      `json:"currentForBenefits"`
+}
+
 type PageInfo struct {
 	Limit   int  `json:"limit"`
 	Offset  int  `json:"offset"`
