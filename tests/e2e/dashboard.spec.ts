@@ -233,6 +233,12 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latestEvent.locator("p").filter({ hasText: "Guild dues payment recorded." })).toBeVisible();
     await latestEvent.getByText("Raw payload").click();
     await expect(latestEvent.getByText("tx-e2e-820-premium")).toBeVisible();
+
+    await page.getByRole("button", { name: /Ledger/i }).click();
+    const premiumLedger = page.locator(".panel", { hasText: "Premium Ledger" });
+    await expect(premiumLedger.getByText("$50.00 · Reconciled")).toBeVisible();
+    await expect(premiumLedger.getByText("Benefit-current · Accepted")).toBeVisible();
+    await expect(premiumLedger.getByText("tx-e2e-820-premium")).toBeVisible();
   });
 
   test("submits raw X12 intake from the XML tab", async ({ page }) => {
@@ -798,6 +804,16 @@ async function mockDashboardApi(page: Page) {
   let claimStatus = "Submitted";
   const workbenchTransactions: DemoTransaction[] = [];
   const rejected275Messages: DemoInboundMessage[] = [];
+  const premiumPayments: Array<{
+    id: string;
+    adventurerId: string;
+    transactionId: string;
+    amountCents: number;
+    status: string;
+    createdAt: string;
+    reconciled: boolean;
+    currentForBenefits: boolean;
+  }> = [];
   const partnerProfiles = [
     {
       id: "tp-vitesse-temple",
@@ -962,6 +978,16 @@ async function mockDashboardApi(page: Page) {
     }
 
     if (path === "/v1/premium-payments" && route.request().method() === "POST") {
+      premiumPayments.unshift({
+        id: "premium-e2e-820",
+        adventurerId: "adv-e2e-dashboard",
+        transactionId: "tx-e2e-820-premium",
+        amountCents: 5000,
+        status: "Accepted",
+        createdAt: new Date(Date.UTC(2026, 6, 8, 15, 0, 0)).toISOString(),
+        reconciled: true,
+        currentForBenefits: true
+      });
       await route.fulfill({
         status: 201,
         json: {
@@ -973,6 +999,16 @@ async function mockDashboardApi(page: Page) {
             payload: { x12: "820 premium workflow fixture", adventurerId: "adv-e2e-dashboard", amountCents: "5000" },
             rawX12: "ST*820*workflow-premium~BPR*C*50.00~SE*3*workflow-premium~"
           }
+        }
+      });
+      return;
+    }
+
+    if (path === "/v1/premium-payments") {
+      await route.fulfill({
+        json: {
+          data: premiumPayments,
+          page: pageInfo(premiumPayments.length, Number(url.searchParams.get("limit") ?? 5))
         }
       });
       return;

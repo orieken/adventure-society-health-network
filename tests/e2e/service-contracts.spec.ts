@@ -33,6 +33,16 @@ type Adventurer = {
   coverageStatus: string;
 };
 
+type PremiumPayment = {
+  id: string;
+  adventurerId: string;
+  transactionId: string;
+  amountCents: number;
+  status: string;
+  reconciled: boolean;
+  currentForBenefits: boolean;
+};
+
 type InboundMessage = {
   id: string;
   contentType: string;
@@ -189,6 +199,26 @@ test.describe("ASHN service contracts", () => {
     expect(envelope.page?.offset).toBe(0);
     expect(typeof envelope.page?.count).toBe("number");
     expect(typeof envelope.page?.hasMore).toBe("boolean");
+  });
+
+  test("gateway lists 820 premium payment history", async ({ request }) => {
+    const response = await request.get(`${serviceUrls.apiGateway}/v1/premium-payments?limit=5&offset=0`);
+    expect(response.ok()).toBeTruthy();
+
+    const envelope = (await response.json()) as Envelope<PremiumPayment[]>;
+    expect(Array.isArray(envelope.data)).toBeTruthy();
+    expect(envelope.page?.limit).toBe(5);
+    expect(envelope.page?.offset).toBe(0);
+    expect(typeof envelope.page?.count).toBe("number");
+    expect(typeof envelope.page?.hasMore).toBe("boolean");
+    for (const payment of envelope.data ?? []) {
+      expect(payment.id).toBeTruthy();
+      expect(payment.adventurerId).toBeTruthy();
+      expect(payment.transactionId).toBeTruthy();
+      expect(typeof payment.amountCents).toBe("number");
+      expect(typeof payment.reconciled).toBe("boolean");
+      expect(typeof payment.currentForBenefits).toBe("boolean");
+    }
   });
 
   test("gateway propagates request and correlation headers", async ({ request }) => {
@@ -579,6 +609,18 @@ test.describe("ASHN mutating demo contracts", () => {
     const premiumEnvelope = (await premium.json()) as Envelope<{ status: string; amountCents: number }>;
     expect(premiumEnvelope.transaction?.type).toBe("820");
     expect(premiumEnvelope.data?.status).toBe("Accepted");
+
+    const premiumHistory = await request.get(`${serviceUrls.apiGateway}/v1/premium-payments?adventurerId=${encodeURIComponent(enrolled.data?.id ?? "")}&limit=5`);
+    expect(premiumHistory.ok()).toBeTruthy();
+    const premiumHistoryEnvelope = (await premiumHistory.json()) as Envelope<PremiumPayment[]>;
+    const recordedPremium = premiumHistoryEnvelope.data?.find((payment) => payment.transactionId === premiumEnvelope.transaction?.id);
+    expect(recordedPremium).toMatchObject({
+      adventurerId: enrolled.data?.id,
+      amountCents: 2_500,
+      status: "Accepted",
+      reconciled: true,
+      currentForBenefits: true
+    });
 
     const claim = await request.post(`${serviceUrls.apiGateway}/v1/claims`, {
       data: {
