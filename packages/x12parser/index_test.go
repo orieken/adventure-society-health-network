@@ -174,3 +174,81 @@ func TestParseRejectsUnsupportedAndInvalidPayloads(t *testing.T) {
 	_, err = Parse([]byte("not really x12"))
 	assert.EqualError(t, err, "missing ST transaction set")
 }
+
+func TestRaw837AttachmentControlsMergesPWKAndREFWithoutDuplicates(t *testing.T) {
+	controls := raw837AttachmentControls(map[string][][]string{
+		"PWK": {
+			{"PWK", "B4", "EL", "", "", "", "ATTACH-ONE"},
+			{"PWK", "PN", "BM", "", "", "", ""},
+			{"PWK", "OZ"},
+		},
+		"REF": {
+			{"REF", "6R", "attach-one"},
+			{"REF", "6R", "ATTACH-TWO"},
+			{"REF", "1K", "claim-ignored"},
+			{"REF", "6R", ""},
+		},
+	})
+
+	assert.Equal(t, []AttachmentControl{
+		{ReportTypeCode: "B4", TransmissionCode: "EL", AttachmentControlNumber: "ATTACH-ONE"},
+		{AttachmentControlNumber: "ATTACH-TWO"},
+	}, controls)
+}
+
+func TestRaw835BPRAmountCentsParsesPositivePaymentOnly(t *testing.T) {
+	assert.Equal(t, "85000", raw835BPRAmountCents(map[string][][]string{
+		"BPR": {{"BPR", "I", "850.00"}},
+	}))
+
+	assert.Empty(t, raw835BPRAmountCents(map[string][][]string{
+		"BPR": {{"BPR", "I", "-1.00"}},
+	}))
+	assert.Empty(t, raw835BPRAmountCents(map[string][][]string{}))
+}
+
+func TestRaw278ServiceTypeFallsBackToProcedureCode(t *testing.T) {
+	assert.Equal(t, "dental-predetermination", raw278ServiceType(map[string][][]string{
+		"UM": {{"UM", "AR", "I", "2", "", "", "dental-predetermination"}},
+	}))
+	assert.Equal(t, "ASHN2", raw278ServiceType(map[string][][]string{
+		"SV1": {{"SV1", "HC:ASHN2", "100.00"}},
+	}))
+	assert.Empty(t, raw278ServiceType(map[string][][]string{}))
+}
+
+func TestRawParserUtilityFallbacks(t *testing.T) {
+	assert.Equal(t, "secondary-id", rawSecondaryPayerID(map[string][][]string{
+		"NM1": {
+			{"NM1", "PR", "2", "Primary Payer", "", "", "", "", "PI", "primary-id"},
+			{"NM1", "PR", "2", "Secondary Payer", "", "", "", "", "PI", "secondary-id"},
+		},
+	}))
+	assert.Equal(t, "secondary-ref", rawSecondaryPayerID(map[string][][]string{
+		"REF": {{"REF", "2U", "secondary-ref"}},
+	}))
+	assert.Empty(t, rawSecondaryPayerID(map[string][][]string{}))
+
+	assert.Equal(t, "https://docs.example.test/raw.pdf", rawK3Value(map[string][][]string{
+		"K3": {{"K3", "Document-Reference: https://docs.example.test/raw.pdf"}},
+	}, "document-reference"))
+	assert.Empty(t, rawK3Value(map[string][][]string{"K3": {{"K3"}}}, "document-reference"))
+
+	assert.Equal(t, "125000", rawAmountCents("1250"))
+	assert.Equal(t, "125075", rawAmountCents("1250.75"))
+	assert.Empty(t, rawAmountCents("not-money"))
+	assert.Empty(t, rawAmountCents("0"))
+
+	packetID, sequence, count := rawPacketReference("packet-raw-3-OF-5")
+	assert.Equal(t, "packet-raw", packetID)
+	assert.Equal(t, 3, sequence)
+	assert.Equal(t, 5, count)
+	packetID, sequence, count = rawPacketReference("packet-single")
+	assert.Equal(t, "packet-single", packetID)
+	assert.Zero(t, sequence)
+	assert.Zero(t, count)
+
+	assert.Equal(t, "solicited", attachmentPurposeFromBGN01("11"))
+	assert.Equal(t, "unsolicited", attachmentPurposeFromBGN01("02"))
+	assert.Equal(t, "99", attachmentPurposeFromBGN01("99"))
+}
