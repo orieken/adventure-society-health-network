@@ -1,7 +1,7 @@
 import { expect, test } from "@orieken/saturday-playwright";
 import type { APIRequestContext } from "@playwright/test";
 
-import { runMutatingE2E, services, serviceUrls, uniqueDemoName } from "./config.js";
+import { expectOperationsE2E, runMutatingE2E, services, serviceUrls, uniqueDemoName } from "./config.js";
 
 type TransactionSummary = {
   id: string;
@@ -57,6 +57,55 @@ type DocumentReference = {
   retrievalStatus: string;
   embeddedContentAvailable: boolean;
   documentReferenceUrl?: string;
+};
+
+type ReadinessReport = {
+  generatedAt: string;
+  status: string;
+  services: Array<{ service: string; status: string }>;
+  checks: Array<{ name: string; status: string }>;
+};
+
+type MetricsSummary = {
+  generatedAt: string;
+  operationalStatus: string;
+  transactions: {
+    totalLoaded: number;
+    byType: Record<string, number>;
+    byStatus: Record<string, number>;
+  };
+  claims: {
+    totalLoaded: number;
+    byStatus: Record<string, number>;
+    byProvider: Record<string, number>;
+  };
+  financials: {
+    billedCents: number;
+    allowedCents: number;
+    paidCents: number;
+    patientResponsibilityCents: number;
+    adjustmentCents: number;
+  };
+  intake: {
+    rejectionTotal: number;
+    byPartner: Record<string, number>;
+    byType: Record<string, number>;
+    byReason: Record<string, number>;
+  };
+  asyncJobs: {
+    totalLoaded: number;
+    byStatus: Record<string, number>;
+    deadLetters: number;
+  };
+  highlights: string[];
+};
+
+type TransactionJob = {
+  id: string;
+  type: string;
+  status: string;
+  attempts: number;
+  deadLetter: boolean;
 };
 
 type Envelope<T = unknown> = {
@@ -156,6 +205,40 @@ test.describe("ASHN service contracts", () => {
     expect(response.headers()["x-request-id"]).toBe(requestId);
     expect(response.headers()["x-correlation-id"]).toBe(correlationId);
     expect(response.headers()["traceparent"]).toMatch(/^00-/);
+  });
+});
+
+test.describe("ASHN operations contracts", () => {
+  test.skip(!expectOperationsE2E, "Set ASHN_EXPECT_OPERATIONS_E2E=1 after readiness and metrics endpoints are deployed.");
+
+  test("gateway exposes system readiness signals", async ({ request }) => {
+    const response = await request.get(`${serviceUrls.apiGateway}/v1/system/readiness`);
+    expect(response.ok()).toBeTruthy();
+
+    const envelope = (await response.json()) as Envelope<ReadinessReport>;
+    expect(envelope.data?.generatedAt).toBeTruthy();
+    expect(envelope.data?.status).toMatch(/ready|degraded|unavailable/);
+    expect(envelope.data?.services.map((service) => service.service)).toEqual(
+      expect.arrayContaining(["api-gateway", "payer-core", "provider-service", "edi-intake"])
+    );
+    expect(envelope.data?.checks.map((check) => check.name)).toEqual(
+      expect.arrayContaining(["transaction-ledger", "async-worker-queue", "provider-registry", "xml-intake-audit"])
+    );
+  });
+
+  test("gateway exposes operational metrics summary", async ({ request }) => {
+    const response = await request.get(`${serviceUrls.apiGateway}/v1/metrics/summary`);
+    expect(response.ok()).toBeTruthy();
+
+    const envelope = (await response.json()) as Envelope<MetricsSummary>;
+    expect(envelope.data?.generatedAt).toBeTruthy();
+    expect(envelope.data?.operationalStatus).toMatch(/ready|degraded|unavailable/);
+    expect(typeof envelope.data?.transactions.totalLoaded).toBe("number");
+    expect(typeof envelope.data?.claims.totalLoaded).toBe("number");
+    expect(typeof envelope.data?.financials.billedCents).toBe("number");
+    expect(typeof envelope.data?.intake.rejectionTotal).toBe("number");
+    expect(typeof envelope.data?.asyncJobs.deadLetters).toBe("number");
+    expect(Array.isArray(envelope.data?.highlights)).toBeTruthy();
   });
 });
 
@@ -401,6 +484,74 @@ test.describe("ASHN mutating demo contracts", () => {
 
     const attachmentLedgerEnvelope = (await attachmentLedger.json()) as Envelope<Array<{ id: string; type: string; relatedId?: string }>>;
     expect(attachmentLedgerEnvelope.data?.some((transaction) => transaction.type === "275")).toBeTruthy();
+  });
+
+  test("gateway routes provider eligibility and claim workflow endpoints", async ({ request }) => {
+    const enrolled = await enrollAdventurer(request, "Provider Portal Ranger");
+
+    const eligibility = await request.post(`${serviceUrls.apiGateway}/v1/providers/provider-vitesse-temple/verify-eligibility`, {
+      data: {
+        adventurerId: enrolled.data?.id
+      }
+    });
+    expect(eligibility.ok()).toBeTruthy();
+    const eligibilityEnvelope = (await eligibility.json()) as Envelope<{ eligible: boolean; providerId: string }>;
+    expect(eligibilityEnvelope.data).toMatchObject({ eligible: true, providerId: "provider-vitesse-temple" });
+    expect(eligibilityEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["270", "271"]);
+
+    const claim = await request.post(`${serviceUrls.apiGateway}/v1/providers/provider-vitesse-temple/submit-claim`, {
+      data: {
+        adventurerId: enrolled.data?.id,
+        incidentSeverity: "Awakened",
+        amountCents: 73_000
+      }
+    });
+    expect(claim.status()).toBe(201);
+    const claimEnvelope = (await claim.json()) as Envelope<{ id: string; providerId: string }>;
+    expect(claimEnvelope.data).toMatchObject({ providerId: "provider-vitesse-temple" });
+    expect(claimEnvelope.transaction?.type).toBe("837");
+    expect(claimEnvelope.transactions?.map((transaction) => transaction.type)).toEqual(["837", "277CA"]);
+  });
+
+  test("gateway replays a ledger transaction into a related transaction", async ({ request }) => {
+    const enrolled = await enrollAdventurer(request, "Replay Ledger Ranger");
+
+    const claim = await request.post(`${serviceUrls.apiGateway}/v1/claims`, {
+      data: {
+        adventurerId: enrolled.data?.id,
+        providerId: "provider-greenstone-roadside",
+        incidentSeverity: "Normal",
+        amountCents: 28_000
+      }
+    });
+    expect(claim.status()).toBe(201);
+    const claimEnvelope = (await claim.json()) as Envelope<{ id: string }>;
+    expect(claimEnvelope.transaction?.id).toBeTruthy();
+
+    const replay = await request.post(`${serviceUrls.apiGateway}/v1/transactions/${claimEnvelope.transaction?.id}/replay`);
+    expect(replay.status()).toBe(201);
+    const replayEnvelope = (await replay.json()) as Envelope<TransactionSummary>;
+    expect(replayEnvelope.data?.type).toBe("837");
+    expect(replayEnvelope.data?.relatedId).toBe(claimEnvelope.transaction?.id);
+    expect(replayEnvelope.data?.id).not.toBe(claimEnvelope.transaction?.id);
+  });
+
+  test("gateway replays a dead-letter async job when one is available", async ({ request }) => {
+    const jobsResponse = await request.get(`${serviceUrls.apiGateway}/v1/jobs?limit=50`);
+    expect(jobsResponse.ok()).toBeTruthy();
+    const jobsEnvelope = (await jobsResponse.json()) as Envelope<TransactionJob[]>;
+    const deadLetter = jobsEnvelope.data?.find((job) => job.deadLetter);
+    test.skip(!deadLetter, "No dead-letter async job is available to replay in this environment.");
+
+    const replay = await request.post(`${serviceUrls.apiGateway}/v1/jobs/${deadLetter?.id}/replay`);
+    expect(replay.status()).toBe(202);
+    const replayEnvelope = (await replay.json()) as Envelope<TransactionJob>;
+    expect(replayEnvelope.data).toMatchObject({
+      id: deadLetter?.id,
+      status: "pending",
+      attempts: 0,
+      deadLetter: false
+    });
   });
 
   test("gateway applies recent 820 premium context during async claim adjudication", async ({ request }) => {

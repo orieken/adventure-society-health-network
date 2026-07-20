@@ -20,6 +20,7 @@ export const serviceUrls: Record<ServiceName, string> = {
 export const dashboardUrl = process.env.ASHN_DASHBOARD_URL ? trimTrailingSlash(process.env.ASHN_DASHBOARD_URL) : "";
 
 export const runMutatingE2E = process.env.ASHN_RUN_MUTATING_E2E === "1";
+export const expectOperationsE2E = process.env.ASHN_EXPECT_OPERATIONS_E2E === "1";
 
 export const services: ServiceContract[] = [
   {
