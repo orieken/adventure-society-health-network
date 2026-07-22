@@ -329,6 +329,19 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latest278Event.getByText("tx-e2e-raw-278")).toBeVisible();
 
     await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "Load Sample 837D" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*837D");
+    await expect(page.getByLabel("Raw X12")).toContainText("SV3*AD:D7240");
+    const raw837DResponse = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw837DResponse;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest837DEvent = page.locator(".event").first();
+    await expect(latest837DEvent.locator("p").filter({ hasText: "Raw X12 dental claim submitted." })).toBeVisible();
+    await latest837DEvent.getByText("Raw payload").click();
+    await expect(latest837DEvent.getByText("tx-e2e-raw-837d")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
     await page.getByRole("button", { name: "Load Sample 835" }).click();
     await expect(page.getByLabel("Raw X12")).toContainText("ST*835");
     const raw835Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
@@ -339,6 +352,19 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latest835Event.locator("p").filter({ hasText: "Raw X12 payment accepted." })).toBeVisible();
     await latest835Event.getByText("Raw payload").click();
     await expect(latest835Event.getByText("tx-e2e-raw-835")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "Load Sample 275" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*275");
+    await expect(page.getByLabel("Raw X12")).toContainText("BGN*11*tx-doc-request");
+    const raw275Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw275Response;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest275Event = page.locator(".event").first();
+    await expect(latest275Event.locator("p").filter({ hasText: "Raw X12 attachment accepted." })).toBeVisible();
+    await latest275Event.getByText("Raw payload").click();
+    await expect(latest275Event.getByText("tx-e2e-raw-275")).toBeVisible();
   });
 
   test("shows operational audit dashboard for partner rejections", async ({ page }) => {
@@ -1900,6 +1926,21 @@ async function mockDashboardApi(page: Page) {
         });
         return;
       }
+      if (rawPayload.includes("ST*837D")) {
+        await route.fulfill({
+          status: 201,
+          json: {
+            data: { id: "claim-e2e-raw-837d", status: "Submitted" },
+            lore: "Raw X12 dental claim submitted.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "837D"),
+              id: "tx-e2e-raw-837d",
+              payload: { x12: "837D raw dental dashboard intake fixture", claimId: "claim-e2e-raw-837d", cdtCode: "D7240", toothNumber: "14" }
+            }
+          }
+        });
+        return;
+      }
       if (rawPayload.includes("ST*835")) {
         await route.fulfill({
           status: 200,
@@ -1910,6 +1951,21 @@ async function mockDashboardApi(page: Page) {
               ...demoTransactions.find((transaction) => transaction.type === "835"),
               id: "tx-e2e-raw-835",
               payload: { x12: "835 raw dashboard intake fixture", claimId: "claim-e2e-dashboard" }
+            }
+          }
+        });
+        return;
+      }
+      if (rawPayload.includes("ST*275")) {
+        await route.fulfill({
+          status: 201,
+          json: {
+            data: { id: "tx-e2e-raw-275", status: "Accepted" },
+            lore: "Raw X12 attachment accepted.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "275"),
+              id: "tx-e2e-raw-275",
+              payload: { x12: "275 raw attachment dashboard intake fixture", attachmentControlNumber: "ATTACH-275", attachmentTraceId: "tx-doc-request" }
             }
           }
         });

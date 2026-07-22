@@ -505,6 +505,24 @@ const sampleRawX12 = [
   "GE*1*000000777~",
   "IEA*1*000000777~"
 ].join("\n");
+const sampleRaw837D = [
+  "ISA*00*          *00*          *ZZ*provider-crown-dental*ZZ*Adventure Society*260708*1200*^*00501*0000837D0*0*T*:~",
+  "GS*HC*provider-crown-dental*Adventure Society*20260708*1200*0000837D0*X*005010X224A2~",
+  "ST*837D*0000837D0~",
+  "BHT*0019*00*0000837D0*20260708*1200*CH~",
+  "NM1*85*2*provider-crown-dental*****XX*provider-crown-dental~",
+  "NM1*IL*1*Dental Ranger****MI*adv-e2e-dashboard~",
+  "CLM*claim-raw-837d*850.00***11:B:1*Y*A*Y*I~",
+  "HI*ABK:K021~",
+  "SV3*AD:D7240*850.00*UN*1***1~",
+  "TOO*JP*14~",
+  "REF*D9*SURFACE-MO~",
+  "REF*D9*QUADRANT-UR~",
+  "CRC*ZZ*Y*ORTHO~",
+  "SE*13*0000837D0~",
+  "GE*1*0000837D0~",
+  "IEA*1*0000837D0~"
+].join("\n");
 const sampleRaw270 = [
   "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000270*0*T*:~",
   "GS*HS*provider-vitesse-temple*Adventure Society*20260708*1200*000000270*X*005010X279A1~",
@@ -562,6 +580,27 @@ const sampleRaw835 = [
   "SE*5*000000835~",
   "GE*1*000000835~",
   "IEA*1*000000835~"
+].join("\n");
+const sampleRaw275 = [
+  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000275*0*T*:~",
+  "GS*HC*provider-vitesse-temple*Adventure Society*20260708*1200*000000275*X*006020X314~",
+  "ST*275*000000275~",
+  "BGN*11*tx-doc-request~",
+  "NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+  "REF*1K*claim-e2e-dashboard~",
+  "REF*6R*ATTACH-275~",
+  "REF*F8*packet-raw-1-OF-2~",
+  "DTP*472*D8*20260708~",
+  "PWK*B4*EL***AC*ATTACH-275~",
+  "CAT*B4*TXT~",
+  "OOI*DOC*ATTACH-275~",
+  "BDS*ASC**Content-Type: text/plain~",
+  "LQ*AT*OZ~",
+  "K3*Document-Reference: https://docs.example.test/raw-275.pdf~",
+  "BIN*39*Raw 275 documentation packet accepted.~",
+  "SE*16*000000275~",
+  "GE*1*000000275~",
+  "IEA*1*000000275~"
 ].join("\n");
 const raw275RejectionFixtures: RejectionFixture[] = [
   {
@@ -2643,7 +2682,9 @@ function App() {
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw276)}>Load Sample 276</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw278)}>Load Sample 278</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw837D)}>Load Sample 837D</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw835)}>Load Sample 835</button>
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw275)}>Load Sample 275</button>
               {raw275RejectionFixtures.map((fixture) => (
                 <button type="button" className="secondary" key={fixture.id} onClick={() => setRawX12Draft(fixture.payload)}>{fixture.label}</button>
               ))}

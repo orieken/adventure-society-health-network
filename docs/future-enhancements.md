@@ -77,6 +77,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Parse raw X12 `278` dental predeterminations with CDT, tooth, surface, quadrant, and orthodontic detail.
 - [x] Parse raw X12 `837D` dental claims with CDT, tooth, surface, quadrant, and orthodontic detail.
 - [x] Parse raw X12 `835` remittance/payment into canonical payment requests.
+- [x] Add dashboard sample loaders for accepted raw `837D` dental claims and accepted raw `275` documentation attachments.
 - [x] Add copy buttons for raw transaction payloads.
 - [x] Add download buttons for raw transaction payloads.
 - [x] Expand segment generation toward companion-guide examples.
