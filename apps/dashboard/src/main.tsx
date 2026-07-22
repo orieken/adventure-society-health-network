@@ -2786,6 +2786,7 @@ function App() {
                 onResubmit={requestDeficiencyAndResubmit}
               />
               <AdjudicationExplanationPanel claim={selectedClaim} explanation={selectedClaimAdjudication} />
+              <BenefitPlanSignals claim={selectedClaim} explanation={selectedClaimAdjudication} />
               <DetailItem label="Status" value={selectedClaim.status} />
               <DetailItem label="Severity" value={selectedClaim.incidentSeverity} />
               <DetailItem label="Billed" value={money(selectedClaim.amountCents)} />
@@ -3374,6 +3375,56 @@ function ServiceLineBreakdown({ serviceLines }: { serviceLines: ClaimServiceLine
   );
 }
 
+function BenefitPlanSignals({ claim, explanation }: { claim: Claim; explanation: AdjudicationExplanation | null }) {
+  const serviceLines = claim.serviceLines ?? [];
+  const signals = [
+    `Coverage: ${explanation?.coverageStatus ?? "claim-level"}`,
+    `Provider tier: ${explanation?.providerTier ?? "standard"}`,
+    `Adventurer rank: ${explanation?.adventurerRank ?? "standard"}`,
+    `Premium signal: ${explanation?.premiumCurrent === undefined ? "unknown" : (explanation.premiumCurrent ? "current" : "not current")}`
+  ];
+  if (claim.authorizationStatus) {
+    signals.push(`Prior auth: ${claim.authorizationStatus}`);
+  }
+  if (serviceLines.some(claimServiceLineIsDentalUI)) {
+    signals.push(`Dental max signal: ${dentalMaximumSignal(serviceLines)}`);
+  }
+  if (serviceLines.length === 0) {
+    return null;
+  }
+  return (
+    <section className="adjudication-explanation benefit-plan-signals" aria-label="benefit plan signals">
+      <div className="relationship-heading">
+        <div>
+          <h3>Benefit Plan Signals</h3>
+          <p className="muted">Readable plan rules inferred from service-line category, coverage, premium, and authorization context.</p>
+        </div>
+        <span>{serviceLines.length} lines</span>
+      </div>
+      <div className="chips adjudication-signals">
+        {signals.map((signal) => <span key={signal}>{signal}</span>)}
+      </div>
+      <div className="service-line-grid">
+        {serviceLines.map((line, index) => (
+          <article key={`${line.lineNumber}-${line.procedureCode}-${index}-benefit`} className="service-line-card benefit-signal-card">
+            <div>
+              <span>Plan category</span>
+              <strong>{benefitCategoryLabel(line)}</strong>
+              <small>{line.procedureCode || line.cdtCode || "ASHN"} · {line.adjustmentReason || "standard benefit rule"}</small>
+            </div>
+            <dl>
+              <div><dt>Allowed Rate</dt><dd>{percentageLabel(line.allowedAmountCents, line.amountCents)}</dd></div>
+              <div><dt>Paid Rate</dt><dd>{percentageLabel(line.paidAmountCents, line.allowedAmountCents)}</dd></div>
+              <div><dt>Member Share</dt><dd>{percentageLabel(line.patientResponsibilityCents, line.allowedAmountCents)}</dd></div>
+              <div><dt>Plan Savings</dt><dd>{money(line.adjustmentAmountCents)}</dd></div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DiagnosisBreakdown({ diagnoses }: { diagnoses: ClaimDiagnosis[] }) {
   if (diagnoses.length === 0) {
     return null;
@@ -3400,6 +3451,38 @@ function DiagnosisBreakdown({ diagnoses }: { diagnoses: ClaimDiagnosis[] }) {
       </div>
     </section>
   );
+}
+
+function benefitCategoryLabel(line: ClaimServiceLine) {
+  if (claimServiceLineIsDentalUI(line)) {
+    const code = Number((line.cdtCode || line.procedureCode || "").replace(/\D/g, ""));
+    if (line.orthodontic || (code >= 8000 && code <= 8999)) return "Dental orthodontic";
+    if (code >= 1000 && code <= 1999) return "Dental preventive";
+    if (code >= 2000 && code <= 4999) return "Dental basic";
+    return "Dental major";
+  }
+  const code = (line.procedureCode || "").toUpperCase();
+  if (code.startsWith("ASHN3")) return "Resurrection benefit";
+  if (code.startsWith("ASHN2")) return "Supplies benefit";
+  return "Clinical benefit";
+}
+
+function claimServiceLineIsDentalUI(line: ClaimServiceLine) {
+  return Boolean(line.cdtCode || line.toothNumber || line.surface || line.quadrant || line.orthodontic || (line.procedureCode || "").toUpperCase().startsWith("D"));
+}
+
+function percentageLabel(numerator?: number, denominator?: number) {
+  if (numerator === undefined || denominator === undefined || denominator <= 0) {
+    return "—";
+  }
+  return `${Math.round((numerator / denominator) * 100)}%`;
+}
+
+function dentalMaximumSignal(serviceLines: ClaimServiceLine[]) {
+  if (serviceLines.some((line) => (line.adjustmentReason || "").toLowerCase().includes("annual maximum"))) {
+    return "applied";
+  }
+  return "available";
 }
 
 function AdjudicationExplanationPanel({ claim, explanation }: { claim: Claim; explanation: AdjudicationExplanation | null }) {

@@ -1243,6 +1243,17 @@ pre {
   background: rgba(142, 240, 176, 0.08);
 }
 
+.benefit-plan-signals {
+  border-color: rgba(145, 215, 255, 0.24);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(145, 215, 255, 0.15), transparent 34%),
+    rgba(255, 255, 255, 0.05);
+}
+
+.benefit-signal-card {
+  border-color: rgba(145, 215, 255, 0.18);
+}
+
 .scenario-library {
   grid-column: 1 / -1;
 }

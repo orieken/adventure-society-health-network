@@ -144,6 +144,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Add dental `275` attachment packets for x-rays, perio charts, narratives, orthodontic records, and treatment-plan documents.
 - [x] Add dental `835` remittance examples with CDT line-level allowed, paid, patient responsibility, adjustments, and denial reasons.
 - [x] Add dashboard workflow cards and E2E tests for dental eligibility, predetermination, claim, attachment, and remittance scenarios.
+- [x] Add a dashboard Benefit Plan Signals panel that explains service-line category, implied allowed/paid rates, premium/current coverage signals, prior authorization, and dental maximum clues.
 
 ### P2 — 275 Companion Guide Fidelity
 

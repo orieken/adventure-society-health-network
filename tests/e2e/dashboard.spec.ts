@@ -778,7 +778,12 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(drawer.getByRole("heading", { name: /Adjudication Explanation/i })).toBeVisible();
     await expect(drawer.getByText("Premium Current: Yes")).toBeVisible();
     await expect(drawer.getByText("Premium Paid: $50.00")).toBeVisible();
-    await expect(drawer.getByText("ASHN contractual allowance with current premium")).toBeVisible();
+    await expect(drawer.getByLabel("adjudication explanation").getByText("ASHN contractual allowance with current premium")).toBeVisible();
+    await expect(drawer.getByRole("heading", { name: /Benefit Plan Signals/i })).toBeVisible();
+    const benefitSignals = drawer.getByLabel("benefit plan signals");
+    await expect(benefitSignals.locator("strong").filter({ hasText: "Supplies benefit" })).toBeVisible();
+    await expect(benefitSignals.getByText("Allowed Rate")).toHaveCount(2);
+    await expect(benefitSignals.getByText("75%")).toBeVisible();
     await expect(drawer.getByRole("heading", { name: /275 Documentation Workbench/i })).toBeVisible();
     await expect(drawer.getByText("Medical necessity letter")).toBeVisible();
     await expect(drawer.getByText("Encounter notes")).toBeVisible();
@@ -1463,6 +1468,37 @@ async function mockDashboardApi(page: Page) {
             authorizationStatus: "Approved",
             authorizationReason: "Manual review approved resurrection medical necessity.",
             amountCents: 12500,
+            allowedAmountCents: 10000,
+            paidAmountCents: 8800,
+            patientResponsibilityCents: 1200,
+            adjustmentAmountCents: 2500,
+            adjustmentReason: "ASHN contractual allowance with current premium",
+            serviceLines: [
+              {
+                lineNumber: 1,
+                procedureCode: "ASHN2",
+                description: "Dragonfire trauma supplies",
+                units: 1,
+                amountCents: 12000,
+                allowedAmountCents: 9000,
+                paidAmountCents: 7200,
+                patientResponsibilityCents: 1800,
+                adjustmentAmountCents: 3000,
+                adjustmentReason: "ASHN supplies benefit"
+              },
+              {
+                lineNumber: 2,
+                procedureCode: "ASHN1",
+                description: "Temple stabilization",
+                units: 1,
+                amountCents: 500,
+                allowedAmountCents: 500,
+                paidAmountCents: 500,
+                patientResponsibilityCents: 0,
+                adjustmentAmountCents: 0,
+                adjustmentReason: "ASHN clinical benefit with current premium"
+              }
+            ],
             status: claimStatus
           }
         }
