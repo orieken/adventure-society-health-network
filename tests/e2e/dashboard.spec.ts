@@ -146,6 +146,13 @@ test.describe("ASHN dashboard smoke", () => {
     await page.getByRole("button", { name: /Partners/i }).click();
     await expect(page.getByRole("heading", { name: /Trading Partners/i })).toBeVisible();
 
+    await page.getByRole("button", { name: /XML Intake/i }).click();
+    const capabilityMatrix = page.getByLabel("X12 capability matrix");
+    await expect(capabilityMatrix.getByRole("heading", { name: "X12 Capability Matrix" })).toBeVisible();
+    await expect(capabilityMatrix.getByText("837/837D")).toBeVisible();
+    await expect(capabilityMatrix.getByText("999 + 277CA")).toBeVisible();
+    await expect(capabilityMatrix.getByText("MIME/Base64/REF validation")).toBeVisible();
+
     expect(consoleLogger.getLogs()).toEqual(expect.any(Array));
   });
 

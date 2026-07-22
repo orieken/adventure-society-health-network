@@ -208,6 +208,64 @@ h2 {
   color: #91d7ff;
 }
 
+.x12-capability-matrix {
+  grid-column: 1 / -1;
+  border-color: rgba(135, 226, 167, 0.22);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(135, 226, 167, 0.14), transparent 28rem),
+    radial-gradient(circle at 92% 20%, rgba(246, 185, 90, 0.12), transparent 24rem),
+    rgba(255, 255, 255, 0.05);
+}
+
+.capability-table {
+  display: grid;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.capability-row {
+  display: grid;
+  grid-template-columns: 0.7fr 0.9fr 1.25fr 0.7fr 0.85fr minmax(260px, 2.2fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 980px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(14, 9, 20, 0.58);
+  padding: 10px 12px;
+}
+
+.capability-header {
+  border-color: rgba(246, 185, 90, 0.28);
+  background: rgba(246, 185, 90, 0.1);
+}
+
+.capability-row strong,
+.capability-row span,
+.capability-row p {
+  margin: 0;
+  color: #fff7eb;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.capability-row strong {
+  color: #87e2a7;
+  font-size: 15px;
+}
+
+.capability-header span {
+  color: #f6b95a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.capability-row p {
+  color: #d8c8b8;
+}
+
 .partner-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

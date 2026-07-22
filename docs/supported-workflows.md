@@ -377,6 +377,7 @@ flowchart LR
 - `POST /v1/x12/transactions` is the content-negotiated public route; `POST /v1/x12/xml` remains as an XML compatibility route.
 - `POST /v1/x12/batch` accepts multipart `files` uploads for XML, JSON, EDI, or X12 demo batches and processes each file through the same audited intake path.
 - Every inbound representation is visible in the XML Intake tab.
+- The XML Intake tab includes an X12 capability matrix that summarizes supported intake formats, generated outputs, acknowledgment behavior, and the learning focus for each transaction family.
 - Accepted and rejected submissions create audit records.
 - Transactions and intake messages can be exported and replayed for demos.
 - Rejected partner submissions are summarized in an operational audit console by partner, transaction type, validation reason, and day-level trend, so profile failures can be drilled into, inspected, or replayed without scrolling the full audit list.

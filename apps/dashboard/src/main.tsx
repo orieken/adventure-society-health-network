@@ -436,6 +436,17 @@ const transactionPageSize = 25;
 const auditPageSize = 10;
 const dashboardRefreshMs = 3000;
 const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837", "837D", "835", "824", "TA1", "276", "277", "269", "999", "277CA"];
+const x12CapabilityRows = [
+  { type: "834", direction: "Inbound", parser: "Raw X12 + XML/JSON", generated: "Yes", acknowledgments: "999", learning: "Enrollment member identity, coverage effective date, guild rank, and region." },
+  { type: "820", direction: "Inbound", parser: "Raw X12 + XML/JSON", generated: "Yes", acknowledgments: "999", learning: "Premium payment amount, reconciliation status, and benefit-current adjudication signal." },
+  { type: "270/271", direction: "Round trip", parser: "270 raw/XML/JSON", generated: "271", acknowledgments: "999", learning: "Eligibility request and response, including dental benefits, limits, waiting periods, and maximums." },
+  { type: "278", direction: "Inbound + review", parser: "Raw X12 + XML/JSON", generated: "Yes", acknowledgments: "999", learning: "Prior authorization and dental predetermination lifecycle with manual approval or denial." },
+  { type: "275", direction: "Inbound attachment", parser: "Raw X12 + XML/JSON", generated: "Yes", acknowledgments: "999 + 824", learning: "Claim/auth documentation packets, BGN purpose, trace correlation, MIME/Base64/REF validation, and review outcomes." },
+  { type: "837/837D", direction: "Inbound claim", parser: "Raw X12 + XML/JSON", generated: "Yes", acknowledgments: "999 + 277CA", learning: "Professional and dental claim intake, partner guide validation, service lines, CDT/tooth detail, and async adjudication." },
+  { type: "835", direction: "Outbound remittance", parser: "Raw X12 + XML/JSON", generated: "Yes", acknowledgments: "999", learning: "Payment, allowed amount, patient responsibility, adjustments, and service-line remittance detail." },
+  { type: "276/277", direction: "Round trip", parser: "276 raw/XML/JSON", generated: "277", acknowledgments: "999", learning: "Claim status inquiry, documentation requests, adjudication explainers, and request/response correlation." },
+  { type: "TA1/999/824/277CA", direction: "Acknowledgment", parser: "Display + ledger", generated: "Yes", acknowledgments: "N/A", learning: "Interchange, syntax, application, and claim-acceptance outcomes separated from business decisions." }
+];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
@@ -2666,6 +2677,7 @@ function App() {
             <button type="submit" disabled={busy}>Submit Batch</button>
           </div>
         </form>
+        <X12CapabilityMatrix />
         <div className="panel ledger">
           <div className="ledger-title">
             <h2>XML / Raw Intake Audits</h2>
@@ -3193,6 +3205,40 @@ function TradingPartnerCard({
         <button className="danger" disabled={busy} onClick={() => onDelete(partner.id)}>Delete</button>
       </div>
     </article>
+  );
+}
+
+function X12CapabilityMatrix() {
+  return (
+    <section className="panel x12-capability-matrix" aria-label="X12 capability matrix">
+      <div className="ledger-title">
+        <div>
+          <h2>X12 Capability Matrix</h2>
+          <p className="muted">Quick map of what ASHN can parse, generate, acknowledge, and teach today.</p>
+        </div>
+        <span className="muted">{x12CapabilityRows.length} lanes</span>
+      </div>
+      <div className="capability-table" role="table" aria-label="Supported X12 transaction capabilities">
+        <div className="capability-row capability-header" role="row">
+          <span role="columnheader">Type</span>
+          <span role="columnheader">Flow</span>
+          <span role="columnheader">Intake</span>
+          <span role="columnheader">Output</span>
+          <span role="columnheader">Ack</span>
+          <span role="columnheader">Learning Focus</span>
+        </div>
+        {x12CapabilityRows.map((row) => (
+          <div className="capability-row" role="row" key={row.type}>
+            <strong role="cell">{row.type}</strong>
+            <span role="cell">{row.direction}</span>
+            <span role="cell">{row.parser}</span>
+            <span role="cell">{row.generated}</span>
+            <span role="cell">{row.acknowledgments}</span>
+            <p role="cell">{row.learning}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

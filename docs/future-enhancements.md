@@ -211,6 +211,7 @@ Cross-industry expansion notes live in [Cross-Industry EDI Module Notes](cross-i
 - [x] Add browser-persisted Recent Scenario Runs with re-export, transaction copy, and re-run controls.
 - [x] Add guided scenario playback mode with next-step and finish controls for live demos.
 - [x] Add compact attachment packet summaries inside transaction timeline chains.
+- [x] Add an X12 capability matrix that shows supported intake, output, acknowledgment, and learning coverage by transaction family.
 
 ### P3 — Security and Operational Readiness
 
