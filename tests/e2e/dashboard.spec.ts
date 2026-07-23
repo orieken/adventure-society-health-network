@@ -305,6 +305,19 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(latestEvent.getByText("tx-e2e-raw-270")).toBeVisible();
 
     await page.getByRole("button", { name: /XML Intake/i }).click();
+    await page.getByRole("button", { name: "Load Sample 269" }).click();
+    await expect(page.getByLabel("Raw X12")).toContainText("ST*269");
+    await expect(page.getByLabel("Raw X12")).toContainText("guild-secondary-plan");
+    const raw269Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
+    await page.getByRole("button", { name: "Submit Raw X12" }).click();
+    await raw269Response;
+    await page.getByRole("button", { name: /Workflow/i }).click();
+    const latest269Event = page.locator(".event").first();
+    await expect(latest269Event.locator("p").filter({ hasText: "Raw X12 benefit coordination accepted." })).toBeVisible();
+    await latest269Event.getByText("Raw payload").click();
+    await expect(latest269Event.getByText("tx-e2e-raw-269")).toBeVisible();
+
+    await page.getByRole("button", { name: /XML Intake/i }).click();
     await page.getByRole("button", { name: "Load Sample 276" }).click();
     await expect(page.getByLabel("Raw X12")).toContainText("ST*276");
     const raw276Response = page.waitForResponse((response) => response.url().includes("/v1/x12/raw"));
@@ -1891,6 +1904,21 @@ async function mockDashboardApi(page: Page) {
               ...demoTransactions.find((transaction) => transaction.type === "271"),
               id: "tx-e2e-raw-270",
               payload: { x12: "270 raw dashboard intake fixture", adventurerId: "adv-e2e-dashboard" }
+            }
+          }
+        });
+        return;
+      }
+      if (rawPayload.includes("ST*269")) {
+        await route.fulfill({
+          status: 201,
+          json: {
+            data: { transactionId: "tx-e2e-raw-269", status: "Accepted" },
+            lore: "Raw X12 benefit coordination accepted.",
+            transaction: {
+              ...demoTransactions.find((transaction) => transaction.type === "269"),
+              id: "tx-e2e-raw-269",
+              payload: { x12: "269 raw dashboard intake fixture", adventurerId: "adv-raw-269", secondaryPayerId: "guild-secondary-plan" }
             }
           }
         });

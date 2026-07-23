@@ -537,6 +537,26 @@ const sampleRaw270 = [
   "GE*1*000000270~",
   "IEA*1*000000270~"
 ].join("\n");
+const sampleRaw269 = [
+  "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000269*0*T*:~",
+  "GS*HS*provider-vitesse-temple*Adventure Society*20260708*1200*000000269*X*005010X269A1~",
+  "ST*269*000000269~",
+  "BHT*0022*13*000000269*20260708*1200~",
+  "TRN*1*tx-raw-269*provider-vitesse-temple~",
+  "HL*1**20*1~",
+  "NM1*PR*2*Adventure Society*****PI*Adventure Society~",
+  "NM1*PR*2*guild-secondary-plan*****PI*guild-secondary-plan~",
+  "HL*2*1*21*1~",
+  "NM1*1P*2*provider-vitesse-temple*****XX*provider-vitesse-temple~",
+  "HL*3*2*22*0~",
+  "NM1*IL*1*Coordination Ranger*****MI*adv-raw-269~",
+  "REF*6P*Adventure Society~",
+  "REF*2U*guild-secondary-plan~",
+  "EQ*35~",
+  "SE*15*000000269~",
+  "GE*1*000000269~",
+  "IEA*1*000000269~"
+].join("\n");
 const sampleRaw276 = [
   "ISA*00*          *00*          *ZZ*provider-vitesse-temple*ZZ*Adventure Society*260708*1200*^*00501*000000276*0*T*:~",
   "GS*HR*provider-vitesse-temple*Adventure Society*20260708*1200*000000276*X*005010X212~",
@@ -2679,6 +2699,7 @@ function App() {
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw834)}>Load Sample 834</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw820)}>Load Sample 820</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw270)}>Load Sample 270</button>
+              <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw269)}>Load Sample 269</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw276)}>Load Sample 276</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRaw278)}>Load Sample 278</button>
               <button type="button" className="secondary" onClick={() => setRawX12Draft(sampleRawX12)}>Load Sample 837</button>

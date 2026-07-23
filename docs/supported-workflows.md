@@ -378,7 +378,7 @@ flowchart LR
 - `POST /v1/x12/batch` accepts multipart `files` uploads for XML, JSON, EDI, or X12 demo batches and processes each file through the same audited intake path.
 - Every inbound representation is visible in the XML Intake tab.
 - The XML Intake tab includes an X12 capability matrix that summarizes supported intake formats, generated outputs, acknowledgment behavior, and the learning focus for each transaction family.
-- Raw X12 sample loaders include accepted `834`, `820`, `270`, `276`, `278`, `837`, `837D`, `835`, and `275` payloads plus intentionally rejected `275` companion-guide fixtures.
+- Raw X12 sample loaders include accepted `834`, `820`, `270`, `269`, `276`, `278`, `837`, `837D`, `835`, and `275` payloads plus intentionally rejected `275` companion-guide fixtures.
 - Accepted and rejected submissions create audit records.
 - Transactions and intake messages can be exported and replayed for demos.
 - Rejected partner submissions are summarized in an operational audit console by partner, transaction type, validation reason, and day-level trend, so profile failures can be drilled into, inspected, or replayed without scrolling the full audit list.
