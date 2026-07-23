@@ -187,6 +187,64 @@ h2 {
   align-content: start;
 }
 
+.raw-sample-guide {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  border: 1px solid rgba(246, 185, 90, 0.16);
+  border-radius: 18px;
+  background: rgba(246, 185, 90, 0.06);
+  padding: 12px;
+}
+
+.raw-sample-guide > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.raw-sample-guide > div:first-child strong {
+  color: #fff7eb;
+}
+
+.raw-sample-guide > div:first-child span {
+  color: #d8c8b8;
+  font-size: 13px;
+}
+
+.raw-sample-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.raw-sample-guide-card {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(14, 9, 20, 0.58);
+  padding: 10px;
+}
+
+.raw-sample-guide-card span {
+  color: #87e2a7;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.raw-sample-guide-card strong {
+  color: #fff7eb;
+  font-size: 13px;
+}
+
+.raw-sample-guide-card p {
+  margin: 0;
+  color: #d8c8b8;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .batch-drop-panel {
   align-content: start;
   border-color: rgba(145, 215, 255, 0.22);

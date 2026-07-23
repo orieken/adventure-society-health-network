@@ -213,6 +213,7 @@ Cross-industry expansion notes live in [Cross-Industry EDI Module Notes](cross-i
 - [x] Add guided scenario playback mode with next-step and finish controls for live demos.
 - [x] Add compact attachment packet summaries inside transaction timeline chains.
 - [x] Add an X12 capability matrix that shows supported intake, output, acknowledgment, and learning coverage by transaction family.
+- [x] Add a raw X12 sample guide that explains expected green-path outcomes before submitting demo payloads.
 
 ### P3 — Security and Operational Readiness
 

@@ -622,6 +622,18 @@ const sampleRaw275 = [
   "GE*1*000000275~",
   "IEA*1*000000275~"
 ].join("\n");
+const rawSampleGuides = [
+  { type: "834", result: "Enrollment accepted", focus: "Creates an active member from INS/NM1/HD plus lore K3 fields." },
+  { type: "820", result: "Premium accepted", focus: "Posts a payment that can make later adjudication benefit-current." },
+  { type: "270", result: "Eligibility checked", focus: "Maps provider/member/service request into a 271-style eligibility answer." },
+  { type: "269", result: "Coordination accepted", focus: "Shows primary and secondary payer coordination for dental service type 35." },
+  { type: "276", result: "Claim status checked", focus: "Links inquiry trace and claim identifiers to a generated 277 response." },
+  { type: "278", result: "Authorization queued", focus: "Starts async prior authorization review with service and diagnosis clues." },
+  { type: "837", result: "Professional claim submitted", focus: "Submits diagnosis and ASHN procedure service lines for adjudication." },
+  { type: "837D", result: "Dental claim submitted", focus: "Carries CDT, tooth, surface, quadrant, and orthodontic hints." },
+  { type: "835", result: "Payment accepted", focus: "Applies remittance payment, adjustment, and patient responsibility detail." },
+  { type: "275", result: "Attachment accepted", focus: "Demonstrates solicited BGN trace, CAT/BDS metadata, and document reference." }
+];
 const raw275RejectionFixtures: RejectionFixture[] = [
   {
     id: "invalid-bgn01",
@@ -2710,6 +2722,7 @@ function App() {
                 <button type="button" className="secondary" key={fixture.id} onClick={() => setRawX12Draft(fixture.payload)}>{fixture.label}</button>
               ))}
             </div>
+            <RawSampleGuide />
           </div>
           <label>
             Raw X12
@@ -3298,6 +3311,26 @@ function X12CapabilityMatrix() {
             <span role="cell">{row.acknowledgments}</span>
             <p role="cell">{row.learning}</p>
           </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RawSampleGuide() {
+  return (
+    <section className="raw-sample-guide" aria-label="Raw X12 sample guide">
+      <div>
+        <strong>Accepted Sample Guide</strong>
+        <span>Use these scrolls when you want a predictable green-path demo.</span>
+      </div>
+      <div className="raw-sample-guide-grid">
+        {rawSampleGuides.map((sample) => (
+          <article className="raw-sample-guide-card" key={sample.type}>
+            <span>{sample.type}</span>
+            <strong>{sample.result}</strong>
+            <p>{sample.focus}</p>
+          </article>
         ))}
       </div>
     </section>
