@@ -663,6 +663,11 @@ test.describe("ASHN dashboard smoke", () => {
     await page.goto(dashboardUrl);
 
     await page.getByRole("button", { name: /Partners/i }).click();
+    const coverageSummary = page.getByLabel("Partner guide coverage summary");
+    await expect(coverageSummary.getByText("Guide Coverage Summary")).toBeVisible();
+    await expect(coverageSummary.locator(".partner-coverage-card", { hasText: "275" }).getByText("2 partners")).toBeVisible();
+    await expect(coverageSummary.getByText("attachment/report/content validation")).toBeVisible();
+    await expect(coverageSummary.getByText("CDT/tooth/surface validation")).toBeVisible();
     const vitesseCard = page.locator(".partner-card").filter({ hasText: "Temple of the Healer, Vitesse" });
     await expect(vitesseCard.getByLabel("Temple of the Healer, Vitesse companion guide")).toBeVisible();
     await expect(vitesseCard.getByText("275 Attachments")).toBeVisible();

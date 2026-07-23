@@ -2338,6 +2338,7 @@ function App() {
             <button className="secondary" type="button" onClick={() => setPartnerForm(initialPartnerForm)}>Clear</button>
           </div>
         </form>
+        <PartnerCoverageSummary partners={tradingPartners} />
         <div className="partner-grid">
           {tradingPartners.length === 0 ? (
             <p className="muted">No trading partner profiles are loaded.</p>
@@ -3325,6 +3326,32 @@ function X12CapabilityMatrix() {
   );
 }
 
+function PartnerCoverageSummary({ partners }: { partners: TradingPartner[] }) {
+  const coverageTypes = ["270", "269", "275", "278", "837", "837D"];
+  return (
+    <section className="partner-coverage-summary" aria-label="Partner guide coverage summary">
+      <div>
+        <strong>Guide Coverage Summary</strong>
+        <span>Compare active routing and validation guardrails before submitting partner-specific examples.</span>
+      </div>
+      <div className="partner-coverage-grid">
+        {coverageTypes.map((type) => {
+          const matchingPartners = partners.filter((partner) => partner.allowedTransactionTypes.includes(type));
+          const profiledPartners = matchingPartners.filter((partner) => partner.validationProfile);
+          return (
+            <article className="partner-coverage-card" key={type}>
+              <span>{type}</span>
+              <strong>{matchingPartners.length} partners</strong>
+              <p>{profiledPartners.length} with companion-guide rules</p>
+              <small>{partnerCoverageDetail(type, profiledPartners)}</small>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function OutOfScopeX12Panel() {
   return (
     <section className="panel x12-boundary-panel" aria-label="Out-of-scope X12 sets">
@@ -3346,6 +3373,17 @@ function OutOfScopeX12Panel() {
       </div>
     </section>
   );
+}
+
+function partnerCoverageDetail(type: string, partners: TradingPartner[]) {
+  if (partners.length === 0) return "No configured profile rules yet.";
+  const names = partners.map((partner) => partner.name.split(",")[0]).slice(0, 2).join(" + ");
+  if (type === "275") return `${names}: attachment/report/content validation.`;
+  if (type === "278") return `${names}: service and severity validation.`;
+  if (type === "837") return `${names}: diagnosis/procedure validation.`;
+  if (type === "837D") return `${names}: CDT/tooth/surface validation.`;
+  if (type === "269") return `${names}: benefit coordination routing.`;
+  return `${names}: eligibility routing and profile checks.`;
 }
 
 function RawSampleGuide() {

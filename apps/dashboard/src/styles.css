@@ -376,6 +376,72 @@ h2 {
   gap: 14px;
 }
 
+.partner-coverage-summary {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(135, 226, 167, 0.18);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(135, 226, 167, 0.12), transparent 22rem),
+    rgba(255, 255, 255, 0.045);
+  padding: 14px;
+}
+
+.partner-coverage-summary > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.partner-coverage-summary > div:first-child strong {
+  color: #fff7eb;
+  font-size: 18px;
+}
+
+.partner-coverage-summary > div:first-child span {
+  color: #d8c8b8;
+  font-size: 13px;
+}
+
+.partner-coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.partner-coverage-card {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(14, 9, 20, 0.6);
+  padding: 12px;
+}
+
+.partner-coverage-card span {
+  color: #87e2a7;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.partner-coverage-card strong {
+  color: #fff7eb;
+  font-size: 15px;
+}
+
+.partner-coverage-card p,
+.partner-coverage-card small {
+  margin: 0;
+  color: #d8c8b8;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.partner-coverage-card small {
+  color: #91d7ff;
+}
+
 .partner-form {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: end;

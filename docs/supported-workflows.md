@@ -283,6 +283,7 @@ flowchart TD
 - Obsidian Claims Clearinghouse is a stricter professional-claims variant: it allows only `270`, `275`, `276`, and `837`, requires `ABK` diagnoses in the `S610`/`T509` set, and accepts only exact `ASHN1`/`ASHN2` procedure lines.
 - The Obsidian demo scenario intentionally submits one bad `837` and one corrected `837` so operations can compare companion-guide rejection evidence, accepted claim forwarding, and audit drilldown behavior in one short playback.
 - The dashboard Partners tab shows each profile as a compact companion-guide matrix for `275` attachment rules, `278` authorization service/severity rules, `837` diagnosis/procedure rules, and dental predetermination rules.
+- The Partners tab also includes a guide coverage summary by transaction type, showing how many partners route each transaction and how many have profile-backed validation rules.
 - Raw `275` X12 emits `GS08` as `006020X314` and includes claim `REF*1K` or authorization `REF*G1`, packet `REF*F8`, plus `REF*6R`, `PWK`, `LQ*AT`, `K3`, and optional `BIN`.
 - The timeline labels 275 steps using attachment/report metadata and review status, and transaction detail exposes request/response links plus JSON, XML, and X12 payload tabs for demos and debugging.
 
