@@ -381,7 +381,7 @@ flowchart LR
 - The XML Intake tab includes an X12 capability matrix that summarizes supported intake formats, generated outputs, acknowledgment behavior, and the learning focus for each transaction family.
 - The XML Intake tab also shows boundary notes for valid non-healthcare X12 sets such as `101`, `110`, `201`, `210`, and `215`, explaining why they belong in separate future lab modules.
 - Raw X12 sample loaders include accepted `834`, `820`, `270`, `269`, `276`, `278`, `837`, `837D`, `835`, and `275` payloads plus intentionally rejected `275` companion-guide fixtures.
-- The raw X12 sample guide explains the expected accepted outcome and learning focus for each green-path payload before the user submits it.
+- The raw X12 sample guide explains the expected accepted outcome and learning focus for each green-path payload and can load those payloads directly into the intake text area.
 - Accepted and rejected submissions create audit records.
 - Transactions and intake messages can be exported and replayed for demos.
 - Rejected partner submissions are summarized in an operational audit console by partner, transaction type, validation reason, and day-level trend, so profile failures can be drilled into, inspected, or replayed without scrolling the full audit list.

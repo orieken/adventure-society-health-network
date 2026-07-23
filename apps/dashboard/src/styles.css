@@ -245,6 +245,12 @@ h2 {
   line-height: 1.35;
 }
 
+.raw-sample-guide-card button {
+  min-height: 34px;
+  margin-top: 4px;
+  padding: 8px 10px;
+}
+
 .batch-drop-panel {
   align-content: start;
   border-color: rgba(145, 215, 255, 0.22);

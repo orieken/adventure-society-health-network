@@ -641,6 +641,18 @@ const rawSampleGuides = [
   { type: "835", result: "Payment accepted", focus: "Applies remittance payment, adjustment, and patient responsibility detail." },
   { type: "275", result: "Attachment accepted", focus: "Demonstrates solicited BGN trace, CAT/BDS metadata, and document reference." }
 ];
+const rawSamplePayloads: Record<string, string> = {
+  "834": sampleRaw834,
+  "820": sampleRaw820,
+  "270": sampleRaw270,
+  "269": sampleRaw269,
+  "276": sampleRaw276,
+  "278": sampleRaw278,
+  "837": sampleRawX12,
+  "837D": sampleRaw837D,
+  "835": sampleRaw835,
+  "275": sampleRaw275
+};
 const raw275RejectionFixtures: RejectionFixture[] = [
   {
     id: "invalid-bgn01",
@@ -2730,7 +2742,7 @@ function App() {
                 <button type="button" className="secondary" key={fixture.id} onClick={() => setRawX12Draft(fixture.payload)}>{fixture.label}</button>
               ))}
             </div>
-            <RawSampleGuide />
+            <RawSampleGuide onLoadSample={setRawX12Draft} />
           </div>
           <label>
             Raw X12
@@ -3386,7 +3398,7 @@ function partnerCoverageDetail(type: string, partners: TradingPartner[]) {
   return `${names}: eligibility routing and profile checks.`;
 }
 
-function RawSampleGuide() {
+function RawSampleGuide({ onLoadSample }: { onLoadSample: (payload: string) => void }) {
   return (
     <section className="raw-sample-guide" aria-label="Raw X12 sample guide">
       <div>
@@ -3399,6 +3411,7 @@ function RawSampleGuide() {
             <span>{sample.type}</span>
             <strong>{sample.result}</strong>
             <p>{sample.focus}</p>
+            <button type="button" className="secondary" onClick={() => onLoadSample(rawSamplePayloads[sample.type])}>Load {sample.type}</button>
           </article>
         ))}
       </div>

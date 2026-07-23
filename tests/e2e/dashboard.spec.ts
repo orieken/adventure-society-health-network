@@ -151,6 +151,8 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(sampleGuide.getByText("Accepted Sample Guide")).toBeVisible();
     await expect(sampleGuide.getByText("Coordination accepted")).toBeVisible();
     await expect(sampleGuide.getByText("CDT, tooth, surface, quadrant")).toBeVisible();
+    await sampleGuide.locator(".raw-sample-guide-card", { hasText: "837D" }).getByRole("button", { name: "Load 837D" }).click();
+    await expect(page.getByRole("textbox", { name: "Raw X12" })).toContainText("ST*837D");
     const capabilityMatrix = page.getByLabel("X12 capability matrix");
     await expect(capabilityMatrix.getByRole("heading", { name: "X12 Capability Matrix" })).toBeVisible();
     await expect(capabilityMatrix.getByText("837/837D")).toBeVisible();
