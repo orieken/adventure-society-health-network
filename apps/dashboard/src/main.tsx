@@ -447,6 +447,13 @@ const x12CapabilityRows = [
   { type: "276/277", direction: "Round trip", parser: "276 raw/XML/JSON", generated: "277", acknowledgments: "999", learning: "Claim status inquiry, documentation requests, adjudication explainers, and request/response correlation." },
   { type: "TA1/999/824/277CA", direction: "Acknowledgment", parser: "Display + ledger", generated: "Yes", acknowledgments: "N/A", learning: "Interchange, syntax, application, and claim-acceptance outcomes separated from business decisions." }
 ];
+const outOfScopeX12Rows = [
+  { type: "101", domain: "Supply chain / business directory", reason: "Name and Address Lists need directory trading-partner workflows, not payer claim logic." },
+  { type: "110", domain: "Transportation", reason: "Air Freight Details and Invoice belongs in a logistics intake lane with carrier/rate validation." },
+  { type: "201", domain: "Finance / mortgage", reason: "Residential loan data would require borrower, property, and lending workflows outside ASHN." },
+  { type: "210", domain: "Transportation", reason: "Motor carrier invoice workflows need shipment and freight billing models." },
+  { type: "215", domain: "Transportation", reason: "Pickup manifest data belongs to dispatch/logistics operations, not healthcare adjudication." }
+];
 const transactionStatuses = ["All", "Created", "Dispatched", "Accepted", "Pending", "Approved", "Denied", "Paid", "Failed"];
 const claimStatuses = ["All", "Submitted", "Pending", "Pending Documentation", "Approved", "Denied", "Paid"];
 const auditStatuses = ["All", "accepted", "rejected"];
@@ -2753,6 +2760,7 @@ function App() {
           </div>
         </form>
         <X12CapabilityMatrix />
+        <OutOfScopeX12Panel />
         <div className="panel ledger">
           <div className="ledger-title">
             <h2>XML / Raw Intake Audits</h2>
@@ -3311,6 +3319,29 @@ function X12CapabilityMatrix() {
             <span role="cell">{row.acknowledgments}</span>
             <p role="cell">{row.learning}</p>
           </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OutOfScopeX12Panel() {
+  return (
+    <section className="panel x12-boundary-panel" aria-label="Out-of-scope X12 sets">
+      <div className="ledger-title">
+        <div>
+          <h2>X12 Boundary Notes</h2>
+          <p className="muted">Valid X12 sets ASHN intentionally keeps outside the healthcare payer/provider simulator.</p>
+        </div>
+        <span className="muted">future lab lanes</span>
+      </div>
+      <div className="x12-boundary-grid">
+        {outOfScopeX12Rows.map((row) => (
+          <article className="x12-boundary-card" key={row.type}>
+            <span>{row.type}</span>
+            <strong>{row.domain}</strong>
+            <p>{row.reason}</p>
+          </article>
         ))}
       </div>
     </section>

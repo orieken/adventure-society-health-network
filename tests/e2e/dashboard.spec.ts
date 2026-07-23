@@ -156,6 +156,10 @@ test.describe("ASHN dashboard smoke", () => {
     await expect(capabilityMatrix.getByText("837/837D")).toBeVisible();
     await expect(capabilityMatrix.getByText("999 + 277CA")).toBeVisible();
     await expect(capabilityMatrix.getByText("MIME/Base64/REF validation")).toBeVisible();
+    const boundaryNotes = page.getByLabel("Out-of-scope X12 sets");
+    await expect(boundaryNotes.getByRole("heading", { name: "X12 Boundary Notes" })).toBeVisible();
+    await expect(boundaryNotes.getByText("101")).toBeVisible();
+    await expect(boundaryNotes.getByText("Air Freight Details and Invoice")).toBeVisible();
 
     expect(consoleLogger.getLogs()).toEqual(expect.any(Array));
   });
