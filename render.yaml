@@ -15,6 +15,10 @@ services:
         value: https://ashn-provider-service.onrender.com
       - key: EDI_INTAKE_URL
         value: https://ashn-edi-intake.onrender.com
+      - key: ASHN_RATE_LIMIT_REQUESTS
+        value: "1200"
+      - key: ASHN_RATE_LIMIT_WINDOW
+        value: 1m
 
   - type: web
     name: ashn-payer-core

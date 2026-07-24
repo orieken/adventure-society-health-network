@@ -46,8 +46,12 @@ If Render assigns different service hostnames, update these env vars in Render:
 - `PAYER_CORE_URL`
 - `PROVIDER_SERVICE_URL`
 - `EDI_INTAKE_URL`
+- `ASHN_RATE_LIMIT_REQUESTS`
+- `ASHN_RATE_LIMIT_WINDOW`
 
 Then update Netlify's `VITE_ASHN_API_URL`.
+
+The dashboard polls several read-only endpoints together, so the demo Render gateway uses a larger rate-limit budget than the local default. If the Netlify dashboard shows missing service signals while `/v1/health` is healthy, check for `429 rate limit exceeded` responses and raise `ASHN_RATE_LIMIT_REQUESTS` or slow the dashboard polling interval.
 
 ## Netlify
 

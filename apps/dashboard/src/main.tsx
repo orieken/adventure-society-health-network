@@ -434,7 +434,7 @@ const adventurerPageSize = 10;
 const claimPageSize = 10;
 const transactionPageSize = 25;
 const auditPageSize = 10;
-const dashboardRefreshMs = 3000;
+const dashboardRefreshMs = 10000;
 const transactionTypes = ["All", "834", "820", "270", "271", "275", "278", "837", "837D", "835", "824", "TA1", "276", "277", "269", "999", "277CA"];
 const x12CapabilityRows = [
   { type: "834", direction: "Inbound", parser: "Raw X12 + XML/JSON", generated: "Yes", acknowledgments: "999", learning: "Enrollment member identity, coverage effective date, guild rank, and region." },
