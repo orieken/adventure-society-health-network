@@ -226,6 +226,7 @@ sequenceDiagram
 - `tx-worker` later adjudicates the claim using severity, diagnoses, billed amount, service lines, prior authorization, provider tier, adventurer rank, and coverage status.
 - XML/JSON `837` intake can include canonical `Diagnosis` and `ServiceLine` entries, and raw X12 `837` intake maps `HI` plus each `SV1` into the same claim model.
 - Higher-tier providers and higher-rank adventurers can improve paid/allowed outcomes; pending coverage reduces payment, while inactive or suspended coverage denies the claim.
+- Professional service-line rules now include clinical, supplies, resurrection, therapy copay, and durable-relic deductible examples so demos can show both percentage benefits and fixed member cost-share.
 - The claim drawer includes Benefit Plan Signals so demos can explain service-line category, implied allowed/paid rates, premium-current context, prior authorization, and dental maximum behavior without reading raw payloads.
 
 ## 5. Claim Attachment Lifecycle

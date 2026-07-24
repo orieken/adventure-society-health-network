@@ -423,6 +423,39 @@ func TestAdjudicateClaimAppliesAshnResurrectionLineRule(t *testing.T) {
 	assert.Equal(t, "ASHN resurrection benefit", claim.ServiceLines[0].AdjustmentReason)
 }
 
+func TestAdjudicateClaimAppliesProfessionalCostShareRules(t *testing.T) {
+	claim := domain.Claim{
+		IncidentSeverity: domain.SeverityAwakened,
+		ServiceLines: []domain.ClaimServiceLine{
+			{LineNumber: 1, ProcedureCode: "ASHN4", Description: "Restorative therapy session", Units: 1, AmountCents: 100000},
+			{LineNumber: 2, ProcedureCode: "ASHN5", Description: "Durable relic rental", Units: 1, AmountCents: 50000},
+		},
+	}
+
+	adjudicateClaimWithContext(&claim, adjudicationContext{
+		CoverageStatus: domain.CoverageActive,
+		ProviderTier:   domain.RankGold,
+		AdventurerRank: domain.RankSilver,
+		PremiumCurrent: true,
+	})
+
+	assert.Equal(t, domain.ClaimApproved, claim.Status)
+	assert.Equal(t, int64(120000), claim.AllowedAmountCents)
+	assert.Equal(t, int64(90000), claim.PaidAmountCents)
+	assert.Equal(t, int64(30000), claim.PatientResponsibilityCents)
+	assert.Equal(t, int64(30000), claim.AdjustmentAmountCents)
+	assert.Equal(t, "Benefit-plan line rules applied", claim.AdjustmentReason)
+	require.Len(t, claim.ServiceLines, 2)
+	assert.Equal(t, int64(85000), claim.ServiceLines[0].AllowedAmountCents)
+	assert.Equal(t, int64(74000), claim.ServiceLines[0].PaidAmountCents)
+	assert.Equal(t, int64(11000), claim.ServiceLines[0].PatientResponsibilityCents)
+	assert.Equal(t, "ASHN therapy benefit; $25 therapy copay", claim.ServiceLines[0].AdjustmentReason)
+	assert.Equal(t, int64(35000), claim.ServiceLines[1].AllowedAmountCents)
+	assert.Equal(t, int64(16000), claim.ServiceLines[1].PaidAmountCents)
+	assert.Equal(t, int64(19000), claim.ServiceLines[1].PatientResponsibilityCents)
+	assert.Equal(t, "ASHN durable relic benefit; $50 relic deductible", claim.ServiceLines[1].AdjustmentReason)
+}
+
 func TestAdjudicateClaimAppliesDentalBenefitPlanRules(t *testing.T) {
 	claim := domain.Claim{
 		IncidentSeverity: domain.SeverityNormal,

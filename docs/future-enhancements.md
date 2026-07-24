@@ -130,6 +130,7 @@ Important nuance: real X12 is often exchanged as delimiter-based EDI text rather
 - [x] Expose DB-backed `820` premium payment history with reconciliation and benefit-current signals.
 - [x] Add premium reconciliation drilldown and JSON/XML/CSV export paths.
 - [x] Add ASHN professional service-line benefit categories for clinical, supplies, and resurrection procedures.
+- [x] Add richer professional benefit-plan rules for therapy copays and durable-relic deductibles.
 - [x] Add document deficiency requests with single-document 275 resubmission.
 - [x] Allow `275` attachments to link to pending `278` prior authorization reviews.
 - [x] Add attachment review outcomes distinct from transaction acceptance.

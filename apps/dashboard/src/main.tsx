@@ -3685,6 +3685,8 @@ function benefitCategoryLabel(line: ClaimServiceLine) {
     return "Dental major";
   }
   const code = (line.procedureCode || "").toUpperCase();
+  if (code.startsWith("ASHN5")) return "Durable relic benefit";
+  if (code.startsWith("ASHN4")) return "Therapy benefit";
   if (code.startsWith("ASHN3")) return "Resurrection benefit";
   if (code.startsWith("ASHN2")) return "Supplies benefit";
   return "Clinical benefit";

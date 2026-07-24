@@ -442,6 +442,11 @@ func adjudicateClaimServiceLines(claim *domain.Claim, allowedPercent, paidPercen
 			if strings.Contains(lineAdjustmentReason, "annual maximum") {
 				benefitPlanApplied = true
 			}
+		} else {
+			line.PaidAmountCents, lineAdjustmentReason = applyProfessionalCostShare(*line, line.PaidAmountCents, lineAdjustmentReason)
+			if strings.Contains(lineAdjustmentReason, "copay") || strings.Contains(lineAdjustmentReason, "deductible") {
+				benefitPlanApplied = true
+			}
 		}
 		line.PatientResponsibilityCents = line.AllowedAmountCents - line.PaidAmountCents
 		line.AdjustmentAmountCents = line.AmountCents - line.AllowedAmountCents
@@ -507,6 +512,14 @@ func ashnServiceLineBenefitRule(line domain.ClaimServiceLine, allowedPercent, pa
 		allowedPercent -= 10
 		paidPercent -= 20
 		adjustmentReason = "ASHN resurrection benefit"
+	case "therapy":
+		allowedPercent = 85
+		paidPercent = 90
+		adjustmentReason = "ASHN therapy benefit"
+	case "durable-relic":
+		allowedPercent = 70
+		paidPercent = 60
+		adjustmentReason = "ASHN durable relic benefit"
 	}
 	if allowedPercent < 0 {
 		allowedPercent = 0
@@ -524,8 +537,28 @@ func ashnBenefitCategory(line domain.ClaimServiceLine) string {
 		return "supplies"
 	case strings.HasPrefix(code, "ASHN3"):
 		return "resurrection"
+	case strings.HasPrefix(code, "ASHN4"):
+		return "therapy"
+	case strings.HasPrefix(code, "ASHN5"):
+		return "durable-relic"
 	default:
 		return "clinical"
+	}
+}
+
+func applyProfessionalCostShare(line domain.ClaimServiceLine, paidAmountCents int64, adjustmentReason string) (int64, string) {
+	if paidAmountCents <= 0 {
+		return 0, adjustmentReason
+	}
+	switch ashnBenefitCategory(line) {
+	case "therapy":
+		copay := minInt64(2500, paidAmountCents)
+		return paidAmountCents - copay, adjustmentReason + "; $25 therapy copay"
+	case "durable-relic":
+		deductible := minInt64(5000, paidAmountCents)
+		return paidAmountCents - deductible, adjustmentReason + "; $50 relic deductible"
+	default:
+		return paidAmountCents, adjustmentReason
 	}
 }
 
@@ -667,6 +700,13 @@ func adventurerPaidBoost(rank domain.Rank) int64 {
 
 func percentage(value int64, percent int64) int64 {
 	return (value * percent) / 100
+}
+
+func minInt64(left, right int64) int64 {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func markCompleted(db *sql.DB, job Job) {
